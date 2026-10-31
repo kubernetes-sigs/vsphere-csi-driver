@@ -435,6 +435,9 @@ func (m *defaultManager) MonitorCreateVolumeTask(ctx context.Context,
 	taskInfo, err = m.waitOnTask(ctx, task.Reference())
 
 	if err != nil {
+		if errors.Is(err, ErrTaskMonitoring) {
+			return nil, ExtractFaultTypeFromErr(ctx, err), err
+		}
 		if cnsvsphere.IsManagedObjectNotFound(err, task.Reference()) {
 			log.Debugf("CreateVolume task %s not found in vCenter %s. Querying CNS "+
 				"to determine if the volume %s was successfully created.",
@@ -865,23 +868,76 @@ func IsTaskPending(volumeOperationDetails *cnsvolumeoperationrequest.VolumeOpera
 	return false
 }
 
+// taskWaitLocks serialize registration and cleanup for the same task in one
+// process. The ListView stores one receiver per task reference.
+var taskWaitLocks = struct {
+	sync.Mutex
+	entries map[taskWaitKey]*taskWaitLock
+}{entries: make(map[taskWaitKey]*taskWaitLock)}
+
+type taskWaitKey struct {
+	manager *defaultManager
+	task    vim25types.ManagedObjectReference
+}
+
+type taskWaitLock struct {
+	available chan struct{}
+	users     int
+}
+
+func acquireTaskWait(ctx context.Context, key taskWaitKey) (func(), error) {
+	taskWaitLocks.Lock()
+	entry := taskWaitLocks.entries[key]
+	if entry == nil {
+		entry = &taskWaitLock{available: make(chan struct{}, 1)}
+		entry.available <- struct{}{}
+		taskWaitLocks.entries[key] = entry
+	}
+	entry.users++
+	taskWaitLocks.Unlock()
+	releaseUser := func() {
+		taskWaitLocks.Lock()
+		entry.users--
+		if entry.users == 0 {
+			delete(taskWaitLocks.entries, key)
+		}
+		taskWaitLocks.Unlock()
+	}
+	select {
+	case <-ctx.Done():
+		releaseUser()
+		return nil, fmt.Errorf("%w: %w", ErrTaskMonitoring, ctx.Err())
+	case <-entry.available:
+		return func() { entry.available <- struct{}{}; releaseUser() }, nil
+	}
+}
+
 func (m *defaultManager) waitOnTask(csiOpContext context.Context,
 	taskMoRef vim25types.ManagedObjectReference) (*vim25types.TaskInfo, error) {
 	log := logger.GetLogger(csiOpContext)
+	release, err := acquireTaskWait(csiOpContext, taskWaitKey{manager: m, task: taskMoRef})
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	if m.listViewIf == nil {
 		err := m.initListView(context.Background())
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: %w", ErrTaskMonitoring, err)
 		}
 	}
 	ch := make(chan TaskResult, 1)
-	err := m.listViewIf.AddTask(csiOpContext, taskMoRef, ch)
+	err = m.listViewIf.AddTask(csiOpContext, taskMoRef, ch)
 	if errors.Is(err, ErrListViewTaskAddition) {
-		return nil, logger.LogNewErrorf(log, "%s. err: %v", listviewAdditionError, err)
+		return nil, fmt.Errorf("%w: %s: %w", ErrTaskMonitoring, listviewAdditionError, err)
 	} else if err != nil {
 		// in case the task is not found in VC, we are returning a ManagedObjectNotFound error wrapped as a soap fault
 		// we need to return it as is to ensure that further CNS Volume Operations CR gets updated correctly
-		return nil, err
+		if cnsvsphere.IsManagedObjectNotFound(err, taskMoRef) || errors.Is(err, ErrTaskFailed) ||
+			errors.Is(err, ErrTaskMonitoring) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%w: %w", ErrTaskMonitoring, err)
 	}
 
 	// deferring removal of task after response from CNS
@@ -896,7 +952,12 @@ func (m *defaultManager) waitOnTask(csiOpContext context.Context,
 			}
 		}
 	}()
-	return waitForResultOrTimeout(csiOpContext, taskMoRef, ch)
+	taskInfo, err := waitForResultOrTimeout(csiOpContext, taskMoRef, ch)
+	if err != nil && !errors.Is(err, ErrTaskFailed) && !errors.Is(err, ErrTaskMonitoring) &&
+		!cnsvsphere.IsManagedObjectNotFound(err, taskMoRef) {
+		return nil, fmt.Errorf("%w: %w", ErrTaskMonitoring, err)
+	}
+	return taskInfo, err
 }
 
 // waitForResultOrTimeout uses the context provided by the sidecars when CSI driver operations are called.
@@ -908,7 +969,13 @@ func waitForResultOrTimeout(csiOpContext context.Context, taskMoRef vim25types.M
 	var err error
 	select {
 	case <-csiOpContext.Done():
-		err = fmt.Errorf("time out for task %v before response from CNS", taskMoRef)
+		if errors.Is(csiOpContext.Err(), context.Canceled) {
+			err = fmt.Errorf("%w: canceled while waiting for task %v before response from CNS: %w",
+				ErrTaskMonitoring, taskMoRef, csiOpContext.Err())
+		} else {
+			err = fmt.Errorf("%w: time out for task %v before response from CNS: %w",
+				ErrTaskMonitoring, taskMoRef, csiOpContext.Err())
+		}
 		taskInfo = nil
 	case result := <-ch:
 		err = result.Err

@@ -3,6 +3,7 @@ package volume
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -141,10 +142,9 @@ func TestDeleteVolumeRecordsErrorWhenTaskPollingFails(t *testing.T) {
 	}{
 		{
 			// vsanvcmgmtd fails pending CNS tasks at startup. The listview
-			// reports this as a plain error, indistinguishable in shape from an
-			// unobservable task.
+			// reports this as a terminal task error.
 			name:    "task terminally failed on CNS",
-			waitErr: errors.New("Failing pending CNS tasks during startup"),
+			waitErr: fmt.Errorf("%w: Failing pending CNS tasks during startup", ErrTaskFailed),
 		},
 		{
 			name: "task missing from vCenter",
