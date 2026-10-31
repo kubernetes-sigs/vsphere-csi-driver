@@ -160,6 +160,14 @@ type VirtualCenterConfig struct {
 	MigrationDataStoreURL string `gcfg:"migration-datastore-url"`
 	// FileVolumeActivated indicates whether file service has been enabled on any vSAN cluster or not
 	FileVolumeActivated bool
+	// VCSessionManagerURL is the path of a rest api capable of generating vCenter Cloned tokens
+	// to be reused by clients. When this is used, Username and Password configuration are ignored
+	VCSessionManagerURL string `gcfg:"vc-session-manager-url"`
+	// VCSessionManagerToken is the token that should be passed to authenticate against the session manager
+	// If empty, the Pod service account will be used.
+	// Marked sensitive so VirtualCenterConfig.String() redacts it: this is a bearer credential for the
+	// component that issues vCenter sessions, and the config is logged in full at debug level.
+	VCSessionManagerToken string `gcfg:"vc-session-manager-token" sensitive:"true"`
 }
 
 // GCConfig contains information used by guest cluster to access a supervisor
