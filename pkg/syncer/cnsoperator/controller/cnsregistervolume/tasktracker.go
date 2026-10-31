@@ -197,16 +197,20 @@ func (t *cnsTaskTracker) awaitResult(cr apitypes.NamespacedName,
 	log.Infof("CNS CreateVolume task %q for CnsRegisterVolume %s/%s completed with state %q",
 		taskMoRef.Value, cr.Namespace, cr.Name, state)
 
+	// Remove the old subscription before publishing the result. Otherwise a
+	// reconcile can resubscribe to an unknown result while this goroutine is
+	// still removing the previous registration.
+	if removeErr := t.listView.RemoveTask(ctx, taskMoRef); removeErr != nil {
+		log.Errorf("failed to remove task %q from listview: %v", taskMoRef.Value, removeErr)
+		if markErr := t.listView.MarkTaskForDeletion(ctx, taskMoRef); markErr != nil {
+			log.Errorf("failed to mark task %q for deletion: %v", taskMoRef.Value, markErr)
+		}
+	}
 	t.mu.Lock()
 	delete(t.watching, taskMoRef.Value)
 	submittedAt, timed := t.submittedAt[taskMoRef.Value]
 	delete(t.submittedAt, taskMoRef.Value)
-	t.results[taskMoRef.Value] = &cnsTaskOutcome{
-		state:     state,
-		volInfo:   volInfo,
-		faultType: faultType,
-		err:       err,
-	}
+	t.results[taskMoRef.Value] = &cnsTaskOutcome{state: state, volInfo: volInfo, faultType: faultType, err: err}
 	t.mu.Unlock()
 
 	// Manager.CreateVolume records this histogram around its blocking call.
@@ -220,15 +224,6 @@ func (t *cnsTaskTracker) awaitResult(cr apitypes.NamespacedName,
 		}
 		prometheus.CnsControlOpsHistVec.WithLabelValues(
 			prometheus.PrometheusCnsCreateVolumeOpType, status).Observe(time.Since(submittedAt).Seconds())
-	}
-
-	// Remove from the listview only now: the update has been consumed, so
-	// there is no window where a late update would be dropped.
-	if removeErr := t.listView.RemoveTask(ctx, taskMoRef); removeErr != nil {
-		log.Errorf("failed to remove task %q from listview: %v", taskMoRef.Value, removeErr)
-		if markErr := t.listView.MarkTaskForDeletion(ctx, taskMoRef); markErr != nil {
-			log.Errorf("failed to mark task %q for deletion: %v", taskMoRef.Value, markErr)
-		}
 	}
 
 	t.wake(cr)

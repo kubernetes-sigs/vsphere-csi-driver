@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/vim25/soap"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,6 +40,7 @@ import (
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/conditions"
+	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 )
 
 // newAsyncTestReconciler builds a reconciler wired for the async CNS path with
@@ -169,6 +171,12 @@ func TestUnknownTaskStateNeverResubmits(t *testing.T) {
 		CnsTaskID: "task-unknown",
 	})
 	r, _, _ := newAsyncTestReconciler(t, instance, 40)
+	oldReader := getCreateVolumeTaskResultFn
+	t.Cleanup(func() { getCreateVolumeTaskResultFn = oldReader })
+	getCreateVolumeTaskResultFn = func(context.Context, *cnsvsphere.VirtualCenter,
+		vim25types.ManagedObjectReference, string) (volumes.CreateVolumeTaskState, *volumes.CnsVolumeInfo, string, error) {
+		return volumes.CreateVolumeTaskUnknown, nil, "", errors.New("vc unavailable")
+	}
 	seedOutcome(r.taskTracker, "task-unknown", &cnsTaskOutcome{
 		state: volumes.CreateVolumeTaskUnknown,
 		err:   errors.New("vc session lost"),
@@ -225,6 +233,222 @@ func TestFailedTaskClearsReferenceAndRetries(t *testing.T) {
 		conditions.GetReason(instance, cnsregistervolumev1alpha1.ConditionCnsVolumeRegistered),
 		"a CreateVolume fault must not become a terminal Failed phase")
 	assert.Equal(t, 0, r.taskTracker.inFlight(), "a failed task must return its capacity slot")
+}
+
+func TestUnknownNotificationReadsTaskState(t *testing.T) {
+	for _, state := range []volumes.CreateVolumeTaskState{
+		volumes.CreateVolumeTaskFailed, volumes.CreateVolumeTaskRunning, volumes.CreateVolumeTaskSucceeded,
+	} {
+		t.Run(string(state), func(t *testing.T) {
+			cr := newCondTestInstance(cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{CnsTaskID: "task-1"})
+			cr.Labels = map[string]string{labelRestoreVolumeID: "restore-id"}
+			r, _, _ := newAsyncTestReconciler(t, cr, 40)
+			seedOutcome(r.taskTracker, "task-1", &cnsTaskOutcome{
+				state: volumes.CreateVolumeTaskUnknown, err: errors.New("listview error")})
+			old := getCreateVolumeTaskResultFn
+			t.Cleanup(func() { getCreateVolumeTaskResultFn = old })
+			reads := 0
+			getCreateVolumeTaskResultFn = func(context.Context, *cnsvsphere.VirtualCenter,
+				vim25types.ManagedObjectReference, string) (
+				volumes.CreateVolumeTaskState, *volumes.CnsVolumeInfo, string, error) {
+				reads++
+				return state, &volumes.CnsVolumeInfo{VolumeID: cnstypes.CnsVolumeId{Id: "vol-1"}}, "", errors.New("task error")
+			}
+			_, retry, err := r.pollCreateVolume(context.Background(), cr, nil, asyncTestSpec(), time.Second)
+			require.NoError(t, err)
+			require.Equal(t, 1, reads)
+			switch state {
+			case volumes.CreateVolumeTaskRunning:
+				require.NotNil(t, retry)
+				require.Equal(t, "task-1", cr.Status.CnsTaskID)
+				require.Equal(t, "restore-id", cr.Labels[labelRestoreVolumeID])
+			case volumes.CreateVolumeTaskFailed:
+				require.NotNil(t, retry)
+				require.Empty(t, cr.Status.CnsTaskID)
+				require.Empty(t, cr.Labels[labelRestoreVolumeID])
+			case volumes.CreateVolumeTaskSucceeded:
+				require.Nil(t, retry)
+				require.Equal(t, "vol-1", cr.Status.CnsVolumeID)
+				require.Equal(t, "restore-id", cr.Labels[labelRestoreVolumeID])
+			}
+		})
+	}
+}
+
+type missingTaskQueryManager struct {
+	volumes.Manager
+	result       *cnstypes.CnsQueryResult
+	err          error
+	filter       cnstypes.CnsQueryFilter
+	unregistered string
+}
+
+func (m *missingTaskQueryManager) QueryAllVolume(_ context.Context, filter cnstypes.CnsQueryFilter,
+	_ cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
+	m.filter = filter
+	return m.result, m.err
+}
+
+func (m *missingTaskQueryManager) UnregisterVolume(_ context.Context, volumeID string, unregDisk bool) (string, error) {
+	if !unregDisk {
+		return "", errors.New("expected disk unregister")
+	}
+	m.unregistered = volumeID
+	return "", nil
+}
+
+func TestMissingTaskRecovery(t *testing.T) {
+	for _, tc := range []struct {
+		name                 string
+		deleting             bool
+		result               *cnstypes.CnsQueryResult
+		queryErr             error
+		wantTask, wantVolume string
+	}{
+		{name: "retry keeps reservation", result: &cnstypes.CnsQueryResult{}, wantTask: ""},
+		{name: "retry recovers volume", result: &cnstypes.CnsQueryResult{
+			Volumes: []cnstypes.CnsVolume{{VolumeId: cnstypes.CnsVolumeId{Id: "vol-1"}}}}, wantVolume: "vol-1"},
+		{name: "retry waits for query", queryErr: errors.New("unavailable"), wantTask: "task-1"},
+		{name: "delete recovers volume", deleting: true, result: &cnstypes.CnsQueryResult{
+			Volumes: []cnstypes.CnsVolume{{VolumeId: cnstypes.CnsVolumeId{Id: "vol-1"}}}}, wantVolume: "vol-1"},
+		{name: "delete no volume", deleting: true, result: &cnstypes.CnsQueryResult{}},
+		{name: "delete query fails", deleting: true, queryErr: errors.New("unavailable"), wantTask: "task-1"},
+		{name: "delete ambiguous", deleting: true,
+			result: &cnstypes.CnsQueryResult{Volumes: []cnstypes.CnsVolume{{}, {}}}, wantTask: "task-1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cr := newCondTestInstance(cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{CnsTaskID: "task-1"})
+			cr.Spec.VolumeID = ""
+			cr.Labels = map[string]string{labelRestoreVolumeID: "restore-id"}
+			if tc.deleting {
+				now := metav1.Now()
+				cr.DeletionTimestamp = &now
+				cr.Finalizers = []string{"test"}
+			}
+			r, _, _ := newAsyncTestReconciler(t, cr, 40)
+			cfg := &commonconfig.Config{}
+			cfg.Global.ClusterID = "cluster-1"
+			r.configInfo = commonconfig.NewConfigurationInfo(cfg)
+			mgr := &missingTaskQueryManager{result: tc.result, err: tc.queryErr}
+			r.volumeManager = mgr
+			old := getCreateVolumeTaskResultFn
+			t.Cleanup(func() { getCreateVolumeTaskResultFn = old })
+			getCreateVolumeTaskResultFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
+				ref vim25types.ManagedObjectReference, _ string) (
+				volumes.CreateVolumeTaskState, *volumes.CnsVolumeInfo, string, error) {
+				fault := &soap.Fault{Code: "ServerFaultCode"}
+				fault.Detail.Fault = vim25types.ManagedObjectNotFound{Obj: ref}
+				return volumes.CreateVolumeTaskUnknown, nil, "", soap.WrapSoapFault(fault)
+			}
+			_, retry, err := r.resolveTaskDirectly(context.Background(), cr, nil, asyncTestSpec(), time.Second)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantTask, cr.Status.CnsTaskID)
+			require.Equal(t, tc.wantVolume, cr.Status.CnsVolumeID)
+			require.Equal(t, "restore-id", cr.Labels[labelRestoreVolumeID])
+			if tc.wantTask != "" || (!tc.deleting && tc.wantVolume == "") {
+				require.NotNil(t, retry)
+			} else {
+				require.Nil(t, retry)
+			}
+			if tc.deleting {
+				require.Equal(t, []string{"static-pv-test"}, mgr.filter.Names)
+			}
+		})
+	}
+}
+
+func TestCompletedTaskSettlesBeforeStorageClassAdmission(t *testing.T) {
+	ctx := context.Background()
+	cr := newCondTestInstance(cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{CnsTaskID: "task-1"})
+	cr.Spec.VolumeID = ""
+	cr.Spec.DiskURLPath = "disk.vmdk"
+	cr.Spec.StorageClassName = "removed-class"
+	r, _, _ := newAsyncTestReconciler(t, cr, 1)
+	require.True(t, r.taskTracker.tryAcquireSlot(instanceKey(cr)))
+	seedOutcome(r.taskTracker, "task-1", &cnsTaskOutcome{state: volumes.CreateVolumeTaskSucceeded,
+		volInfo: &volumes.CnsVolumeInfo{VolumeID: cnstypes.CnsVolumeId{Id: "vol-1"}}})
+	oldVC := taskVirtualCenterFn
+	t.Cleanup(func() { taskVirtualCenterFn = oldVC })
+	taskVirtualCenterFn = func(*ReconcileCnsRegisterVolume, context.Context) (*cnsvsphere.VirtualCenter, error) {
+		return &cnsvsphere.VirtualCenter{}, nil
+	}
+	result, err := r.Reconcile(ctx, reconcileRequestFor(cr))
+	require.NoError(t, err)
+	require.Positive(t, result.RequeueAfter)
+	stored := getCondTestInstance(t, r.client, cr)
+	require.Empty(t, stored.Status.CnsTaskID)
+	require.Equal(t, "vol-1", stored.Status.CnsVolumeID)
+	require.False(t, stored.Status.Registered)
+	require.Equal(t, 0, r.taskTracker.inFlight())
+	require.Equal(t, cnsregistervolumev1alpha1.ReasonStoragePolicyLookupFailed,
+		conditions.GetReason(stored, cnsregistervolumev1alpha1.ConditionSpecValidated))
+	pvs, err := r.k8sclient.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
+	require.NoError(t, err)
+	require.Empty(t, pvs.Items)
+}
+
+func TestMissingTaskLookupUsesVolumeIDForRestore(t *testing.T) {
+	ctx := context.Background()
+	cr := newCondTestInstance(cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{CnsTaskID: "expired"})
+	r, _, _ := newAsyncTestReconciler(t, cr, 40)
+	cfg := &commonconfig.Config{}
+	cfg.Global.ClusterID = "cluster-1"
+	r.configInfo = commonconfig.NewConfigurationInfo(cfg)
+	mgr := &missingTaskQueryManager{result: &cnstypes.CnsQueryResult{Volumes: []cnstypes.CnsVolume{
+		{VolumeId: cnstypes.CnsVolumeId{Id: cr.Spec.VolumeID}},
+	}}}
+	r.volumeManager = mgr
+	old := getCreateVolumeTaskResultFn
+	t.Cleanup(func() { getCreateVolumeTaskResultFn = old })
+	getCreateVolumeTaskResultFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
+		ref vim25types.ManagedObjectReference, _ string) (
+		volumes.CreateVolumeTaskState, *volumes.CnsVolumeInfo, string, error) {
+		fault := &soap.Fault{Code: "ServerFaultCode"}
+		fault.Detail.Fault = vim25types.ManagedObjectNotFound{Obj: ref}
+		return volumes.CreateVolumeTaskUnknown, nil, "", soap.WrapSoapFault(fault)
+	}
+	info, retry, err := r.resolveTaskDirectly(ctx, cr, nil, asyncTestSpec(), time.Second)
+	require.NoError(t, err)
+	require.Nil(t, retry)
+	require.Equal(t, cr.Spec.VolumeID, info.VolumeID.Id)
+	require.Equal(t, []cnstypes.CnsVolumeId{{Id: cr.Spec.VolumeID}}, mgr.filter.VolumeIds)
+	require.Empty(t, mgr.filter.Names)
+	require.Equal(t, []string{"cluster-1"}, mgr.filter.ContainerClusterIds)
+}
+
+func TestDeleteRecoversAndUnregistersMissingTaskVolume(t *testing.T) {
+	ctx := context.Background()
+	cr := newCondTestInstance(cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{CnsTaskID: "expired"})
+	cr.Spec.VolumeID = ""
+	cr.Spec.DiskURLPath = "disk.vmdk"
+	now := metav1.Now()
+	cr.DeletionTimestamp, cr.Finalizers = &now, []string{"test"}
+	r, _, _ := newAsyncTestReconciler(t, cr, 40)
+	cfg := &commonconfig.Config{}
+	cfg.Global.ClusterID = "cluster-1"
+	r.configInfo = commonconfig.NewConfigurationInfo(cfg)
+	mgr := &missingTaskQueryManager{result: &cnstypes.CnsQueryResult{Volumes: []cnstypes.CnsVolume{
+		{VolumeId: cnstypes.CnsVolumeId{Id: "vol-1"}},
+	}}}
+	r.volumeManager = mgr
+	seedOutcome(r.taskTracker, "expired", &cnsTaskOutcome{state: volumes.CreateVolumeTaskUnknown})
+	oldReader, oldVC := getCreateVolumeTaskResultFn, taskVirtualCenterFn
+	t.Cleanup(func() { getCreateVolumeTaskResultFn, taskVirtualCenterFn = oldReader, oldVC })
+	taskVirtualCenterFn = func(*ReconcileCnsRegisterVolume, context.Context) (*cnsvsphere.VirtualCenter, error) {
+		return &cnsvsphere.VirtualCenter{}, nil
+	}
+	getCreateVolumeTaskResultFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
+		ref vim25types.ManagedObjectReference, _ string) (
+		volumes.CreateVolumeTaskState, *volumes.CnsVolumeInfo, string, error) {
+		fault := &soap.Fault{Code: "ServerFaultCode"}
+		fault.Detail.Fault = vim25types.ManagedObjectNotFound{Obj: ref}
+		return volumes.CreateVolumeTaskUnknown, nil, "", soap.WrapSoapFault(fault)
+	}
+	retry := r.resolveInFlightTaskForDelete(ctx, cr, reconcileRequestFor(cr), time.Second)
+	require.Nil(t, retry)
+	require.Equal(t, "vol-1", mgr.unregistered)
+	require.Empty(t, cr.Status.CnsTaskID)
+	require.Empty(t, cr.Status.CnsVolumeID)
 }
 
 // TestCapHoldsBackSubmissions verifies the explicit replacement for the

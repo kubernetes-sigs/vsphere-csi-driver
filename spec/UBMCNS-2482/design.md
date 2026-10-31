@@ -110,7 +110,8 @@ Two listview properties shape the tracker:
 | Decision | Why |
 |---|---|
 | **Explicit in-flight cap**, `MAX_INFLIGHT_CNS_TASKS_REGISTER_VOLUME` (default 40) | The 40 blocking workers were an implicit ceiling on concurrent `CreateVolume` calls into vCenter. Releasing them removes it, so it is replaced explicitly or a burst would hit CNS harder than today. |
-| **Distinct `Unknown` task state** | `reportErrorOnAllPendingTasks` pushes `TaskInfo == nil` to every pending task when the listview merely loses its session, which has the same shape as a real failure. Treating it as failure would issue a second `CreateVolume` for a disk whose first task is still running. Unknown keeps the task ID and slot and never resubmits. |
+| **Distinct `Unknown` task state** | A nil listview `TaskInfo` can mean a terminal task error or a lost session. Read the task directly to distinguish them. Inconclusive reads retain the task ID and slot; a confirmed missing task follows the CNS lookup and recovery procedure in 3.4. |
+| **Settle submitted work before admission** | A changed StorageClass or policy must not prevent a completed CNS task from being checkpointed and its slot released. Admission is still checked before PV or PVC creation. |
 | **Deletion waits for an in-flight task** | Dropping the finalizer while a task runs would delete the CRV and orphan the volume the task creates. The finalizer is held until the task settles, then any volume it created is cleaned up. |
 | **`DiskURLPath` volume name from the CRV UID** | Every attempt for one CRV uses `static-pv-<uid>`, so a volume whose task reference was lost can still be found by name. |
 | **CreateVolume latency metric recorded in the tracker** | `Manager.CreateVolume` timed its blocking call. That call is gone from this path; without this the metric would silently stop for registrations. |
@@ -218,7 +219,7 @@ The reasons are the diagnostic payload: they are what used to be invisible.
 |---|---|---|---|
 | `SpecValidated` | True | `Validated` | Checks passed. |
 | | False | `InvalidSpec` | The spec itself is malformed or incomplete. |
-| | False | `StoragePolicyNotAssignedToNamespace` | The `storageClassName`'s policy is not assigned to this namespace. Checked before any CNS call so a namespace cannot register a volume with a policy it is not entitled to. |
+| | False | `StoragePolicyNotAssignedToNamespace` | The `storageClassName`'s policy is not assigned to this namespace. Checked before task submission and again before PV/PVC creation; settling a previously submitted task does not depend on this check. |
 | | False | `StoragePolicyLookupFailed` | The policy for the StorageClass could not be resolved or its assignment could not be verified. |
 | `RestoreValidated` | True | `Validated` / `NotRequired` | Restore preconditions passed or the feature does not apply. |
 | | False | `WaitingForRestoreOwner` | Another attempt is active; retry without changing `status.error`. |
@@ -231,7 +232,7 @@ The reasons are the diagnostic payload: they are what used to be invisible.
 | | False | `WaitingForTaskSlot` | The in-flight cap is full; retrying every 5s. Nothing has been sent to CNS. |
 | | False | `CnsTaskRunning` | The task is submitted and running. No worker is held. |
 | | False | `CnsTaskFailed` | CNS reported a terminal fault. **Retried**, not terminal. |
-| | False | `CnsTaskStateUnknown` | The task's state could not be determined. The task ID and slot are kept and it is never resubmitted. |
+| | False | `CnsTaskStateUnknown` | The task's state could not be determined. The task ID and slot are kept while its state is resolved. |
 | `VolumeAccessible` | True | `Accessible` | The registered volume is usable from this cluster. |
 | | False | `DatastoreNotFound` | A host-local volume's datastore is not present in the namespace's clusters. **Terminal.** |
 | | False | `HostLocalPolicyIncompatible` | The host-local storage policy is not compatible with the datastore the disk lives on. **Terminal.** |
@@ -357,7 +358,8 @@ registration spec is.
 | Task succeeded | Atomically replaced by `status.cnsVolumeID`, then `CnsVolumeRegistered=True` is published. Subsequent passes query the persisted volume ID and resume Kubernetes work. |
 | Task failed | Cleared, `status.error` is set and `CnsVolumeRegistered=False, reason=CnsTaskFailed`. The next pass submits a new task. |
 | Task state unknown | **Kept**, along with the in-flight slot. The CR must not resubmit while a task it cannot see may still be running. |
-| CR deleted with a task in flight | Kept until the task settles; the finalizer is held meanwhile. Cleared once any volume the task created has been cleaned up. |
+| Task confirmed missing | Query CNS by volume ID, or deterministic name for a disk URL, scoped to the cluster. Checkpoint one matching volume; when none is found, clear the task and retry admission before a replacement submission. Query errors or ambiguous results retain the task and slot. |
+| CR deleted with a task in flight | Kept until the task settles; the finalizer is held meanwhile. A successful task is replaced with the volume ID checkpoint before cleanup. |
 
 A failed task ID is not reused. A successful task becomes `status.cnsVolumeID` in the same
 optimistically locked status patch that clears its task ID. This optional controller-owned string
@@ -517,7 +519,7 @@ sequenceDiagram
     W->>T: watch(task), AddTask on listview
     W-->>W: return, worker is free
     VC-->>G: listview pushes completion
-    G->>T: store outcome, RemoveTask
+    G->>T: RemoveTask, store outcome
     G->>W: GenericEvent wakes the CRV
     W->>T: outcome(task), map lookup
     W->>W: persist cnsVolumeID and clear cnsTaskID, continue with PV and PVC
@@ -539,15 +541,30 @@ flowchart TD
     W -->|No| AT{"AddTask ok?"}
     AT -->|Yes| RQ
     AT -->|No| DIR["Read task directly<br/>from vCenter once"]
-    O -->|Yes| ST{"State"}
+    O -->|"Unknown result"| DIR
+    O -->|"Terminal result"| ST{"State"}
     DIR --> ST
     ST -->|Succeeded| OK["Persist cnsVolumeID, clear cnsTaskID,<br/>CnsVolumeRegistered=True"]
     ST -->|Failed| F["Clear cnsTaskID, set error,<br/>reason=CnsTaskFailed,<br/>resubmit after backoff"]
     ST -->|"Unknown / Running"| U["Keep cnsTaskID and slot,<br/>requeue 10s"]
+    DIR -->|"Task confirmed missing"| Q["Query CNS by ID or name and cluster"]
+    Q -->|"One matching volume"| OK
+    Q -->|"No volume"| RT["Clear cnsTaskID, retain restore reservation,<br/>retry admission before resubmission"]
+    Q -->|"Error or ambiguous"| U
 ```
 
 A consumed task result is never reused: a cleared or failed task ID leads to a new submit, not a
-retry of the old task. `Unknown` never resubmits.
+retry of the old task. An unknown notification triggers a direct task read; an inconclusive read
+never authorizes resubmission. Once a direct read confirms that the task object is missing, a CNS
+query distinguishes an existing registration from one that needs a replacement task. A lookup by
+known volume ID is used when available; disk-URL-only registrations use the deterministic name.
+The query is scoped to the create spec's cluster. Multiple matches, incomplete results, unexpected
+IDs and query errors retain the task reference. A restore reservation remains held across recovery
+and replacement submission.
+
+Submitted tasks are settled before StorageClass and policy checks. A successful task's volume ID
+is checkpointed and its slot released even if admission now fails. The admission and restore
+prechecks still run before Kubernetes resources are created.
 
 ### 3.5 In-flight cap and restart
 
@@ -566,7 +583,7 @@ Failure and restart handling:
 
 | Event | Behaviour |
 |---|---|
-| Syncer restarts with a task running | The CRV still has `cnsTaskID`. The next pass finds no watcher and re-subscribes via `AddTask`. If the task is gone from vCenter, it is read directly. No new submit. |
+| Syncer restarts with a task running | The CRV still has `cnsTaskID`. The next pass re-subscribes via `AddTask`. A failed subscription or unknown notification triggers a direct read. A confirmed missing task is recovered through CNS lookup, with a replacement submitted only when no registration is found. |
 | Crash after submit, before `cnsTaskID` is persisted | The task runs on CNS with no reference. The next pass resubmits, which is safe because CNS answers a repeat registration of the same disk with `CnsAlreadyRegisteredFault`, mapped to success by the shared decoding helpers. The deterministic volume name lets the volume be found by name. |
 | `cnsTaskID` patch fails | Keep the reference in the tracker slot; retry persistence without resubmitting. |
 | `AddTask` fails after submit | The task is submitted and recorded; only the subscription failed. Not fatal. The safety requeue retries it. |
@@ -580,8 +597,15 @@ flowchart TD
     T -->|Yes| O{"Task finished?"}
     O -->|No| H["Hold finalizer, requeue 10s"]
     O -->|Yes| C["Persist successful result<br/>before releasing task"]
+    O -->|"Task missing"| Q["Query CNS by ID or name and cluster"]
+    Q -->|"One volume or none"| C
+    Q -->|"Error or ambiguous"| H
     C --> N
 ```
+
+Deletion does not submit a replacement task. When the task is missing, it checkpoints a recovered
+volume before the usual PV and ownership checks and cleanup; a confirmed empty lookup permits
+deletion to continue. Failed or ambiguous lookups retain the finalizer and restore reservation.
 
 ### 3.7 Status publication
 
@@ -666,8 +690,9 @@ writes or success publication. An unseeded warning outcome completes the handove
 handover never overwrites an existing snapshot aggregate or resets the CVI condition after DPO
 has removed its DVI. Full-sync recovery is unchanged.
 
-Deletion re-establishes monitoring of an outstanding task after restart. Unknown task state keeps
-the finalizer, task reference and reservation. A successful result is persisted before any cleanup.
+Deletion re-establishes monitoring of an outstanding task after restart. An inconclusive task state
+keeps the finalizer, task reference and reservation. A confirmed missing task is resolved by the
+scoped CNS lookup described in 3.4. A successful result is persisted before any cleanup.
 Existing PVs go through bound/ownership checks before CNS cleanup; a missing PV also requires
 checking CVI ownership. A task result must never cause another registration's CNS volume to be
 untagged before those checks.

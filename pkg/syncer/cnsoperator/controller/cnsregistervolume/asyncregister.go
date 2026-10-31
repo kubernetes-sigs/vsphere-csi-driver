@@ -59,6 +59,8 @@ const (
 // that is a follow-up: the metric should move to wrap submit+completion rather
 // than the blocking call it currently times.
 var submitCreateVolumeTaskFn = volumes.SubmitCreateVolumeTask
+var getCreateVolumeTaskResultFn = volumes.GetCreateVolumeTaskResult
+var taskVirtualCenterFn = (*ReconcileCnsRegisterVolume).taskVirtualCenter
 
 // submitOrPollCreateVolume replaces the blocking Manager.CreateVolume call.
 //
@@ -244,7 +246,7 @@ func (r *ReconcileCnsRegisterVolume) pollCreateVolume(ctx context.Context,
 			cnsregistervolumev1alpha1.ReasonCnsTaskStateUnknown,
 			"The state of the CNS CreateVolume task could not be determined"))
 		r.taskTracker.forgetResult(taskID)
-		return nil, &reconcile.Result{RequeueAfter: cnsTaskSafetyRequeue}, nil
+		return r.resolveTaskDirectly(ctx, instance, vc, createSpec, timeout)
 	}
 }
 
@@ -260,7 +262,61 @@ func (r *ReconcileCnsRegisterVolume) resolveTaskDirectly(ctx context.Context,
 	taskID := instance.Status.CnsTaskID
 	taskMoRef := vim25types.ManagedObjectReference{Type: "Task", Value: taskID}
 
-	state, volInfo, _, err := volumes.GetCreateVolumeTaskResult(ctx, vc, taskMoRef, createSpec.Name)
+	state, volInfo, _, err := getCreateVolumeTaskResultFn(ctx, vc, taskMoRef, createSpec.Name)
+	if state == volumes.CreateVolumeTaskUnknown && cnsvsphere.IsManagedObjectNotFound(err, taskMoRef) {
+		// Recover a successful registration before clearing the task. This
+		// also protects deletion in the interval before a replacement task
+		// would otherwise be submitted.
+		filter := cnstypes.CnsQueryFilter{}
+		if instance.Spec.VolumeID != "" {
+			filter.VolumeIds = []cnstypes.CnsVolumeId{{Id: instance.Spec.VolumeID}}
+		} else {
+			filter.Names = []string{createSpec.Name}
+		}
+		if r.configInfo == nil || r.volumeManager == nil {
+			return nil, &reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		cfg := r.configInfo.GetCfg()
+		if cfg == nil {
+			return nil, &reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		clusterID := cfg.Global.ClusterID
+		if isTKGSHAEnabled {
+			clusterID = cfg.Global.SupervisorID
+		}
+		if clusterID == "" {
+			return nil, &reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		filter.ContainerClusterIds = []string{clusterID}
+		result, queryErr := r.volumeManager.QueryAllVolume(ctx, filter, cnstypes.CnsQuerySelection{})
+		if queryErr != nil || result == nil || len(result.Volumes) > 1 ||
+			result.Cursor.TotalRecords > int64(len(result.Volumes)) {
+			log.Errorf("cannot resolve missing task %q: query result %v, error %v", taskID, result, queryErr)
+			return nil, &reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		volumeID := ""
+		if len(result.Volumes) == 1 {
+			volumeID = result.Volumes[0].VolumeId.Id
+			if volumeID == "" || (instance.Spec.VolumeID != "" && instance.Spec.VolumeID != volumeID) {
+				return nil, &reconcile.Result{RequeueAfter: timeout}, nil
+			}
+		}
+		if err := r.persistCnsExecution(ctx, instance, "", volumeID); err != nil {
+			return nil, &reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		r.taskTracker.forget(cr, taskID)
+		if volumeID != "" {
+			setInstanceConditions(ctx, r, instance, trueCondition(cnsregistervolumev1alpha1.ConditionCnsVolumeRegistered,
+				cnsregistervolumev1alpha1.ReasonRegistered, "CNS has registered the disk"))
+			return &volumes.CnsVolumeInfo{VolumeID: cnstypes.CnsVolumeId{Id: volumeID}}, nil, nil
+		}
+		if instance.DeletionTimestamp != nil {
+			return nil, nil, nil
+		}
+		// No matching registration was found; retry admission and submit a
+		// replacement task while retaining any restore reservation.
+		return nil, &reconcile.Result{RequeueAfter: timeout}, nil
+	}
 	switch state {
 	case volumes.CreateVolumeTaskSucceeded:
 		if setErr := r.persistCnsExecution(ctx, instance, "", volInfo.VolumeID.Id); setErr != nil {
@@ -336,7 +392,7 @@ func (r *ReconcileCnsRegisterVolume) resolveInFlightTaskForDelete(ctx context.Co
 			if done {
 				r.taskTracker.forgetResult(taskID)
 			}
-			vc, err := r.taskVirtualCenter(ctx)
+			vc, err := taskVirtualCenterFn(r, ctx)
 			if err != nil {
 				log.Errorf("Cannot recover task during deletion: %v", err)
 				return &reconcile.Result{RequeueAfter: timeout}
@@ -351,7 +407,12 @@ func (r *ReconcileCnsRegisterVolume) resolveInFlightTaskForDelete(ctx context.Co
 				name = staticPvNamePrefix + string(instance.UID)
 			}
 			spec := &cnstypes.CnsVolumeCreateSpec{Name: name}
-			_, retry, err := r.pollCreateVolume(ctx, instance, vc, spec, timeout)
+			var retry *reconcile.Result
+			if done {
+				_, retry, err = r.resolveTaskDirectly(ctx, instance, vc, spec, timeout)
+			} else {
+				_, retry, err = r.pollCreateVolume(ctx, instance, vc, spec, timeout)
+			}
 			if err != nil {
 				return &reconcile.Result{RequeueAfter: timeout}
 			}
@@ -372,8 +433,11 @@ func (r *ReconcileCnsRegisterVolume) resolveInFlightTaskForDelete(ctx context.Co
 	}
 	if volumeID := instance.Status.CnsVolumeID; volumeID != "" {
 		pv, err := r.k8sclient.CoreV1().PersistentVolumes().Get(ctx, staticPvNamePrefix+volumeID, metav1.GetOptions{})
-		if err != nil && !apierrors.IsNotFound(err) {
-			return &reconcile.Result{RequeueAfter: timeout}
+		if err != nil {
+			if !apierrors.IsNotFound(err) {
+				return &reconcile.Result{RequeueAfter: timeout}
+			}
+			pv = nil
 		}
 		// Existing PVs go through the normal bound/ownership checks first.
 		if pv == nil {

@@ -328,6 +328,39 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{}, nil
 	}
 
+	// A previously submitted task must settle even if admission prerequisites
+	// have since changed. The policy checks below still gate PV/PVC creation.
+	if instance.Status.CnsTaskID == "" && instance.Status.CnsVolumeID == "" && r.taskTracker != nil {
+		r.taskTracker.mu.Lock()
+		pending := r.taskTracker.slots[instanceKey(instance)]
+		r.taskTracker.mu.Unlock()
+		if pending != "" {
+			if err := setInstanceCnsTaskID(ctx, r, instance, pending); err != nil {
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
+		}
+	}
+	if instance.Status.CnsTaskID != "" {
+		vc, err := taskVirtualCenterFn(r, ctx)
+		if err != nil {
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		if err := r.taskTracker.ensureInit(ctx, r.volumeManager, vc); err != nil {
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		name := staticPvNamePrefix + instance.Spec.VolumeID
+		if instance.Spec.VolumeID == "" {
+			name = staticPvNamePrefix + string(instance.UID)
+		}
+		_, retry, err := r.pollCreateVolume(ctx, instance, vc, &cnstypes.CnsVolumeCreateSpec{Name: name}, timeout)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+		if retry != nil {
+			return *retry, nil
+		}
+	}
+
 	log.Infof("Reconciling CnsRegisterVolume with instance: %q from namespace: %q. timeout %q seconds",
 		instance.Name, request.Namespace, timeout)
 
@@ -478,7 +511,6 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	// Submit the CNS task and return, or pick up the result of a task submitted
 	// by an earlier pass. Either way this does not block on CNS, so the worker
 	// is free to start another CnsRegisterVolume while this one's task runs.
-	resumingTask := instance.Status.CnsTaskID != ""
 	volInfo, taskResult, err := r.submitOrPollCreateVolume(ctx, instance, vc, createSpec, timeout)
 	if taskResult != nil {
 		return *taskResult, nil
@@ -488,19 +520,6 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		log.Errorf(msg)
 		setInstanceError(ctx, r, instance, msg)
 		return reconcile.Result{RequeueAfter: timeout}, nil
-	}
-
-	// Monitor an already submitted task even if prerequisites change. Once it
-	// settles, recheck before creating Kubernetes resources unless we already
-	// stamped the volume (CNAS-12485 §6.2/§6.7).
-	if isRestore && !restoreStamped && resumingTask {
-		if err := r.volumeInfoService.PrecheckRestore(ctx, instance.Spec.VolumeID, instance.Namespace,
-			string(instance.UID)); err != nil {
-			setInstanceError(ctx, r, instance, err.Error(), falseCondition(
-				cnsregistervolumev1alpha1.ConditionRestoreValidated,
-				cnsregistervolumev1alpha1.ReasonRestorePrecheckFailed, "Waiting for restore prerequisites"))
-			return reconcile.Result{RequeueAfter: timeout}, nil
-		}
 	}
 
 	if instance.Spec.DiskURLPath != "" {

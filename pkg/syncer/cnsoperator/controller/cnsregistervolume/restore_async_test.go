@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/vim25/soap"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,6 +24,7 @@ import (
 	api "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	vsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo"
 	infoapi "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
 )
@@ -81,6 +83,49 @@ func TestAsyncRestoreFailedAttemptReleasesReservation(t *testing.T) {
 	require.NotNil(t, retry)
 	require.Empty(t, owner.Labels[labelRestoreVolumeID])
 	require.Empty(t, owner.Status.CnsTaskID)
+}
+
+func TestAsyncRestoreMissingTaskResubmitsWithReservation(t *testing.T) {
+	withSnapServiceLocalProtection(t, true)
+	ctx := context.Background()
+	owner := testRestoreInstance("true")
+	owner.Labels = map[string]string{labelRestoreVolumeID: owner.Spec.VolumeID}
+	owner.Status.CnsTaskID = "expired-task"
+	r, _, _ := newAsyncTestReconciler(t, owner, 40)
+	r.volumeInfoService = &fakeRestoreVolumeInfoService{}
+	cfg := &commonconfig.Config{}
+	cfg.Global.ClusterID = "cluster-1"
+	r.configInfo = commonconfig.NewConfigurationInfo(cfg)
+	r.volumeManager = &missingTaskQueryManager{result: &cnstypes.CnsQueryResult{}}
+	oldReader, oldSubmit := getCreateVolumeTaskResultFn, submitCreateVolumeTaskFn
+	t.Cleanup(func() { getCreateVolumeTaskResultFn, submitCreateVolumeTaskFn = oldReader, oldSubmit })
+	getCreateVolumeTaskResultFn = func(_ context.Context, _ *vsphere.VirtualCenter,
+		ref vimtypes.ManagedObjectReference, _ string) (
+		volumes.CreateVolumeTaskState, *volumes.CnsVolumeInfo, string, error) {
+		fault := &soap.Fault{Code: "ServerFaultCode"}
+		fault.Detail.Fault = vimtypes.ManagedObjectNotFound{Obj: ref}
+		return volumes.CreateVolumeTaskUnknown, nil, "", soap.WrapSoapFault(fault)
+	}
+	_, retry, err := r.resolveTaskDirectly(ctx, owner, nil, asyncTestSpec(), time.Second)
+	require.NoError(t, err)
+	require.NotNil(t, retry)
+	require.Empty(t, owner.Status.CnsTaskID)
+	require.Equal(t, owner.Spec.VolumeID, owner.Labels[labelRestoreVolumeID])
+	competitor := testRestoreInstance("true")
+	competitor.Name, competitor.UID = "other", types.UID("other-uid")
+	require.NoError(t, r.client.Create(ctx, competitor))
+	holder, err := r.restoreReservationOwner(ctx, competitor)
+	require.NoError(t, err)
+	require.Equal(t, string(owner.UID), holder)
+	submitCreateVolumeTaskFn = func(context.Context, *vsphere.VirtualCenter,
+		*cnstypes.CnsVolumeCreateSpec) (vimtypes.ManagedObjectReference, string, error) {
+		return taskRef("replacement-task"), "", nil
+	}
+	_, retry, err = r.submitOrPollCreateVolume(ctx, owner, nil, asyncTestSpec(), time.Second)
+	require.NoError(t, err)
+	require.NotNil(t, retry)
+	require.Equal(t, "replacement-task", owner.Status.CnsTaskID)
+	require.Equal(t, owner.Spec.VolumeID, owner.Labels[labelRestoreVolumeID])
 }
 
 // Resume from the successful task result even when the result's task and all
