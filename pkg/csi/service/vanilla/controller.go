@@ -1970,26 +1970,41 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 				"failed to get vCenter/volume manager for volume Id: %q. Error: %v", req.VolumeId, err)
 		}
 
-		isOnlineExpansionSupported, err := vCenterManager.IsOnlineExtendVolumeSupported(ctx, vCenterHost)
-		if err != nil {
-			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to check if online expansion is supported due to error: %v", err)
+		// File volumes are NFS shares, not disks attached to a node, so they are validated separately
+		// (FSS gate, no online expansion check) and expanded through the same CNS ExpandVolume API.
+		isFileVolume := isVanillaFileVolume(ctx, req.VolumeId)
+		if isFileVolume {
+			err = validateVanillaControllerExpandFileVolumeRequest(ctx, req,
+				commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VsanFileVolumeExpansion))
+		} else {
+			var isOnlineExpansionSupported bool
+			isOnlineExpansionSupported, err = vCenterManager.IsOnlineExtendVolumeSupported(ctx, vCenterHost)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to check if online expansion is supported due to error: %v", err)
+			}
+			isOnlineExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+				common.OnlineVolumeExtend)
+			err = validateVanillaControllerExpandVolumeRequest(ctx, req, isOnlineExpansionEnabled,
+				isOnlineExpansionSupported)
 		}
-		isOnlineExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
-		err = validateVanillaControllerExpandVolumeRequest(ctx, req, isOnlineExpansionEnabled, isOnlineExpansionSupported)
 		if err != nil {
 			msg := fmt.Sprintf("validation for ExpandVolume Request: %+v has failed. Error: %v",
 				logger.RedactCSIRequest(req), err)
 			log.Error(msg)
 			return nil, csifault.CSIInternalFault, err
 		}
-		volumeType = prometheus.PrometheusBlockVolumeType
+		if isFileVolume {
+			volumeType = prometheus.PrometheusFileVolumeType
+		} else {
+			volumeType = prometheus.PrometheusBlockVolumeType
+		}
 
 		volumeID := req.GetVolumeId()
 		volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 		volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
-		// Check if the volume contains CNS snapshots.
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
+		// Check if the volume contains CNS snapshots. CNS snapshots exist only for block volumes.
+		if !isFileVolume && commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
 			isCnsSnapshotSupported, err := vCenterManager.IsCnsSnapshotSupported(ctx, vCenterHost)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
@@ -2026,11 +2041,8 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		// nodeExpandsionRequired to false marks PVC resize as finished which
 		// prevents kubelet from expanding the filesystem.
 		// Ref: https://github.com/kubernetes-csi/external-resizer/blob/master/pkg/controller/controller.go#L335
-		nodeExpansionRequired := true
-		// Node expansion is not required for raw block volumes.
-		if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
-			nodeExpansionRequired = false
-		}
+		// Node expansion is not required for raw block volumes and for file volumes.
+		nodeExpansionRequired := isNodeExpansionRequired(isFileVolume, req.GetVolumeCapability())
 		log.Debugf("ControllerExpandVolumeInternal: returns %v as capacity and %v as NodeExpansionRequired",
 			int64(units.FileSize(volSizeMB*common.MbInBytes)), nodeExpansionRequired)
 		resp := &csi.ControllerExpandVolumeResponse{
