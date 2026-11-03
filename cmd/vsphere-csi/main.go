@@ -57,7 +57,7 @@ func main() {
 	logger.SetLoggerLevel(logType)
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("Version : %s", service.Version)
-
+	log.Info("trivial unique commit b9e0ed05d9d98b8bd21f041d8fe12bb0")
 	if *enableProfileServer {
 		go func() {
 			log.Info("Starting the http server to expose profiling metrics..")
