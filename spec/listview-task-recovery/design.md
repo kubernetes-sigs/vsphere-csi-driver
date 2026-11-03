@@ -111,6 +111,58 @@ holding the shared view lock indefinitely, though it can still delay unrelated
 tasks until the bound expires. CR persistence and task-attempt ordering retain
 their existing behavior; this change does not add generic stale-write fencing.
 
+Cleanup after a result runs detached from the request. A bound on cleanup is
+not a bound on the caller: the deferred removal ran before the wait returned,
+so a stalled removal spent what was left of the request deadline and the
+placement lookup that follows the task result then failed on an expired
+context. The detached goroutine keeps the per-task wait lock, so a retry for
+the same task still queues behind cleanup rather than racing it.
+
+A task result that arrives but cannot be fully interpreted is not a task
+failure. If the datastore lookup after a successful CreateVolume runs out of
+context, the record stays InProgress with its task ID: the volume exists, and
+recording Error would drop the only reference to it and let the retry create a
+second one. A lookup that fails on its own is still recorded as Error, now
+carrying the volume ID. The retry re-registers the same task, receives its
+terminal update, and re-derives the placement.
+
+### Lock chain and the authentication cooldown
+
+Bounding a call with a context bounds nothing if the locks it waits on do not
+take one. `VirtualCenter.Connect` acquires `ClientMutex`, a plain mutex, and a
+login holds it for as long as the login takes. The ListView therefore keeps
+every lock it holds off that path: `connect` does not hold the ListView state
+lock, the vim25 client is cached on the ListView and read under that lock
+without reaching through `ClientMutex`, and view recreation reuses the
+connection the listen loop already established instead of logging in again
+while holding both locks.
+
+vCenter SSO locks an account after five failed logins in 180 seconds. Connect
+used to wait out that window in-process, which both pinned `ClientMutex` for
+three minutes and bounded nothing -- a caller with a shorter deadline, such as
+the ListView's 30-second connect, returned early and the next caller began a
+fresh attempt. An InvalidLogin now stamps a wall-clock cooldown on the
+VirtualCenter and returns; every Connect during that window replays the stored
+rejection without a round trip, so the attempt rate is independent of how many
+callers arrive or how short their deadlines are. A successful connect clears
+the cooldown.
+
+### Task identity across vCenters
+
+A task ID is meaningful only on the vCenter that issued it, and the operation
+record is keyed by volume name alone. Preserving an InProgress record therefore
+has to be paired with a check that the record belongs to this vCenter: the
+vanilla multi-vCenter create loops advance to the next vCenter when a create
+fails, which would otherwise hand one vCenter's task ID to another vCenter's
+manager -- losing a still-running create if the task is missing there, or
+reading an unrelated task if the ID collides.
+
+Both are closed. The create loops stop rather than fall back when the outcome
+is unknown (`ErrTaskMonitoring`), so the retry reaches the recorded vCenter.
+Independently, the volume manager refuses to monitor a pending task whose
+recorded vCenter is not its own, and leaves the record untouched; an empty
+recorded vCenter (single-vCenter deployments) keeps the previous behavior.
+
 The new controller replica obtains the task ID from the CR and registers it
 with its own ListView; process-local channels are never shared between replicas.
 
@@ -180,6 +232,14 @@ released only on task success or confirmed terminal failure. The WCP controller
 package tests also run as part of validation.
 
 ## Limitations
+
+A persistent placement-lookup failure that is context-shaped keeps the record
+InProgress, so the request retries until the lookup succeeds or vCenter reaps
+the task, at which point the existing query-by-name reconciliation resolves it.
+
+Refusing to monitor a task recorded against another vCenter fails the request
+until a retry reaches that vCenter. If the recorded vCenter has been removed
+from the configuration, the record needs operator intervention.
 
 This does not repair historical records already marked Error. If CNS accepts a
 create request but the task reference cannot be persisted, the task outcome is

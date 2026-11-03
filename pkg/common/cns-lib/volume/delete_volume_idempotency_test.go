@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,6 +24,17 @@ import (
 // fakeOperationStore is an in-memory VolumeOperationRequest implementation. The
 // fake in unittestcommon cannot be used here because that package imports this
 // one.
+// newTestVirtualCenter builds a VirtualCenter the way the driver's own
+// constructors do. ClientMutex in particular is not optional: every read of
+// vc.Client goes through it, and Connect dereferences it unconditionally.
+func newTestVirtualCenter(client *vim25.Client) *cnsvsphere.VirtualCenter {
+	return &cnsvsphere.VirtualCenter{
+		Config:      &cnsvsphere.VirtualCenterConfig{},
+		Client:      &govmomi.Client{Client: client},
+		ClientMutex: &sync.Mutex{},
+	}
+}
+
 type fakeOperationStore struct {
 	records map[string]*cnsvolumeoperationrequest.VolumeOperationRequestDetails
 }
@@ -105,10 +117,7 @@ func newDeleteVolumeTestManager(store *fakeOperationStore, waitErr error) *defau
 func newDeleteVolumeTestManagerWithListView(store *fakeOperationStore,
 	listView ListViewIf) *defaultManager {
 	return &defaultManager{
-		virtualCenter: &cnsvsphere.VirtualCenter{
-			Config: &cnsvsphere.VirtualCenterConfig{},
-			Client: &govmomi.Client{Client: &vim25.Client{}},
-		},
+		virtualCenter:              newTestVirtualCenter(&vim25.Client{}),
 		operationStore:             store,
 		listViewIf:                 listView,
 		idempotencyHandlingEnabled: true,

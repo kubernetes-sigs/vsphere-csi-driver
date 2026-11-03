@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/vmware/govmomi"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/view"
@@ -18,7 +17,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 )
@@ -388,7 +386,7 @@ func TestStalledSessionCheckDoesNotTrapCanceledRequests(t *testing.T) {
 	}}
 	sharedCtx, sharedCancel := context.WithCancel(context.Background())
 	defer sharedCancel()
-	l := &ListViewImpl{isReady: true, virtualCenter: &cnsvsphere.VirtualCenter{Client: &govmomi.Client{Client: client}},
+	l := &ListViewImpl{isReady: true, virtualCenter: newTestVirtualCenter(client), client: client,
 		waitForUpdatesContext: sharedCtx, waitForUpdatesCancelFunc: sharedCancel}
 	firstCtx, cancelFirst := context.WithCancel(logger.NewContextWithLogger(context.Background()))
 	firstDone := make(chan error, 1)
@@ -417,7 +415,7 @@ func TestStalledListViewAddHonorsCancellation(t *testing.T) {
 	sharedCtx, sharedCancel := context.WithCancel(context.Background())
 	defer sharedCancel()
 	l := &ListViewImpl{isReady: true, taskMap: NewTaskMap(),
-		virtualCenter:         &cnsvsphere.VirtualCenter{Client: &govmomi.Client{Client: client}},
+		virtualCenter: newTestVirtualCenter(client), client: client,
 		listView:              view.NewListView(client, types.ManagedObjectReference{Type: "ListView", Value: "view"}),
 		waitForUpdatesContext: sharedCtx, waitForUpdatesCancelFunc: sharedCancel}
 	ctx, cancel := context.WithCancel(logger.NewContextWithLogger(context.Background()))
@@ -460,8 +458,8 @@ func TestStalledListViewRemoveUsesBoundedCleanup(t *testing.T) {
 		SessionManager: &sessionRef, PropertyCollector: collectorRef,
 	}}
 	l := &ListViewImpl{isReady: true, taskMap: NewTaskMap(),
-		virtualCenter: &cnsvsphere.VirtualCenter{Client: &govmomi.Client{Client: client}},
-		listView:      view.NewListView(client, types.ManagedObjectReference{Type: "ListView", Value: "view"})}
+		virtualCenter: newTestVirtualCenter(client), client: client,
+		listView: view.NewListView(client, types.ManagedObjectReference{Type: "ListView", Value: "view"})}
 	ctx, cancel := context.WithCancel(logger.NewContextWithLogger(context.Background()))
 	cancel()
 	result := make(chan error, 1)

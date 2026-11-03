@@ -11,6 +11,7 @@ import (
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/session"
 	"github.com/vmware/govmomi/view"
+	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
 
@@ -57,6 +58,14 @@ type ListViewImpl struct {
 	viewMu contextMutex
 	// isReady defines the ready state of the listview + property collector mechanism
 	isReady bool
+	// client is the vim25 client the current ListView generation was built on,
+	// cached here under mu so the request path never has to reach into the
+	// VirtualCenter for it. Reading vc.Client needs the VirtualCenter's
+	// ClientMutex, which a login holds for as long as the login takes, and
+	// AddTask/RemoveTask reach the client while holding viewMu -- so a stalled
+	// login would block registration and cleanup however short their own
+	// deadlines were. The listen loop refreshes this after each connect.
+	client *vim25.Client
 }
 
 // contextMutex permits callers waiting for ListView serialization to stop when
@@ -156,16 +165,57 @@ func (l *ListViewImpl) restartContainer() {
 	}
 }
 
+// vc returns the current VirtualCenter. ResetVirtualCenter swaps the pointer
+// under l.mu, so the read is guarded -- but only the read: anything slow done
+// with the result (a login, a session check, a property collector call) must
+// happen after this returns, never with l.mu held. See connect.
+func (l *ListViewImpl) vc() *cnsvsphere.VirtualCenter {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.virtualCenter
+}
+
+// setClient records the vim25 client the ListView is being (re)built on.
+func (l *ListViewImpl) setClient(client *vim25.Client) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.client = client
+}
+
+// getClient returns the cached vim25 client. The lock is only ever held for
+// this read, never across a call that uses the result.
+func (l *ListViewImpl) getClient() *vim25.Client {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.client
+}
+
+// createListView connects to vCenter and builds the ListView object. Callers
+// that have already connected should call newListView instead -- in particular
+// anything holding viewMu or l.mu, which must not be held across a login.
 func (l *ListViewImpl) createListView(ctx context.Context, tasks []types.ManagedObjectReference) error {
 	log := logger.GetLogger(ctx)
-	if err := l.virtualCenter.Connect(ctx); err != nil {
+	vc := l.vc()
+	if err := vc.Connect(ctx); err != nil {
 		return logger.LogNewErrorf(log, "failed to create a ListView. error: %+v", err)
 	} else {
 		log.Debugf("connection to vc successful")
 	}
+	client := vc.VimClient()
+	if client == nil {
+		return logger.LogNewError(log, "failed to create a ListView. error: vCenter client is nil after connect")
+	}
+	l.setClient(client)
+	return l.newListView(ctx, client, tasks)
+}
+
+// newListView builds the ListView object on an already connected client.
+func (l *ListViewImpl) newListView(ctx context.Context, client *vim25.Client,
+	tasks []types.ManagedObjectReference) error {
+	log := logger.GetLogger(ctx)
 	// doing a direct assignment to t.listView in case of failure
 	// leads to NPE while accessing listView elsewhere
-	listView, err := view.NewManager(l.virtualCenter.Client.Client).CreateListView(ctx, tasks)
+	listView, err := view.NewManager(client).CreateListView(ctx, tasks)
 	if err != nil {
 		return err
 	}
@@ -179,11 +229,15 @@ func (l *ListViewImpl) createListView(ctx context.Context, tasks []types.Managed
 // use case: ReloadConfiguration
 func (l *ListViewImpl) ResetVirtualCenter(ctx context.Context, virtualCenter *cnsvsphere.VirtualCenter) {
 	log := logger.GetLogger(ctx)
+	// Read the new VirtualCenter's client before taking l.mu: VimClient waits
+	// on ClientMutex, and l.mu must not be held across that wait.
+	client := virtualCenter.VimClient()
 	log.Info("attempting to acquire lock before updating vc object")
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	log.Info("acquired lock before updating vc object")
 	l.virtualCenter = virtualCenter
+	l.client = client
 	log.Info("updated VirtualCenter object reference in ListView")
 }
 
@@ -202,14 +256,17 @@ func getListViewWaitFilter(listView *view.ListView) *property.WaitFilter {
 }
 
 func (l *ListViewImpl) isSessionValid(ctx context.Context) bool {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
 	log := logger.GetLogger(ctx)
-	if l.virtualCenter.Client == nil || l.virtualCenter.Client.Client == nil {
+	// The cached client, and no lock held across the round trip that follows.
+	// Holding l.mu across it -- or reaching through VimClient for ClientMutex --
+	// is what let one slow call block every AddTask and RemoveTask queued on
+	// viewMu behind this one.
+	client := l.getClient()
+	if client == nil {
 		return false
 	}
 	// If session hasn't expired, nothing to do.
-	sessionMgr := session.NewManager(l.virtualCenter.Client.Client)
+	sessionMgr := session.NewManager(client)
 	// SessionMgr.UserSession(ctx) retrieves and returns the SessionManager's
 	// CurrentSession field. Nil is returned if the session is not
 	// authenticated or timed out.
@@ -341,15 +398,18 @@ func (l *ListViewImpl) SetListViewNotReady(ctx context.Context) {
 	log.Info("cancelled context")
 }
 
+// connect establishes the vCenter session the ListView rides on.
+//
+// l.mu is deliberately not held here. l.mu guards ListView state (isReady, the
+// listView object, the waitForUpdates context); the connection is guarded by
+// the VirtualCenter's own ClientMutex, which Connect takes. Holding l.mu as
+// well put a lock every AddTask and RemoveTask needs -- while they hold viewMu
+// -- behind however long a login takes, so the deadline those calls set for
+// themselves bounded nothing.
 func (l *ListViewImpl) connect() error {
 	ctx, cancel := context.WithTimeout(l.ctx, listViewCallTimeout)
 	defer cancel()
-	log := logger.GetLogger(l.ctx)
-	log.Debugf("waiting for lock before calling connect")
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	log.Debugf("acquired lock before calling connect")
-	return l.virtualCenter.Connect(ctx)
+	return l.vc().Connect(ctx)
 }
 
 // listenToTaskUpdates is a long-running goroutine
@@ -376,6 +436,17 @@ func (l *ListViewImpl) listenToTaskUpdates() {
 			log.Infof("connection to vc successful")
 		}
 
+		// Read the client before taking any ListView lock: VimClient waits on
+		// the VirtualCenter's ClientMutex, and nothing below may hold viewMu or
+		// l.mu while waiting on a connection.
+		vimClient := l.vc().VimClient()
+		if vimClient == nil {
+			log.Error("vCenter client is nil after a successful connect")
+			time.Sleep(waitForUpdatesRetry)
+			continue
+		}
+		l.setClient(vimClient)
+
 		log.Infof("attempting lock before re-creating listview")
 		setupCtx, setupCancel := context.WithTimeout(l.ctx, listViewCallTimeout)
 		if err := l.viewMu.Lock(setupCtx); err != nil {
@@ -396,7 +467,9 @@ func (l *ListViewImpl) listenToTaskUpdates() {
 				}
 			}
 			log.Info("re-creating the listView object")
-			err := l.createListView(setupCtx, nil)
+			// newListView, not createListView: the loop connected above, and
+			// re-connecting here would do it with viewMu and l.mu held.
+			err := l.newListView(setupCtx, vimClient, nil)
 			if err != nil {
 				log.Errorf("failed to create a ListView. error: %+v", err)
 				l.mu.Unlock()
@@ -413,7 +486,7 @@ func (l *ListViewImpl) listenToTaskUpdates() {
 
 		log.Info("Starting listening for task updates...")
 		log.Infof("waitForUpdatesContext %v", l.waitForUpdatesContext)
-		pc, pcErr := property.DefaultCollector(l.virtualCenter.Client.Client).Create(setupCtx)
+		pc, pcErr := property.DefaultCollector(vimClient).Create(setupCtx)
 		if pcErr != nil {
 			log.Errorf("failed to create PropertyCollector for WaitForUpdatesEx for ListView. error: %+v", pcErr)
 			l.mu.Unlock()
