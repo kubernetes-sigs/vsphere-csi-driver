@@ -76,10 +76,13 @@ func (vc *VirtualCenter) GetTagManager(ctx context.Context) (*tags.Manager, erro
 	restClient := vc.RestClient
 	vc.ClientMutex.Unlock()
 
-	tagManager := tags.NewManager(restClient)
-	if tagManager == nil {
-		return nil, fmt.Errorf("failed to create a tagManager")
+	// tags.NewManager never returns nil, so a nil check on its result would be
+	// dead code. A nil restClient is the real failure: it is accepted silently
+	// and only panics later, inside the manager, on first use.
+	if restClient == nil {
+		return nil, fmt.Errorf("vCenter REST client not initialized")
 	}
+	tagManager := tags.NewManager(restClient)
 	log.Infof("New tag manager with useragent '%s'", tagManager.UserAgent)
 	return tagManager, nil
 }
