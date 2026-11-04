@@ -337,6 +337,9 @@ type defaultManager struct {
 	clusterDistribution            string
 	idempotencyHandlingEnabled     bool
 	multivCenterTopologyDeployment bool
+	// volumeExistsFunc reports whether CNS still has the volume. When nil,
+	// volumeExistsOnCNS queries CNS. It is a seam for unit tests.
+	volumeExistsFunc func(ctx context.Context, volumeID string) (bool, error)
 }
 
 // ClearTaskInfoObjects is a go routine which runs in the background to clean
@@ -1568,7 +1571,24 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 		if volumeOperationDetails.OperationDetails != nil {
 			// Validate if previous attempt was successful.
 			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusSuccess {
-				return "", nil
+				// A Success record only proves that an earlier delete of this volume ID
+				// succeeded. The same ID can be registered again before the record is
+				// cleaned up (e.g. a restore recreating a volume under its original ID),
+				// so confirm the volume is really gone before skipping CNS.
+				exists, existsErr := m.volumeExistsOnCNS(ctx, volumeID)
+				switch {
+				case existsErr != nil:
+					// Not knowing is not proof of absence. CNS DeleteVolume returns NotFound
+					// for a missing volume, which is handled as success below.
+					log.Warnf("DeleteVolume: failed to verify volume %q is absent despite a prior successful "+
+						"delete record %q: %v. Invoking CNS DeleteVolume.", volumeID, instanceName, existsErr)
+				case exists:
+					log.Infof("DeleteVolume: volume %q still exists although a prior delete record %q is "+
+						"Success; the volume ID was likely reused. Invoking CNS DeleteVolume.",
+						volumeID, instanceName)
+				default:
+					return "", nil
+				}
 			}
 			// Validate if previous operation is pending.
 			// If we're retrying after re-registration, don't reuse the old pending task
@@ -1749,6 +1769,20 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 		nil, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
 		task.Reference().Value, "", taskInfo.ActivationId, taskInvocationStatusSuccess, "", "")
 	return "", nil
+}
+
+// volumeExistsOnCNS reports whether CNS has a volume with the given ID.
+func (m *defaultManager) volumeExistsOnCNS(ctx context.Context, volumeID string) (bool, error) {
+	if m.volumeExistsFunc != nil {
+		return m.volumeExistsFunc(ctx, volumeID)
+	}
+	res, err := m.QueryVolume(ctx, cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeID}},
+	})
+	if err != nil {
+		return false, err
+	}
+	return res != nil && len(res.Volumes) > 0, nil
 }
 
 // UpdateVolumeMetadata updates a volume given its spec.
