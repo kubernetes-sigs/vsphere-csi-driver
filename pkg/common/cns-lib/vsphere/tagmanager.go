@@ -83,6 +83,6 @@ func (vc *VirtualCenter) GetTagManager(ctx context.Context) (*tags.Manager, erro
 		return nil, fmt.Errorf("vCenter REST client not initialized")
 	}
 	tagManager := tags.NewManager(restClient)
-	log.Infof("New tag manager with useragent '%s'", tagManager.UserAgent)
+	log.Debugf("New tag manager with useragent '%s'", tagManager.UserAgent)
 	return tagManager, nil
 }
