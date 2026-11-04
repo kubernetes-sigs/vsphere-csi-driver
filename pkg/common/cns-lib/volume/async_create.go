@@ -83,6 +83,11 @@ const (
 // name, which only works if the create spec used a deterministic one.
 func SubmitCreateVolumeTask(ctx context.Context, virtualCenter *cnsvsphere.VirtualCenter,
 	spec *cnstypes.CnsVolumeCreateSpec) (vim25types.ManagedObjectReference, string, error) {
+	// Only the submission is bounded; the task itself outlives this call. A
+	// timeout here does not prove CNS rejected the request, which callers
+	// handle through the deterministic volume name and CnsAlreadyRegisteredFault.
+	ctx, cancel := ensureOperationContextHasATimeout(ctx)
+	defer cancel()
 	log := logger.GetLogger(ctx)
 
 	if err := validateManagerForVC(ctx, virtualCenter); err != nil {
@@ -114,6 +119,8 @@ func SubmitCreateVolumeTask(ctx context.Context, virtualCenter *cnsvsphere.Virtu
 func GetCreateVolumeTaskResult(ctx context.Context, virtualCenter *cnsvsphere.VirtualCenter,
 	taskMoRef vim25types.ManagedObjectReference, volumeName string) (
 	CreateVolumeTaskState, *CnsVolumeInfo, string, error) {
+	ctx, cancel := ensureOperationContextHasATimeout(ctx)
+	defer cancel()
 	log := logger.GetLogger(ctx)
 
 	if err := virtualCenter.Connect(ctx); err != nil {

@@ -100,8 +100,10 @@ call.
 Two listview properties shape the tracker:
 
 - `processTaskUpdate` drops an update when no channel is registered for the task, so `RemoveTask`
-  cannot be deferred at submit time the way `waitOnTask` does it. It runs only after the result has
-  been consumed.
+  cannot be deferred at submit time the way `waitOnTask` does it. It runs after the result has been
+  received. The result is published first and the task stays marked as watched (retiring) until
+  removal finishes; a retiring task is read directly rather than subscribed to again, so a stalled
+  removal neither delays the CRV nor removes a replacement subscription.
 - Its send is non-blocking, so a full channel silently discards the result. Each task gets its own
   channel with capacity 1.
 
@@ -244,7 +246,7 @@ The reasons are the diagnostic payload: they are what used to be invisible.
 | | False | `CleanupPending` | A terminal check failed but deleting the CNS volume did not succeed, so the outcome is retried until the volume is gone. |
 | `PvcBound` | True | `Bound` | The PVC is bound. |
 | | False | `ConfiguringK8sResources` | Creating the PV and PVC and applying topology and volumeMode fixes. |
-| | False | `WaitingForBind` | PV and PVC exist; one `Get` every 2s until the PVC binds. |
+| | False | `WaitingForBind` | PV and PVC exist; one `Get` every 2s until the PVC binds. While waiting, a pass reads only the PVC and writes no status; the full pipeline resumes once it binds or if it is missing. |
 | `VMDeleteProtectionConfigured` | False | `ClearingKeepAfterDeleteVm` | Initial configuration attempt after binding. |
 | | False | `ClearKeepAfterDeleteVmFailed` | A lookup or VSLM call failed; retry after 5s. |
 | | False | `ClearKeepAfterDeleteVmTimedOut` | The attempt exceeded its deadline; retry after 5s. |
@@ -493,9 +495,11 @@ preserves bound PVs. Test deletion with a bound PVC and an incomplete protection
 step. The syncer's owner-reference-based repair remains separate from this
 registration-time requirement; do not rely on it to justify early success.
 
-Status patches copy the returned resourceVersion into the working CR. Otherwise,
-condition writes make that object stale before the metadata update in
-`setInstanceSuccess`, causing conflicts with the controller's own writes.
+Status patches adopt the whole object returned by the API server into the working CR. Otherwise,
+condition writes make that object stale before the metadata update in `setInstanceSuccess`,
+causing conflicts with the controller's own writes. Only the resourceVersion is not enough: a
+fresh version on stale spec or metadata would let a later full update silently revert another
+writer's change. Every status field is part of the patch, so no local status is lost.
 
 Regression coverage must verify binding before clearing; retry, timeout and
 annotation-persistence failure conditions; stable transition times; recovery with
@@ -519,8 +523,9 @@ sequenceDiagram
     W->>T: watch(task), AddTask on listview
     W-->>W: return, worker is free
     VC-->>G: listview pushes completion
-    G->>T: RemoveTask, store outcome
+    G->>T: store outcome, mark retiring
     G->>W: GenericEvent wakes the CRV
+    G->>T: RemoveTask, then clear watching
     W->>T: outcome(task), map lookup
     W->>W: persist cnsVolumeID and clear cnsTaskID, continue with PV and PVC
 ```
@@ -529,6 +534,76 @@ The wake-up uses a `source.Channel` watch registered in `add()`. The controller'
 `GenerationChangedPredicate` overrides only `Update`, so Generic events pass through. Status writes
 do not bump `metadata.generation`, so publishing a condition does not re-trigger the controller.
 
+#### Inside `cnsTaskTracker`
+
+One tracker is shared by every reconciler worker. It is created in `newReconciler` without a
+listview or vCenter; the first reconcile that needs one binds both through `ensureInit`, because
+the listview needs a live vCenter connection that is not guaranteed when controllers are
+registered. All tracker state is in-memory and lives in a few maps behind a single mutex. The
+durable record of a task is `status.cnsTaskID` on the CRV, never the tracker.
+
+```mermaid
+flowchart LR
+    subgraph WK["Reconciler workers"]
+        R["Reconcile"]
+    end
+    subgraph TR["cnsTaskTracker, every map guarded by mu"]
+        SL["slots<br/>CRV to task ID<br/>empty ID means reserved"]
+        WA["watching and retiring<br/>task ID to flag"]
+        RS["results<br/>task ID to decoded outcome"]
+        SA["submittedAt<br/>task ID to submit time"]
+    end
+    LV["Volume manager listview<br/>one WaitForUpdates session"]
+    G["awaitResult goroutine<br/>one per watched task"]
+    EV["taskEvents channel<br/>buffer of twice the cap"]
+
+    R -->|"tryAcquireSlot, releaseSlot,<br/>forget, releaseCR"| SL
+    R -->|"watch sets watching;<br/>isWatching, isRetiring"| WA
+    R -->|"AddTask with a capacity-1 channel"| LV
+    R -->|"outcome lookup"| RS
+    LV -->|"TaskResult on the task's channel"| G
+    G -->|"decode with 300s timeout,<br/>store if the CRV still holds the slot"| RS
+    G -->|"set retiring; after removal<br/>clear watching and retiring"| WA
+    G -->|"GenericEvent"| EV
+    EV -->|"source.Channel enqueues the CRV"| R
+    G -->|"RemoveTask"| LV
+    G -->|"CreateVolume latency"| SA
+```
+
+| Map | Key | Written by | Purpose |
+|---|---|---|---|
+| `slots` | CRV | `tryAcquireSlot`, `watch`, submit, `releaseSlot`, `forget`, `releaseCR` | Capacity accounting, see 3.5. Also holds a submitted task ID whose `cnsTaskID` write failed, so the next pass persists it instead of submitting again. |
+| `watching` | task ID | `watch`, `awaitResult` | At most one subscription and goroutine per task. Cleared only after the subscription is removed. |
+| `retiring` | task ID | `awaitResult` | The result is published but removal is still running. A pass that needs the task again reads it directly instead of subscribing. |
+| `results` | task ID | `awaitResult`; consumed by `forget` or `forgetResult` | Decoded terminal outcome waiting for the CRV's reconcile. A lookup here costs no vCenter call. |
+| `submittedAt` | task ID | `watch`, `awaitResult` | Start of the submit-to-completion latency span. |
+
+Lifecycle of one task inside the tracker:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Watching: watch marks the task and AddTask succeeds
+    [*] --> NotWatched: AddTask fails
+    NotWatched --> [*]: pass reads the task directly from vCenter
+    Watching --> Retiring: listview delivers, outcome stored, CRV woken
+    Retiring --> Removed: RemoveTask returns, or the task is marked for deletion
+    Removed --> [*]: watching and retiring cleared
+```
+
+The outcome stored on entering `Retiring` is independent of removal. The CRV's reconcile consumes
+it as soon as it is woken:
+
+- `Succeeded`: persist `cnsVolumeID` and clear `cnsTaskID` in one patch, then `forget` drops the
+  outcome and releases the slot.
+- `Failed`: clear `cnsTaskID`, then `forget`.
+- `Unknown`: `forgetResult` drops only the outcome and keeps the slot, then the task is read
+  directly (3.4).
+
+A pass that finds no outcome checks the task's state. A retiring task is read directly. A watched
+task is left alone until the safety requeue. Any other task is subscribed again with `watch`. This
+order means a new subscription is installed only after the previous goroutine has finished
+removing its own, so that cleanup can never remove the replacement.
+
 ### 3.4 Resolving a recorded task
 
 `pollCreateVolume` runs on every pass where `status.cnsTaskID` is set.
@@ -536,7 +611,9 @@ do not bump `metadata.generation`, so publishing a condition does not re-trigger
 ```mermaid
 flowchart TD
     P["Task recorded"] --> O{"Outcome in tracker?"}
-    O -->|No| W{"Already watched?"}
+    O -->|No| RT0{"Retiring?"}
+    RT0 -->|Yes| DIR
+    RT0 -->|No| W{"Already watched?"}
     W -->|Yes| RQ["Requeue 10s"]
     W -->|No| AT{"AddTask ok?"}
     AT -->|Yes| RQ
@@ -568,6 +645,60 @@ prechecks still run before Kubernetes resources are created.
 
 ### 3.5 In-flight cap and restart
 
+#### How the cap is enforced
+
+`MAX_INFLIGHT_CNS_TASKS_REGISTER_VOLUME` is read once in `newReconciler` through
+`GetMaxWorkerThreads`. If it is unset, not an integer, or not positive, the default of 40 applies.
+It bounds `len(slots)`: the number of CRVs whose CNS work is admitted but not yet settled. That
+includes tasks running on CNS, results waiting to be consumed, tasks in an unknown state, and a
+submitted task whose `cnsTaskID` write failed. It is independent of
+`MaxConcurrentReconciles`, which bounds only the workers.
+
+```mermaid
+flowchart TD
+    A["Pass with no cnsTaskID and no cnsVolumeID"] --> P{"Submitted task ID<br/>held in this CRV's slot?"}
+    P -->|Yes| PERSIST["Persist that cnsTaskID and resolve it,<br/>no new submit"]
+    P -->|No| CHK["Admission checks pass"]
+    CHK --> ACQ{"tryAcquireSlot under mu:<br/>CRV already holds a slot,<br/>or fewer slots than the cap?"}
+    ACQ -->|No| WAIT["CnsVolumeRegistered=False,<br/>reason=WaitingForTaskSlot,<br/>requeue 5s, nothing sent to CNS"]
+    ACQ -->|"Yes, slot reserved"| RES{"Restore reservation<br/>and submit succeed?"}
+    RES -->|No| REL["releaseSlot, set error,<br/>retry with backoff"]
+    RES -->|Yes| HOLD["Slot records the task ID,<br/>persist cnsTaskID, watch"]
+```
+
+The check and the insert happen in one critical section, so concurrent workers cannot both see
+the last free slot. The slot is taken before the submit RPC, so the number of `CreateVolume` calls
+in progress or running on CNS cannot exceed the cap. A repeat reconcile of the same CRV gets its
+existing slot back. Slots are keyed by CRV, so they cannot be counted twice for one registration
+and cannot be orphaned by losing a task reference.
+
+Slot lifecycle for one CRV:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Free
+    Free --> Free: cap full, WaitingForTaskSlot
+    Free --> Reserved: tryAcquireSlot succeeds
+    Reserved --> Free: restore reservation or submit fails
+    Reserved --> Holding: submit accepted, slot records the task ID
+    Holding --> Holding: running, unknown, or cnsTaskID write failed
+    Holding --> Free: success or failure consumed
+    Holding --> Free: missing task resolved by CNS lookup
+    Holding --> Free: checkpoint read shows no task, or CRV registered or gone
+    Free --> Holding: restart resumes a recorded cnsTaskID
+```
+
+Every transition back to `Free` follows a durable settlement: the checkpoint was written, the
+failure was recorded, or the CRV no longer exists. That is why no failure path can keep a slot
+forever. The slot stays while the outcome is unresolved, so an unresolved task can neither be
+resubmitted nor have its capacity reused.
+
+The cap can be exceeded in one case only. After a syncer restart, `pollCreateVolume` re-adopts each
+CRV that already has a `cnsTaskID` without checking the cap, because refusing would leave a running
+task unobserved. The excess is bounded by the tasks the previous process had in flight, itself at
+most the cap. It shrinks as those tasks settle, and new submissions wait meanwhile, because
+`tryAcquireSlot` refuses while `len(slots)` is at or above the cap.
+
 Slot accounting in `cnsTaskTracker`:
 
 - Slots are keyed by **CR**, not by task, so a CR that loses its task reference cannot leak one.
@@ -575,6 +706,14 @@ Slot accounting in `cnsTaskTracker`:
   not consume the cap.
 - A slot is taken before submit and released on submit failure or when a success or failure is
   consumed. It is **kept** across an Unknown outcome.
+- A reconcile that reads (uncached) a CRV with `cnsVolumeID` and no `cnsTaskID`, or one that is
+  registered or gone, releases any slot and unconsumed result still held for it. This covers a
+  checkpoint write that committed but whose response was lost. A result arriving for a CRV that no
+  longer holds the task's slot is dropped.
+- Task submission and direct task reads use the volume manager's standard 300s operation
+  timeout when the caller has none, as does decoding a listview result. A submit timeout is not
+  proof that CNS rejected the request; the retry relies on the deterministic name and
+  `CnsAlreadyRegisteredFault`, as after a crash before `cnsTaskID` is persisted.
 - After a restart, CRVs that already hold a `cnsTaskID` resume and take a slot without being
   refused, so the cap can be exceeded transiently, bounded by the number of tasks that were in
   flight under the previous process (itself capped at 40).

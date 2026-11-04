@@ -294,6 +294,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		if apierrors.IsNotFound(err) {
 			log.With("name", request.Name).With("namespace", request.Namespace).
 				Info("CnsRegisterVolume resource not found. Ignoring since object must be deleted.")
+			if r.taskTracker != nil {
+				r.taskTracker.releaseCR(request.NamespacedName)
+			}
 			return reconcile.Result{}, nil
 		}
 		log.Errorf("Error reading the CnsRegisterVolume with name: %q on namespace: %q. Err: %+v",
@@ -309,6 +312,15 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	}
 	timeout = backOffDuration[request.NamespacedName]
 	backOffDurationMapMutex.Unlock()
+
+	// The execution checkpoint is read uncached, so a recorded volume with no
+	// task means no CNS work is outstanding for this CR. Release any slot and
+	// result still held in memory, e.g. after a checkpoint write committed but
+	// its response was lost.
+	if r.taskTracker != nil && instance.Status.CnsTaskID == "" &&
+		(instance.Status.CnsVolumeID != "" || instance.Status.Registered) {
+		r.taskTracker.releaseCR(request.NamespacedName)
+	}
 
 	// Handle deletion of the instance.
 	// If the CR is being deleted, we need to clean up any resources that were created
@@ -358,6 +370,25 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		}
 		if retry != nil {
 			return *retry, nil
+		}
+	}
+
+	// A CR whose PV and PVC were created by an earlier pass is only waiting for
+	// the bind. Check that with one Get rather than replaying CNS queries and
+	// validation every pvcBindPollInterval. The full pipeline resumes once the
+	// PVC is bound, or if it has gone missing and must be recreated.
+	if instance.Status.CnsTaskID == "" && instance.Status.CnsVolumeID != "" &&
+		conditions.GetReason(instance, cnsregistervolumev1alpha1.ConditionPvcBound) ==
+			cnsregistervolumev1alpha1.ReasonWaitingForBind {
+		pvc, err := r.k8sclient.CoreV1().PersistentVolumeClaims(instance.Namespace).Get(ctx,
+			instance.Spec.PvcName, metav1.GetOptions{})
+		if err != nil && !apierrors.IsNotFound(err) {
+			log.Errorf("failed to check bind state of PVC %s: %v", instance.Spec.PvcName, err)
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		if err == nil && pvc.Status.Phase != v1.ClaimBound {
+			log.Debugf("PVC %s is not bound yet; will re-check", instance.Spec.PvcName)
+			return reconcile.Result{RequeueAfter: pvcBindPollInterval}, nil
 		}
 	}
 
@@ -733,12 +764,19 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	}
 
 	// Every check against the registered volume has passed, so the volume is
-	// usable from this cluster and the Kubernetes-side work can begin.
-	setInstanceConditions(ctx, r, instance,
+	// usable from this cluster and the Kubernetes-side work can begin. A
+	// PvcBound state from an earlier pass is kept until the bind check below
+	// observes a change, so retries do not reset its time in state.
+	k8sConds := []*metav1.Condition{
 		trueCondition(cnsregistervolumev1alpha1.ConditionVolumeAccessible, cnsregistervolumev1alpha1.ReasonAccessible,
 			"The registered volume is accessible from this cluster"),
-		falseCondition(cnsregistervolumev1alpha1.ConditionPvcBound, cnsregistervolumev1alpha1.ReasonConfiguringK8sResources,
-			"Creating the PV and PVC for the registered volume"))
+	}
+	if bound := conditions.Get(instance, cnsregistervolumev1alpha1.ConditionPvcBound); bound == nil ||
+		(bound.Status != metav1.ConditionTrue && bound.Reason != cnsregistervolumev1alpha1.ReasonWaitingForBind) {
+		k8sConds = append(k8sConds, falseCondition(cnsregistervolumev1alpha1.ConditionPvcBound,
+			cnsregistervolumev1alpha1.ReasonConfiguringK8sResources, "Creating the PV and PVC for the registered volume"))
+	}
+	setInstanceConditions(ctx, r, instance, k8sConds...)
 
 	// Use cached K8s client for registration operations.
 	k8sclient := r.k8sclient
@@ -1098,14 +1136,15 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	// Check whether the PVC is bound, without blocking on it. The previous
 	// implementation opened a per-CR watch and held this worker for up to 60s;
 	// now an unbound PVC simply requeues and the worker moves on.
-	setInstanceConditions(ctx, r, instance, falseCondition(cnsregistervolumev1alpha1.ConditionPvcBound,
-		cnsregistervolumev1alpha1.ReasonWaitingForBind, "Waiting for the PVC to be bound"))
 	isBound, err := isPVCBoundNow(ctx, k8sclient, pvc)
 	if err != nil {
 		log.Errorf("failed to check bind state of PVC %s: %v", instance.Spec.PvcName, err)
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 	if !isBound {
+		// Later passes take the bind-only fast path at the top of Reconcile.
+		setInstanceConditions(ctx, r, instance, falseCondition(cnsregistervolumev1alpha1.ConditionPvcBound,
+			cnsregistervolumev1alpha1.ReasonWaitingForBind, "Waiting for the PVC to be bound"))
 		log.Infof("PVC %s is not bound yet; will re-check", instance.Spec.PvcName)
 		return reconcile.Result{RequeueAfter: pvcBindPollInterval}, nil
 	}
@@ -2059,10 +2098,12 @@ func patchCnsRegisterVolumeStatus(ctx context.Context, cnsOperatorClient client.
 				oldObj.Name, oldObj.Namespace, err)
 			return err
 		} else if err == nil {
-			// Patch decodes the API response into oldObj. Carry its version
-			// forward so later metadata updates in this reconcile do not
-			// conflict with our own condition/status writes.
-			newObj.ResourceVersion = oldObj.ResourceVersion
+			// Patch decodes the API response into oldObj. Adopt the whole
+			// object, not just its resourceVersion: later full-object updates
+			// in this reconcile must not pair a fresh version with stale
+			// spec or metadata and silently revert another writer's change.
+			// Every status field is in the patch, so no local status is lost.
+			oldObj.DeepCopyInto(newObj)
 			log.Debugf("Successfully patched CnsRegisterVolume instance %q on namespace %q",
 				oldObj.Name, oldObj.Namespace)
 			return nil

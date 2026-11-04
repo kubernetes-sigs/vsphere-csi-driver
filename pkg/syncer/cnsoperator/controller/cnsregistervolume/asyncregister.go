@@ -81,6 +81,8 @@ func (r *ReconcileCnsRegisterVolume) submitOrPollCreateVolume(ctx context.Contex
 	if instance.Status.CnsVolumeID != "" {
 		// The caller queries this persisted result before Kubernetes work.
 		// No second task or extra query is needed for bind/finalization retries.
+		// Reconcile has already released any slot retained by a checkpoint
+		// write whose response was lost.
 		return &volumes.CnsVolumeInfo{VolumeID: cnstypes.CnsVolumeId{Id: instance.Status.CnsVolumeID}}, nil, nil
 	}
 	if err := r.taskTracker.ensureInit(ctx, r.volumeManager, vc); err != nil {
@@ -189,6 +191,12 @@ func (r *ReconcileCnsRegisterVolume) pollCreateVolume(ctx context.Context,
 
 	outcome, done := r.taskTracker.outcome(taskID)
 	if !done {
+		if r.taskTracker.isRetiring(taskID) {
+			// The previous subscription's result was consumed but its removal
+			// has not finished. Do not subscribe again until it has; read the
+			// task directly so a stalled removal cannot stall this CR.
+			return r.resolveTaskDirectly(ctx, instance, vc, createSpec, timeout)
+		}
 		if !r.taskTracker.isWatching(taskID) {
 			if err := r.taskTracker.watch(ctx, cr, taskMoRef, createSpec.Name); err != nil {
 				// Most often ManagedObjectNotFound: the task has aged out of

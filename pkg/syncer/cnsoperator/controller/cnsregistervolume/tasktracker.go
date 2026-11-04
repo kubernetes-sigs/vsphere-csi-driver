@@ -65,8 +65,15 @@ type cnsTaskTracker struct {
 	// the owning CR's reconcile consumes them.
 	results map[string]*cnsTaskOutcome
 	// watching records which task MoRefs already have a goroutine, so that a
-	// repeated reconcile cannot start a second watcher for one task.
+	// repeated reconcile cannot start a second watcher for one task. An entry
+	// stays until the goroutine has finished removing its listview
+	// subscription, so a replacement subscription can never be removed by the
+	// cleanup of the previous one.
 	watching map[string]bool
+	// retiring marks watched tasks whose result has been published while the
+	// listview subscription is still being removed. Such a task is read
+	// directly rather than subscribed to again.
+	retiring map[string]bool
 	// submittedAt is when each watched task was dispatched, so the
 	// CreateVolume latency metric can still span submit to completion now that
 	// no single function call covers that span.
@@ -102,6 +109,7 @@ func newCnsTaskTracker(listView volumes.ListViewIf, vc *cnsvsphere.VirtualCenter
 	return &cnsTaskTracker{
 		results:     make(map[string]*cnsTaskOutcome),
 		watching:    make(map[string]bool),
+		retiring:    make(map[string]bool),
 		submittedAt: make(map[string]time.Time),
 		slots:       make(map[apitypes.NamespacedName]string),
 		maxInFlight: maxInFlight,
@@ -165,6 +173,7 @@ func (t *cnsTaskTracker) watch(ctx context.Context, cr apitypes.NamespacedName,
 	t.watching[taskMoRef.Value] = true
 	t.submittedAt[taskMoRef.Value] = time.Now()
 	t.slots[cr] = taskMoRef.Value
+	vc := t.vc
 	t.mu.Unlock()
 
 	// Capacity 1 so that the listview's non-blocking send always lands.
@@ -179,7 +188,7 @@ func (t *cnsTaskTracker) watch(ctx context.Context, cr apitypes.NamespacedName,
 		return err
 	}
 
-	go t.awaitResult(cr, taskMoRef, volumeName, ch)
+	go t.awaitResult(cr, taskMoRef, volumeName, vc, ch)
 	log.Infof("Watching CNS CreateVolume task %q for CnsRegisterVolume %s/%s",
 		taskMoRef.Value, cr.Namespace, cr.Name)
 	return nil
@@ -187,19 +196,41 @@ func (t *cnsTaskTracker) watch(ctx context.Context, cr apitypes.NamespacedName,
 
 // awaitResult parks on one task's result channel. This goroutine is not a
 // reconciler worker: it holds no queue slot and blocks no other CR.
+//
+// vc is the vCenter captured under the tracker lock when the watch started;
+// ensureInit may replace t.vc concurrently.
 func (t *cnsTaskTracker) awaitResult(cr apitypes.NamespacedName,
-	taskMoRef vim25types.ManagedObjectReference, volumeName string, ch chan volumes.TaskResult) {
+	taskMoRef vim25types.ManagedObjectReference, volumeName string,
+	vc *cnsvsphere.VirtualCenter, ch chan volumes.TaskResult) {
 	ctx, log := logger.GetNewContextWithLogger()
 
 	result := <-ch
 
-	state, volInfo, faultType, err := volumes.DecodeCreateVolumeTaskResult(ctx, t.vc, result, volumeName)
+	// Decoding may read datastore properties from vCenter, so it gets the same
+	// bounded operation timeout as the synchronous path.
+	decodeCtx, cancel := context.WithTimeout(ctx, volumes.VolumeOperationTimeoutInSeconds*time.Second)
+	state, volInfo, faultType, err := volumes.DecodeCreateVolumeTaskResult(decodeCtx, vc, result, volumeName)
+	cancel()
 	log.Infof("CNS CreateVolume task %q for CnsRegisterVolume %s/%s completed with state %q",
 		taskMoRef.Value, cr.Namespace, cr.Name, state)
 
-	// Remove the old subscription before publishing the result. Otherwise a
-	// reconcile can resubscribe to an unknown result while this goroutine is
-	// still removing the previous registration.
+	// Publish the result now, but keep the task marked as watched until its
+	// subscription has been removed. Reconciles in the meantime act on the
+	// result and, if they need the task again, read it directly instead of
+	// subscribing a second time. A stalled removal therefore delays nothing,
+	// and its cleanup can never target a replacement subscription.
+	t.mu.Lock()
+	t.retiring[taskMoRef.Value] = true
+	submittedAt, timed := t.submittedAt[taskMoRef.Value]
+	delete(t.submittedAt, taskMoRef.Value)
+	// A CR whose slot was released while the task ran (it was deleted, or a
+	// completed checkpoint was observed) will never consume the result.
+	if t.slots[cr] == taskMoRef.Value {
+		t.results[taskMoRef.Value] = &cnsTaskOutcome{state: state, volInfo: volInfo, faultType: faultType, err: err}
+	}
+	t.mu.Unlock()
+	t.wake(cr)
+
 	if removeErr := t.listView.RemoveTask(ctx, taskMoRef); removeErr != nil {
 		log.Errorf("failed to remove task %q from listview: %v", taskMoRef.Value, removeErr)
 		if markErr := t.listView.MarkTaskForDeletion(ctx, taskMoRef); markErr != nil {
@@ -208,9 +239,7 @@ func (t *cnsTaskTracker) awaitResult(cr apitypes.NamespacedName,
 	}
 	t.mu.Lock()
 	delete(t.watching, taskMoRef.Value)
-	submittedAt, timed := t.submittedAt[taskMoRef.Value]
-	delete(t.submittedAt, taskMoRef.Value)
-	t.results[taskMoRef.Value] = &cnsTaskOutcome{state: state, volInfo: volInfo, faultType: faultType, err: err}
+	delete(t.retiring, taskMoRef.Value)
 	t.mu.Unlock()
 
 	// Manager.CreateVolume records this histogram around its blocking call.
@@ -225,8 +254,6 @@ func (t *cnsTaskTracker) awaitResult(cr apitypes.NamespacedName,
 		prometheus.CnsControlOpsHistVec.WithLabelValues(
 			prometheus.PrometheusCnsCreateVolumeOpType, status).Observe(time.Since(submittedAt).Seconds())
 	}
-
-	t.wake(cr)
 }
 
 // wake nudges the owning CR's reconcile. The send is non-blocking: the
@@ -258,6 +285,26 @@ func (t *cnsTaskTracker) isWatching(taskID string) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.watching[taskID]
+}
+
+// isRetiring reports whether a task's result has been published while its
+// listview subscription is still being removed.
+func (t *cnsTaskTracker) isRetiring(taskID string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.retiring[taskID]
+}
+
+// releaseCR drops a CR's slot and any unconsumed result of the task it held.
+// Used once an authoritative checkpoint shows the CR has no outstanding CNS
+// task, which covers status writes that committed but whose response was lost.
+func (t *cnsTaskTracker) releaseCR(cr apitypes.NamespacedName) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if taskID, held := t.slots[cr]; held {
+		delete(t.results, taskID)
+		delete(t.slots, cr)
+	}
 }
 
 // forget drops a consumed result and releases the CR's slot. Called once the

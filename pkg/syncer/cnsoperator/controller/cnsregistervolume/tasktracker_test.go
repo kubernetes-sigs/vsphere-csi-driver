@@ -46,6 +46,10 @@ type fakeListView struct {
 	addErr    error
 	removeErr error
 	addCalls  int
+
+	// removeBlock, when set before the first watch, stalls RemoveTask until
+	// it is closed.
+	removeBlock chan struct{}
 }
 
 func newFakeListView() *fakeListView {
@@ -65,6 +69,9 @@ func (f *fakeListView) AddTask(ctx context.Context, taskMoRef vim25types.Managed
 }
 
 func (f *fakeListView) RemoveTask(ctx context.Context, taskMoRef vim25types.ManagedObjectReference) error {
+	if f.removeBlock != nil {
+		<-f.removeBlock
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.removed = append(f.removed, taskMoRef.Value)
@@ -289,6 +296,22 @@ func TestTrackerForgetFreesSlotAndResult(t *testing.T) {
 	_, ok := tracker.outcome("task-1")
 	assert.False(t, ok, "a consumed outcome must be dropped")
 	assert.Equal(t, 0, tracker.inFlight(), "forget must release the capacity slot")
+}
+
+// TestTrackerDropsResultForReleasedCR verifies a result arriving after the CR
+// released its slot is not retained where nothing will consume it.
+func TestTrackerDropsResultForReleasedCR(t *testing.T) {
+	lv := newFakeListView()
+	tracker := newCnsTaskTracker(lv, nil, make(chan event.GenericEvent, 10), 2)
+
+	require.NoError(t, tracker.watch(context.Background(), crKey("cr-1"), taskRef("task-1"), "vol-1"))
+	tracker.releaseCR(crKey("cr-1"))
+	assert.Equal(t, 0, tracker.inFlight())
+
+	lv.deliver(t, "task-1", volumes.TaskResult{TaskInfo: nil, Err: errors.New("done")})
+	waitFor(t, func() bool { return !tracker.isWatching("task-1") }, "the watch to finish")
+	_, ok := tracker.outcome("task-1")
+	assert.False(t, ok, "a result for a released CR must be dropped")
 }
 
 // TestTrackerConcurrentWatchersAreSafe exercises the tracker the way a burst

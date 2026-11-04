@@ -28,6 +28,7 @@ import (
 	"github.com/vmware/govmomi/vim25/soap"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
@@ -601,4 +602,116 @@ func TestIsPVCBoundNowDoesNotWatch(t *testing.T) {
 	isBound, err = isPVCBoundNow(ctx, client, missing)
 	assert.NoError(t, err)
 	assert.False(t, isBound)
+}
+
+// A result published while its subscription is still being removed is
+// consumed, and the task is then read directly rather than subscribed to again
+// until the removal finishes. The old cleanup can therefore never remove a
+// replacement subscription, and a stalled removal does not stall the CR.
+func TestRetiringSubscriptionIsNotReplaced(t *testing.T) {
+	ctx := context.Background()
+	cr := newCondTestInstance(cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{CnsTaskID: "task-1"})
+	r, lv, _ := newAsyncTestReconciler(t, cr, 40)
+	lv.removeBlock = make(chan struct{})
+	old := getCreateVolumeTaskResultFn
+	t.Cleanup(func() { getCreateVolumeTaskResultFn = old })
+	reads := 0
+	getCreateVolumeTaskResultFn = func(context.Context, *cnsvsphere.VirtualCenter,
+		vim25types.ManagedObjectReference, string) (
+		volumes.CreateVolumeTaskState, *volumes.CnsVolumeInfo, string, error) {
+		reads++
+		return volumes.CreateVolumeTaskRunning, nil, "", nil
+	}
+
+	require.NoError(t, r.taskTracker.watch(ctx, instanceKey(cr), taskRef("task-1"), "vol"))
+	lv.deliver(t, "task-1", volumes.TaskResult{Err: errors.New("session lost")})
+	waitFor(t, func() bool { _, ok := r.taskTracker.outcome("task-1"); return ok }, "published result")
+	require.True(t, r.taskTracker.isRetiring("task-1"))
+
+	for i := 1; i <= 2; i++ {
+		_, retry, err := r.pollCreateVolume(ctx, cr, nil, asyncTestSpec(), time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, retry)
+		require.Equal(t, i, reads, "a retiring task must be read directly")
+		require.Equal(t, 1, lv.addCalls, "no replacement subscription while removal is pending")
+	}
+
+	close(lv.removeBlock)
+	waitFor(t, func() bool { return !r.taskTracker.isWatching("task-1") }, "removal to finish")
+	_, retry, err := r.pollCreateVolume(ctx, cr, nil, asyncTestSpec(), time.Second)
+	require.NoError(t, err)
+	require.NotNil(t, retry)
+	require.Equal(t, 2, lv.addCalls, "the task is subscribed again once removal has finished")
+	require.Equal(t, "task-1", cr.Status.CnsTaskID)
+}
+
+// A checkpoint write can commit while its response is lost, leaving the slot
+// and result in memory. Observing the checkpoint must release both. The CR is
+// waiting for its PVC to bind, which must cost one PVC read and nothing else.
+func TestCompletedCheckpointReleasesSlotAndWaitsForBind(t *testing.T) {
+	ctx := context.Background()
+	cr := newCondTestInstance(cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{CnsVolumeID: "vol-1"})
+	cr.Spec.PvcName = "test-pvc"
+	applyConditions(cr, falseCondition(cnsregistervolumev1alpha1.ConditionPvcBound,
+		cnsregistervolumev1alpha1.ReasonWaitingForBind, "Waiting for the PVC to be bound"))
+	r, _, _ := newAsyncTestReconciler(t, cr, 1)
+	r.taskTracker.mu.Lock()
+	r.taskTracker.slots[instanceKey(cr)] = "task-1"
+	r.taskTracker.mu.Unlock()
+	seedOutcome(r.taskTracker, "task-1", &cnsTaskOutcome{state: volumes.CreateVolumeTaskSucceeded,
+		volInfo: &volumes.CnsVolumeInfo{VolumeID: cnstypes.CnsVolumeId{Id: "vol-1"}}})
+	r.k8sclient = k8sfake.NewClientset(&corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pvc", Namespace: cr.Namespace},
+		Status:     corev1.PersistentVolumeClaimStatus{Phase: corev1.ClaimPending},
+	})
+	before := getCondTestInstance(t, r.client, cr).ResourceVersion
+
+	// volumeManager and configInfo are nil: replaying the pipeline would fail.
+	result, err := r.Reconcile(ctx, reconcileRequestFor(cr))
+	require.NoError(t, err)
+	require.Equal(t, pvcBindPollInterval, result.RequeueAfter)
+	require.Equal(t, 0, r.taskTracker.inFlight())
+	_, ok := r.taskTracker.outcome("task-1")
+	require.False(t, ok)
+	require.Equal(t, before, getCondTestInstance(t, r.client, cr).ResourceVersion,
+		"an unchanged bind wait must not write status")
+}
+
+func TestDeletedCRReleasesSlot(t *testing.T) {
+	cr := newCondTestInstance(cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{})
+	r, _, _ := newAsyncTestReconciler(t, cr, 1)
+	require.NoError(t, r.client.Delete(context.Background(), cr))
+	require.True(t, r.taskTracker.tryAcquireSlot(instanceKey(cr)))
+	_, err := r.Reconcile(context.Background(), reconcileRequestFor(cr))
+	require.NoError(t, err)
+	require.Equal(t, 0, r.taskTracker.inFlight())
+}
+
+// A status write adopts the server's whole object, so a later full update
+// keeps another writer's spec and metadata changes, while a change made after
+// the status write still conflicts.
+func TestStatusPatchDoesNotMaskConcurrentWrites(t *testing.T) {
+	ctx := context.Background()
+	cr := newCondTestInstance(cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{})
+	r, _, _ := newAsyncTestReconciler(t, cr, 40)
+
+	other := getCondTestInstance(t, r.client, cr)
+	other.Spec.StorageClassName = "changed"
+	other.Annotations = map[string]string{"owner": "other"}
+	require.NoError(t, r.client.Update(ctx, other))
+
+	setInstanceConditions(ctx, r, cr, trueCondition(cnsregistervolumev1alpha1.ConditionSpecValidated,
+		cnsregistervolumev1alpha1.ReasonValidated, "CnsRegisterVolume spec is valid"))
+	setInstanceOwnerRef(cr, "test-pvc", "pvc-uid")
+	require.NoError(t, updateCnsRegisterVolume(ctx, r.client, cr))
+	stored := getCondTestInstance(t, r.client, cr)
+	require.Equal(t, "changed", stored.Spec.StorageClassName)
+	require.Equal(t, "other", stored.Annotations["owner"])
+	require.Len(t, stored.OwnerReferences, 1)
+
+	other = getCondTestInstance(t, r.client, cr)
+	other.Spec.StorageClassName = "changed-again"
+	require.NoError(t, r.client.Update(ctx, other))
+	cr.Spec.VolumeMode = corev1.PersistentVolumeBlock
+	require.True(t, apierrors.IsConflict(updateCnsRegisterVolume(ctx, r.client, cr)))
 }
