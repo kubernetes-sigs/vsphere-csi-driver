@@ -435,6 +435,9 @@ func (m *defaultManager) MonitorCreateVolumeTask(ctx context.Context,
 	taskInfo, err = m.waitOnTask(ctx, task.Reference())
 
 	if err != nil {
+		if errors.Is(err, ErrTaskMonitoring) {
+			return nil, ExtractFaultTypeFromErr(ctx, err), err
+		}
 		if cnsvsphere.IsManagedObjectNotFound(err, task.Reference()) {
 			log.Debugf("CreateVolume task %s not found in vCenter %s. Querying CNS "+
 				"to determine if the volume %s was successfully created.",
@@ -542,7 +545,26 @@ func (m *defaultManager) MonitorCreateVolumeTask(ctx context.Context,
 	resp, faultType, err := getCnsVolumeInfoFromTaskResult(ctx, m.virtualCenter, volNameFromInputSpec,
 		volumeOperationRes.VolumeId, taskResult)
 	if err != nil {
-		*volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
+		if isContextFailure(ctx, err) {
+			// The task succeeded; only the placement lookup this call makes
+			// afterwards ran out of context. Recording Error here would clear
+			// the task ID and leave the volume CNS just created orphaned,
+			// because the retry would see no pending task and create another
+			// one. Leave the record InProgress instead: the retry re-registers
+			// the same task, gets its terminal update straight away, and
+			// re-derives the datastore and placement the lookup failed to
+			// read. If vCenter has reaped the task by then, the
+			// ManagedObjectNotFound branch above recovers the volume by name.
+			monitorErr := fmt.Errorf("%w: volume %q was created but its placement could not be read: %w",
+				ErrTaskMonitoring, volNameFromInputSpec, err)
+			log.Errorf("%v. leaving CreateVolume task %s recorded as in progress so the retry resumes it",
+				monitorErr, task.Reference().Value)
+			return nil, ExtractFaultTypeFromErr(ctx, monitorErr), monitorErr
+		}
+		// A real lookup failure. Record the volume ID even though the task is
+		// marked failed: the volume exists, and this is the only place its ID
+		// is written down.
+		*volumeOperationDetails = createRequestDetails(volNameFromInputSpec, volumeOperationRes.VolumeId.Id, "", 0,
 			(*volumeOperationDetails).QuotaDetails, (*volumeOperationDetails).OperationDetails.TaskInvocationTimestamp,
 			task.Reference().Value, vCenterServerForVolumeOperationCR, taskInfo.ActivationId,
 			taskInvocationStatusError, err.Error(), "")
@@ -629,6 +651,27 @@ func (m *defaultManager) createVolumeWithImprovedIdempotency(ctx context.Context
 
 			// Validate if previous operation is pending.
 			if IsTaskPending(volumeOperationDetails) {
+				// A task ID only means anything on the vCenter that issued it.
+				// The record is keyed by volume name alone, so in a multi-vCenter
+				// deployment the manager reading it here may belong to a different
+				// vCenter than the one still running the task -- the vanilla create
+				// loops move on to the next vCenter when a create fails. Monitoring
+				// A's task ID with B's client either finds nothing (and would record
+				// Error, losing a create that is still running on A) or finds an
+				// unrelated task of B's with the same ID. Neither is recoverable, so
+				// refuse rather than guess, and leave the record untouched for a
+				// retry that reaches the recorded vCenter.
+				if recordedVC := volumeOperationDetails.OperationDetails.VCenterServer; recordedVC != "" &&
+					recordedVC != m.virtualCenter.Config.Host.String() {
+					// fmt.Errorf, not logger.LogNewErrorf: the latter flattens the
+					// error to a string, and callers match on ErrTaskMonitoring.
+					finalErr = fmt.Errorf("%w: CreateVolume task %s for volume %s is pending on vCenter %q, "+
+						"not on %q; retry must reach the vCenter that owns the task",
+						ErrTaskMonitoring, volumeOperationDetails.OperationDetails.TaskID,
+						volNameFromInputSpec, recordedVC, m.virtualCenter.Config.Host.String())
+					log.Error(finalErr)
+					return nil, csifault.CSIInternalFault, finalErr
+				}
 				log.Infof("Volume with name %s has CreateVolume task %s pending on CNS.",
 					volNameFromInputSpec,
 					volumeOperationDetails.OperationDetails.TaskID)
@@ -850,6 +893,13 @@ func (m *defaultManager) createVolumeWithTransaction(ctx context.Context, spec *
 		spec.Metadata.ContainerClusterArray[0].ClusterId)
 }
 
+// isContextFailure reports whether err came from the request's context running
+// out rather than from the operation itself. Such a failure says nothing about
+// what happened on CNS, so it must never be recorded as a task error.
+func isContextFailure(ctx context.Context, err error) bool {
+	return ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
 // IsTaskPending returns true in two cases -
 // 1. if the task status was in progress
 // 2. if the status was an error but the error was for adding the task to the listview
@@ -865,28 +915,99 @@ func IsTaskPending(volumeOperationDetails *cnsvolumeoperationrequest.VolumeOpera
 	return false
 }
 
+// taskWaitLocks serialize registration and cleanup for the same task in one
+// process. The ListView stores one receiver per task reference.
+var taskWaitLocks = struct {
+	sync.Mutex
+	entries map[taskWaitKey]*taskWaitLock
+}{entries: make(map[taskWaitKey]*taskWaitLock)}
+
+type taskWaitKey struct {
+	manager *defaultManager
+	task    vim25types.ManagedObjectReference
+}
+
+type taskWaitLock struct {
+	available chan struct{}
+	users     int
+}
+
+func acquireTaskWait(ctx context.Context, key taskWaitKey) (func(), error) {
+	taskWaitLocks.Lock()
+	entry := taskWaitLocks.entries[key]
+	if entry == nil {
+		entry = &taskWaitLock{available: make(chan struct{}, 1)}
+		entry.available <- struct{}{}
+		taskWaitLocks.entries[key] = entry
+	}
+	entry.users++
+	taskWaitLocks.Unlock()
+	releaseUser := func() {
+		taskWaitLocks.Lock()
+		entry.users--
+		if entry.users == 0 {
+			delete(taskWaitLocks.entries, key)
+		}
+		taskWaitLocks.Unlock()
+	}
+	select {
+	case <-ctx.Done():
+		releaseUser()
+		return nil, fmt.Errorf("%w: %w", ErrTaskMonitoring, ctx.Err())
+	case <-entry.available:
+		return func() { entry.available <- struct{}{}; releaseUser() }, nil
+	}
+}
+
 func (m *defaultManager) waitOnTask(csiOpContext context.Context,
 	taskMoRef vim25types.ManagedObjectReference) (*vim25types.TaskInfo, error) {
 	log := logger.GetLogger(csiOpContext)
+	release, err := acquireTaskWait(csiOpContext, taskWaitKey{manager: m, task: taskMoRef})
+	if err != nil {
+		return nil, err
+	}
+	// Ownership of the task wait lock moves to the cleanup goroutine below
+	// once there is something to clean up; until then this call still owns it.
+	cleanupOwnsLock := false
+	defer func() {
+		if !cleanupOwnsLock {
+			release()
+		}
+	}()
 	if m.listViewIf == nil {
 		err := m.initListView(context.Background())
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: %w", ErrTaskMonitoring, err)
 		}
 	}
 	ch := make(chan TaskResult, 1)
-	err := m.listViewIf.AddTask(csiOpContext, taskMoRef, ch)
+	err = m.listViewIf.AddTask(csiOpContext, taskMoRef, ch)
 	if errors.Is(err, ErrListViewTaskAddition) {
-		return nil, logger.LogNewErrorf(log, "%s. err: %v", listviewAdditionError, err)
+		return nil, fmt.Errorf("%w: %s: %w", ErrTaskMonitoring, listviewAdditionError, err)
 	} else if err != nil {
 		// in case the task is not found in VC, we are returning a ManagedObjectNotFound error wrapped as a soap fault
 		// we need to return it as is to ensure that further CNS Volume Operations CR gets updated correctly
-		return nil, err
+		if cnsvsphere.IsManagedObjectNotFound(err, taskMoRef) || errors.Is(err, ErrTaskFailed) ||
+			errors.Is(err, ErrTaskMonitoring) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%w: %w", ErrTaskMonitoring, err)
 	}
 
-	// deferring removal of task after response from CNS
-	// called only after successful addition to listView, so we don't need any check for the removal
-	defer func() {
+	taskInfo, err := waitForResultOrTimeout(csiOpContext, taskMoRef, ch)
+
+	// Removal runs detached, not in a defer, because it must not spend what is
+	// left of this request's deadline. RemoveTask drops the caller's
+	// cancellation and bounds itself at listViewCallTimeout, so after a result
+	// has already arrived the caller would wait on it -- behind viewMu, behind
+	// another task's stalled Add -- and reach the placement lookup in
+	// MonitorCreateVolumeTask with an expired context, failing a create that
+	// actually succeeded. The goroutine takes ownership of the task wait lock,
+	// so a retry for the same task still queues behind this cleanup; it just
+	// queues on its own fresh deadline.
+	cleanupOwnsLock = true
+	go func() {
+		defer release()
 		err := m.listViewIf.RemoveTask(csiOpContext, taskMoRef)
 		if err != nil {
 			log.Errorf("failed to remove task from list view. err: %v", err)
@@ -896,7 +1017,12 @@ func (m *defaultManager) waitOnTask(csiOpContext context.Context,
 			}
 		}
 	}()
-	return waitForResultOrTimeout(csiOpContext, taskMoRef, ch)
+
+	if err != nil && !errors.Is(err, ErrTaskFailed) && !errors.Is(err, ErrTaskMonitoring) &&
+		!cnsvsphere.IsManagedObjectNotFound(err, taskMoRef) {
+		return nil, fmt.Errorf("%w: %w", ErrTaskMonitoring, err)
+	}
+	return taskInfo, err
 }
 
 // waitForResultOrTimeout uses the context provided by the sidecars when CSI driver operations are called.
@@ -908,7 +1034,13 @@ func waitForResultOrTimeout(csiOpContext context.Context, taskMoRef vim25types.M
 	var err error
 	select {
 	case <-csiOpContext.Done():
-		err = fmt.Errorf("time out for task %v before response from CNS", taskMoRef)
+		if errors.Is(csiOpContext.Err(), context.Canceled) {
+			err = fmt.Errorf("%w: canceled while waiting for task %v before response from CNS: %w",
+				ErrTaskMonitoring, taskMoRef, csiOpContext.Err())
+		} else {
+			err = fmt.Errorf("%w: time out for task %v before response from CNS: %w",
+				ErrTaskMonitoring, taskMoRef, csiOpContext.Err())
+		}
 		taskInfo = nil
 	case result := <-ch:
 		err = result.Err
@@ -1018,8 +1150,16 @@ func (m *defaultManager) createVolume(ctx context.Context, spec *cnstypes.CnsVol
 	}
 
 	// Return CnsVolumeInfo from the taskResult.
-	return getCnsVolumeInfoFromTaskResult(ctx, m.virtualCenter, volNameFromInputSpec, volumeOperationRes.VolumeId,
-		taskResult)
+	info, faultType, err := getCnsVolumeInfoFromTaskResult(ctx, m.virtualCenter, volNameFromInputSpec,
+		volumeOperationRes.VolumeId, taskResult)
+	if err != nil && isContextFailure(ctx, err) {
+		// The volume was created; only the placement lookup ran out of
+		// context. There is no persisted record on this path, but the caller
+		// still needs to be able to tell this apart from a failed create.
+		return nil, faultType, fmt.Errorf("%w: volume %q was created but its placement could not be read: %w",
+			ErrTaskMonitoring, volNameFromInputSpec, err)
+	}
+	return info, faultType, err
 }
 
 // CreateVolume creates a new volume given its spec.

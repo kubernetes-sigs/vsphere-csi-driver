@@ -563,7 +563,12 @@ func IsInvalidLoginError(ctx context.Context, err error) bool {
 	if soap.IsSoapFault(err) {
 		soapFault := soap.ToSoapFault(err)
 		if soapFault != nil && soapFault.VimFault() != nil {
-			if _, ok := soapFault.VimFault().(*types.InvalidLogin); ok {
+			// Both shapes are checked on purpose. A fault decoded off the wire
+			// comes back as a value, while one constructed in-process (govmomi
+			// helpers, vcsim) is a pointer, and matching only the pointer left
+			// the real-vCenter case to the message fallback below.
+			switch soapFault.VimFault().(type) {
+			case *types.InvalidLogin, types.InvalidLogin:
 				return true
 			}
 		}

@@ -65,25 +65,32 @@ const (
 	statusSuccess = "success"
 	// failed request
 	statusFailUnknown = "fail-unknown"
-
-	// Retry configuration for InvalidLogin errors during connection establishment.
-	// These constants define the retry behavior when authentication fails,
-	// which can happen during password rotation by WCP service.
-	// Uses a flat 3-minute (180s) delay matching vCenter's SSO lockout window
-	// (5 attempts in 180s). After one retry, the function returns an error,
-	// allowing Kubernetes to restart the container for fresh attempts.
-	// This approach is lockout-proof and leverages Kubernetes' restart mechanism.
-	maxLoginRetries = 2 // Initial attempt + 1 retry after 180s
-	retryDelay      = 3 * time.Minute
-
-	// restLoginCooldown is how long connect() waits before attempting another
-	// rest login after one was rejected as an authentication failure. It matches
-	// retryDelay, and for the same reason: the rest re-login path runs on every
-	// connect() and has no attempt limit of its own, so without a cooldown a
-	// wrong password would spend vCenter's SSO lockout budget (5 attempts in
-	// 180s) within seconds on an active cluster and lock the account out.
-	restLoginCooldown = retryDelay
 )
+
+// loginCooldown is how long Connect refuses to attempt another full login after
+// one was rejected as an InvalidLogin, which is what password rotation by the
+// WCP service looks like from here. It matches vCenter's SSO lockout window
+// (5 attempts in 180s), so a wrong password can never spend more than one
+// attempt per window no matter how many callers ask for a connection.
+//
+// The cooldown is a wall-clock stamp rather than a sleep inside Connect on
+// purpose. Sleeping held ClientMutex for the whole delay -- every other caller
+// of Connect, and everything downstream of them, queued behind an attempt that
+// was only ever going to wait -- and it bounded nothing: a caller with a
+// shorter context than the delay returned early, so the next caller started a
+// fresh attempt and the lockout budget was spent at the rate callers arrived.
+// A stamp is honoured by every caller regardless of its deadline, and the retry
+// happens on whichever caller's Connect lands after the cooldown expires.
+// A variable rather than a constant so tests can shorten it.
+var loginCooldown = 3 * time.Minute
+
+// restLoginCooldown is how long connect() waits before attempting another
+// rest login after one was rejected as an authentication failure. It matches
+// loginCooldown, and for the same reason: the rest re-login path runs on every
+// connect() and has no attempt limit of its own, so without a cooldown a
+// wrong password would spend vCenter's SSO lockout budget (5 attempts in
+// 180s) within seconds on an active cluster and lock the account out.
+var restLoginCooldown = loginCooldown
 
 // restLoginTimeout bounds a rest re-login attempt on connect()'s repair path.
 // NewClient sets soap.Client.Timeout to 0 and the rest client shares that
@@ -117,6 +124,16 @@ type VirtualCenter struct {
 	// written only from connect(), which callers reach through Connect while it
 	// holds ClientMutex, the same protection vc.Client and vc.RestClient have.
 	restLoginCooldownUntil time.Time
+	// loginCooldownUntil is the time before which Connect will not attempt
+	// another full login, set when one was rejected as an InvalidLogin. Zero
+	// means no cooldown is in effect. loginCooldownErr is the rejection that
+	// set it, replayed to callers that arrive during the cooldown so they see
+	// the real authentication failure rather than a substitute error that
+	// IsInvalidLoginError would not recognise. Both are read and written only
+	// from Connect while it holds ClientMutex, the same protection vc.Client
+	// and restLoginCooldownUntil have.
+	loginCooldownUntil time.Time
+	loginCooldownErr   error
 }
 
 type MetricRoundTripper struct {
@@ -471,68 +488,54 @@ func (vc *VirtualCenter) cleanupVCClient(ctx context.Context) {
 }
 
 // Connect establishes a new connection with vSphere with updated credentials.
-// If credentials are invalid due to password rotation, it retries with a flat 3-minute delay
-// to avoid account lockout. The delay matches vCenter's SSO lockout window (5 attempts in 180s),
-// ensuring each retry happens after the previous lockout window expires.
-// For any other failure, it fails immediately without retry.
-// After each login attempt, the client is cleaned up to avoid resource leaks.
+//
+// An InvalidLogin -- what password rotation by the WCP service looks like from
+// here -- puts the whole VirtualCenter into a loginCooldown, during which every
+// Connect replays that rejection without going near vCenter. That is the only
+// thing keeping a wrong password inside vCenter's SSO lockout budget: Connect
+// is called per operation, by the listview watchdog on a 30s ticker and by the
+// listview update loop, and nothing else limits how often those arrive. The
+// cooldown deliberately replaces an in-Connect retry delay, which held
+// ClientMutex for its whole duration and was cut short by any caller whose own
+// context was shorter -- see loginCooldown.
+//
+// For any other failure, it fails immediately. After each login attempt, the
+// client is cleaned up to avoid resource leaks.
 func (vc *VirtualCenter) Connect(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 
 	vc.ClientMutex.Lock()
 	defer vc.ClientMutex.Unlock()
 
-	var err error
-	for attempt := 1; attempt <= maxLoginRetries; attempt++ {
-		err = vc.connect(ctx)
-		if err == nil {
-			// Connection successful
-			log.With("attempt", attempt).Debug("Successfully connected to vCenter")
-			return nil
-		}
-
-		// Check if this is an InvalidLogin error that we should retry
-		if !IsInvalidLoginError(ctx, err) {
-			// Not an authentication error - fail immediately without retry
-			log.With("err", err).Error("Cannot connect to vCenter")
-			break
-		}
-
-		// If this is the last attempt, don't wait - just exit
-		if attempt >= maxLoginRetries {
-			log.With("attempts", maxLoginRetries, "err", err).
-				Warn("Cannot connect to vCenter after all retry attempts with InvalidLogin error")
-			break
-		}
-
-		// Log the retry attempt
-		log.With("attempt", attempt, "retryDelay", retryDelay, "maxAttempts", maxLoginRetries).
-			Warn("Unable to login to VC with invalid login error, retrying (possibly due to credential rotation)")
-
-		// Cleanup before retrying to ensure clean state
-		vc.cleanupVCClient(ctx)
-
-		// Wait before retrying.
-		// Since defer in not a good practice in loops, we stop the timer explicitly.
-		retryTimer := time.NewTimer(retryDelay)
-		select {
-		case <-ctx.Done():
-			retryTimer.Stop()
-			log.With("err", ctx.Err()).Error("Context cancelled during retry backoff")
-			return ctx.Err()
-		case <-retryTimer.C:
-			retryTimer.Stop()
-			// Continue to next attempt
-		}
+	if remaining := time.Until(vc.loginCooldownUntil); remaining > 0 {
+		log.With("remaining", remaining.Truncate(time.Second), "err", vc.loginCooldownErr).
+			Warn("not attempting a vCenter login: the last attempt was rejected as an invalid login, " +
+				"and retrying it on every Connect risks locking the account out")
+		return vc.loginCooldownErr
 	}
 
-	// We reach here in one of the following cases:
-	// 1. All retry attempts failed with InvalidLogin errors.
-	// 2. The context was cancelled.
-	// 3. Some other error occurred while creating a new client.
-	// In all these cases, we need to clean up the client before returning the error.
+	err := vc.connect(ctx)
+	if err == nil {
+		log.Debug("Successfully connected to vCenter")
+		vc.loginCooldownUntil, vc.loginCooldownErr = time.Time{}, nil
+		return nil
+	}
+
+	wrapped := fmt.Errorf("failed to connect to vCenter: %w", err)
+	if IsInvalidLoginError(ctx, err) {
+		// Stamped before cleanup so the cooldown holds even if cleanup itself
+		// fails: a caller arriving a moment later must not get a fresh attempt.
+		vc.loginCooldownUntil, vc.loginCooldownErr = time.Now().Add(loginCooldown), wrapped
+		log.With("cooldown", loginCooldown, "err", err).
+			Warn("Unable to login to VC with invalid login error (possibly due to credential rotation); " +
+				"not attempting another login until the cooldown expires")
+	} else {
+		log.With("err", err).Error("Cannot connect to vCenter")
+	}
+
+	// Clean up the client before returning the error, in both branches.
 	vc.cleanupVCClient(ctx)
-	return fmt.Errorf("failed to connect to vCenter: %w", err)
+	return wrapped
 }
 
 // connect creates a connection to the virtual center host.
@@ -947,6 +950,24 @@ func (vc *VirtualCenter) GetDatacenters(ctx context.Context) ([]*Datacenter, err
 		return vc.getDatacenters(ctx, vc.Config.DatacenterPaths)
 	}
 	return vc.ListDatacenters(ctx)
+}
+
+// VimClient returns the vim25 client of the current connection, or nil if
+// there is none yet.
+//
+// vc.Client is read under ClientMutex here, not bare: connect() rewrites it
+// under that same lock on every reconnect, so an unlocked read races that
+// write (the same reasoning spelled out in GetTagManager). Callers that hold a
+// lock of their own while reading the client should use this instead of
+// widening their lock to cover Connect -- a lock held across a login is a lock
+// held for as long as the login takes.
+func (vc *VirtualCenter) VimClient() *vim25.Client {
+	vc.ClientMutex.Lock()
+	defer vc.ClientMutex.Unlock()
+	if vc.Client == nil {
+		return nil
+	}
+	return vc.Client.Client
 }
 
 // Disconnect disconnects the virtual center host connection if connected.

@@ -19,6 +19,7 @@ package volume
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 
@@ -362,7 +363,13 @@ func getCnsVolumeInfoFromTaskResult(ctx context.Context, virtualCenter *cnsvsphe
 					faultType := ""
 					if err != nil {
 						faultType = ExtractFaultTypeFromErr(ctx, err)
-						return nil, faultType, logger.LogNewErrorf(log, "failed to retrieve datastore summary property: %v", err)
+						// Wrapped, not flattened through LogNewErrorf: callers
+						// distinguish a lookup that ran out of context (the
+						// volume exists, resume it) from one that failed on its
+						// own (see isContextFailure).
+						wrapped := fmt.Errorf("failed to retrieve datastore summary property: %w", err)
+						log.Error(wrapped)
+						return nil, faultType, wrapped
 					}
 					datastoreURL = dsMo.Summary.Url
 					log.Debugf("datastoreURL: %q for volume:%q", datastoreURL, volumeID)
