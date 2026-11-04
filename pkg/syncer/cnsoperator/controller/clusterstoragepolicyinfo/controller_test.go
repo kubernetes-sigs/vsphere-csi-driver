@@ -1086,6 +1086,246 @@ func TestUpdateStatus_PolicyDeleted(t *testing.T) {
 	assert.Empty(t, cspi.Status.Error, "expected no error message")
 }
 
+func TestCleanupDeletedStoragePolicyInfra(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	clusterSPI := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold"},
+		Status: clusterspiv1alpha1.ClusterStoragePolicyInfoStatus{
+			StoragePolicyDeleted: true,
+		},
+	}
+	objects := []client.Object{
+		clusterSPI,
+		&infraspiv1alpha1.InfraStoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: "gold"}},
+	}
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+	r := &ReconcileClusterStoragePolicyInfo{client: cli, scheme: scheme}
+
+	require.NoError(t, r.cleanupDeletedStoragePolicyInfra(ctx, "gold"))
+	// Repeating cleanup must be harmless after all derived objects are gone.
+	require.NoError(t, r.cleanupDeletedStoragePolicyInfra(ctx, "gold"))
+
+	require.NoError(t, cli.Get(ctx, types.NamespacedName{Name: "gold"},
+		&clusterspiv1alpha1.ClusterStoragePolicyInfo{}), "ClusterSPI must continue to exist")
+	assert.True(t, apierrors.IsNotFound(cli.Get(ctx, types.NamespacedName{Name: "gold"},
+		&infraspiv1alpha1.InfraStoragePolicyInfo{})))
+}
+
+// newSkippedPolicyReconciler builds a reconciler over a stored ClusterSPI and an InfraSPI named
+// "gold", with the given interceptor funcs.
+func newSkippedPolicyReconciler(t *testing.T, funcs interceptor.Funcs) (
+	*ReconcileClusterStoragePolicyInfo, client.Client, *clusterspiv1alpha1.ClusterStoragePolicyInfo) {
+	t.Helper()
+	scheme := testScheme(t)
+	stored := &clusterspiv1alpha1.ClusterStoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: "gold"}}
+	cli := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(stored, &infraspiv1alpha1.InfraStoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: "gold"}}).
+		WithStatusSubresource(&clusterspiv1alpha1.ClusterStoragePolicyInfo{}).
+		WithInterceptorFuncs(funcs).Build()
+	backOffDuration = make(map[types.NamespacedName]time.Duration)
+	return &ReconcileClusterStoragePolicyInfo{client: cli, scheme: scheme, recorder: record.NewFakeRecorder(10)},
+		cli, stored
+}
+
+// TestReconcileSkippedStoragePolicy_DeletedStatusPublishedBeforeInfraSPIDelete verifies that
+// the StoragePolicyDeleted status is persisted before InfraSPI is deleted.
+func TestReconcileSkippedStoragePolicy_DeletedStatusPublishedBeforeInfraSPIDelete(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	key := types.NamespacedName{Name: "gold"}
+	var deletedPublishedAtInfraDelete, infraDeleteCalled bool
+	funcs := interceptor.Funcs{
+		Delete: func(ctx context.Context, cli client.WithWatch, obj client.Object,
+			opts ...client.DeleteOption) error {
+			if _, ok := obj.(*infraspiv1alpha1.InfraStoragePolicyInfo); ok {
+				infraDeleteCalled = true
+				persisted := &clusterspiv1alpha1.ClusterStoragePolicyInfo{}
+				require.NoError(t, cli.Get(ctx, key, persisted))
+				deletedPublishedAtInfraDelete = persisted.Status.StoragePolicyDeleted
+			}
+			return cli.Delete(ctx, obj, opts...)
+		},
+	}
+	r, cli, stored := newSkippedPolicyReconciler(t, funcs)
+	origStatus := stored.Status.DeepCopy()
+	instance := stored.DeepCopy()
+	instance.Status.StoragePolicyDeleted = true
+
+	result, err := r.reconcileSkippedStoragePolicy(ctx, key, instance, origStatus, false, time.Second)
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, result)
+	require.True(t, infraDeleteCalled, "expected InfraSPI delete to be attempted")
+	assert.True(t, deletedPublishedAtInfraDelete,
+		"StoragePolicyDeleted must be persisted before InfraSPI is deleted")
+	assert.True(t, apierrors.IsNotFound(cli.Get(ctx, key, &infraspiv1alpha1.InfraStoragePolicyInfo{})))
+	require.NoError(t, cli.Get(ctx, key, &clusterspiv1alpha1.ClusterStoragePolicyInfo{}),
+		"ClusterSPI must be retained")
+}
+
+// TestReconcileSkippedStoragePolicy_InfraSPIDeleteFailure verifies that a failed InfraSPI delete
+// records the error on the ClusterSPI status, keeps the deleted status, and requeues.
+func TestReconcileSkippedStoragePolicy_InfraSPIDeleteFailure(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	key := types.NamespacedName{Name: "gold"}
+	funcs := interceptor.Funcs{
+		Delete: func(ctx context.Context, cli client.WithWatch, obj client.Object,
+			opts ...client.DeleteOption) error {
+			if _, ok := obj.(*infraspiv1alpha1.InfraStoragePolicyInfo); ok {
+				return fmt.Errorf("injected delete failure")
+			}
+			return cli.Delete(ctx, obj, opts...)
+		},
+	}
+	r, cli, stored := newSkippedPolicyReconciler(t, funcs)
+	origStatus := stored.Status.DeepCopy()
+	instance := stored.DeepCopy()
+	instance.Status.StoragePolicyDeleted = true
+
+	timeout := 5 * time.Second
+	result, err := r.reconcileSkippedStoragePolicy(ctx, key, instance, origStatus, false, timeout)
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{RequeueAfter: timeout}, result)
+
+	persisted := &clusterspiv1alpha1.ClusterStoragePolicyInfo{}
+	require.NoError(t, cli.Get(ctx, key, persisted))
+	assert.True(t, persisted.Status.StoragePolicyDeleted)
+	assert.Contains(t, persisted.Status.Error, "injected delete failure")
+	require.NoError(t, cli.Get(ctx, key, &infraspiv1alpha1.InfraStoragePolicyInfo{}),
+		"InfraSPI must remain when its delete failed")
+}
+
+// TestReconcileSkippedStoragePolicy_AliasKeepsInfraSPI verifies that the upgraded-alias path
+// publishes success without deleting InfraSPI.
+func TestReconcileSkippedStoragePolicy_AliasKeepsInfraSPI(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	key := types.NamespacedName{Name: "gold"}
+	infraDeleteCalled := false
+	funcs := interceptor.Funcs{
+		Delete: func(ctx context.Context, cli client.WithWatch, obj client.Object,
+			opts ...client.DeleteOption) error {
+			if _, ok := obj.(*infraspiv1alpha1.InfraStoragePolicyInfo); ok {
+				infraDeleteCalled = true
+			}
+			return cli.Delete(ctx, obj, opts...)
+		},
+	}
+	r, cli, stored := newSkippedPolicyReconciler(t, funcs)
+	origStatus := stored.Status.DeepCopy()
+	instance := stored.DeepCopy()
+	instance.Status.VolumeClassName = "platinum" // resolved canonical name differs from "gold"
+
+	result, err := r.reconcileSkippedStoragePolicy(ctx, key, instance, origStatus, false, time.Second)
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, result)
+	assert.False(t, infraDeleteCalled, "alias path must not delete InfraSPI")
+	require.NoError(t, cli.Get(ctx, key, &infraspiv1alpha1.InfraStoragePolicyInfo{}))
+
+	persisted := &clusterspiv1alpha1.ClusterStoragePolicyInfo{}
+	require.NoError(t, cli.Get(ctx, key, persisted))
+	assert.Equal(t, "platinum", persisted.Status.VolumeClassName)
+	assert.False(t, persisted.Status.StoragePolicyDeleted)
+	assert.Empty(t, persisted.Status.Error)
+}
+
+// TestReconcileSkippedStoragePolicy_DeletedPolicyWithoutBackingResourcesDeletesClusterSPI verifies
+// that an orphaned ClusterSPI (no SC/VAC) is deleted along with its InfraSPI once the policy is
+// deleted, and that it is retained when an SC/VAC still backs it.
+func TestReconcileSkippedStoragePolicy_DeletedPolicyWithoutBackingResourcesDeletesClusterSPI(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		noBackingResources bool
+		ownerRefs          bool
+	}{
+		{name: "no backing resources deletes ClusterSPI", noBackingResources: true},
+		{name: "owner references leave ClusterSPI for GC", noBackingResources: true, ownerRefs: true},
+		{name: "backing resources retain ClusterSPI"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := logger.NewContextWithLogger(context.Background())
+			key := types.NamespacedName{Name: "gold"}
+			r, cli, stored := newSkippedPolicyReconciler(t, interceptor.Funcs{})
+			if tc.ownerRefs {
+				// Persist the refs: the status update overwrites the in-memory instance from the store.
+				stored.OwnerReferences = []metav1.OwnerReference{{
+					APIVersion: "storage.k8s.io/v1", Kind: "StorageClass", Name: "gold", UID: "sc-uid"}}
+				require.NoError(t, cli.Update(ctx, stored))
+			}
+			origStatus := stored.Status.DeepCopy()
+			instance := stored.DeepCopy()
+			instance.Status.StoragePolicyDeleted = true
+
+			result, err := r.reconcileSkippedStoragePolicy(ctx, key, instance, origStatus,
+				tc.noBackingResources, time.Second)
+			require.NoError(t, err)
+			assert.Equal(t, reconcile.Result{}, result)
+			assert.True(t, apierrors.IsNotFound(cli.Get(ctx, key, &infraspiv1alpha1.InfraStoragePolicyInfo{})))
+			err = cli.Get(ctx, key, &clusterspiv1alpha1.ClusterStoragePolicyInfo{})
+			if tc.noBackingResources && !tc.ownerRefs {
+				assert.True(t, apierrors.IsNotFound(err), "orphaned ClusterSPI must be deleted")
+			} else {
+				assert.NoError(t, err, "ClusterSPI must be retained")
+			}
+		})
+	}
+}
+
+// TestReconcileSkippedStoragePolicy_ClusterSPIDeleteFailure verifies that a failed ClusterSPI delete
+// sets the error status and requeues.
+func TestReconcileSkippedStoragePolicy_ClusterSPIDeleteFailure(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	key := types.NamespacedName{Name: "gold"}
+	funcs := interceptor.Funcs{
+		Delete: func(ctx context.Context, cli client.WithWatch, obj client.Object,
+			opts ...client.DeleteOption) error {
+			if _, ok := obj.(*clusterspiv1alpha1.ClusterStoragePolicyInfo); ok {
+				return fmt.Errorf("injected delete failure")
+			}
+			return cli.Delete(ctx, obj, opts...)
+		},
+	}
+	r, cli, stored := newSkippedPolicyReconciler(t, funcs)
+	origStatus := stored.Status.DeepCopy()
+	instance := stored.DeepCopy()
+	instance.Status.StoragePolicyDeleted = true
+
+	timeout := 5 * time.Second
+	result, err := r.reconcileSkippedStoragePolicy(ctx, key, instance, origStatus, true, timeout)
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{RequeueAfter: timeout}, result)
+
+	persisted := &clusterspiv1alpha1.ClusterStoragePolicyInfo{}
+	require.NoError(t, cli.Get(ctx, key, persisted))
+	assert.Contains(t, persisted.Status.Error, "injected delete failure")
+}
+
+func TestClearDeletedStoragePolicyAttributes(t *testing.T) {
+	iopsLimit := int64(1000)
+	clusterSPI := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+		Status: clusterspiv1alpha1.ClusterStoragePolicyInfoStatus{
+			VolumeClassName:      "gold",
+			StoragePolicyDeleted: true,
+			Performance: &clusterspiv1alpha1.Performance{
+				IopsLimit: &iopsLimit,
+			},
+			Encryption: &clusterspiv1alpha1.Encryption{
+				SupportsEncryption: true,
+				EncryptionTypes: []clusterspiv1alpha1.EncryptionType{
+					clusterspiv1alpha1.EncryptionTypeVSAN,
+				},
+			},
+			Error: "preserved until reconciliation reports success",
+		},
+	}
+
+	clearDeletedStoragePolicyAttributes(clusterSPI)
+
+	assert.Empty(t, clusterSPI.Status.VolumeClassName)
+	assert.Nil(t, clusterSPI.Status.Performance)
+	assert.Nil(t, clusterSPI.Status.Encryption)
+	assert.True(t, clusterSPI.Status.StoragePolicyDeleted)
+	assert.Equal(t, "preserved until reconciliation reports success", clusterSPI.Status.Error)
+}
+
 // statusUpdateInterceptor returns interceptor.Funcs that record every Status().Update() call
 // while still performing the update against the underlying fake client.
 func statusUpdateInterceptor(called *bool) interceptor.Funcs {
