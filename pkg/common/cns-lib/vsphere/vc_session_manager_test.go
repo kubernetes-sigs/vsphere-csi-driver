@@ -88,11 +88,36 @@ func TestGetSharedToken(t *testing.T) {
 			missingTokenFile := filepath.Join(t.TempDir(), "no-such-token")
 
 			_, err := vclib.GetSharedToken(ctx, vclib.SharedTokenOptions{
-				URL:       "http://something.tld/lala",
+				URL:       "https://something.tld/lala",
 				TokenFile: missingTokenFile,
 			})
 			assert.ErrorContains(t, err, "failed reading token from service account")
 			assert.ErrorContains(t, err, missingTokenFile)
+		})
+
+		t.Run("should reject non-https URLs for non-loopback hosts", func(t *testing.T) {
+			for _, u := range []string{
+				"http://something.tld/session",
+				"http://10.0.0.5:18080/session",
+				"ftp://something.tld/session",
+				"something.tld/session",
+			} {
+				_, err := vclib.GetSharedToken(ctx, vclib.SharedTokenOptions{URL: u, Token: "anything"})
+				assert.ErrorContains(t, err, "must use https", u)
+			}
+		})
+
+		t.Run("should allow plain http for loopback hosts", func(t *testing.T) {
+			// Nothing listens here, so the request itself must fail -- but with a
+			// connection error, not a URL validation error.
+			for _, u := range []string{
+				"http://127.0.0.1:1/session",
+				"http://localhost:1/session",
+				"http://[::1]:1/session",
+			} {
+				_, err := vclib.GetSharedToken(ctx, vclib.SharedTokenOptions{URL: u, Token: "anything"})
+				assert.ErrorContains(t, err, "failed calling vc session manager", u)
+			}
 		})
 
 		t.Run("should fail when passed URL is invalid", func(t *testing.T) {

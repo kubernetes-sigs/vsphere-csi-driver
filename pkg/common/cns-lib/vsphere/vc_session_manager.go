@@ -6,7 +6,9 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -58,11 +60,41 @@ func newSessionManagerTransport(options SharedTokenOptions) *http.Transport {
 	}
 }
 
+// validateSessionManagerURL ensures the bearer token is never sent in
+// cleartext over a network. https is always accepted; plain http is accepted
+// only when the host is a loopback address (e.g. a sidecar on the same pod).
+func validateSessionManagerURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL of session manager: %w", err)
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+		return nil
+	case "http":
+		host := u.Hostname()
+		if strings.EqualFold(host, "localhost") {
+			return nil
+		}
+		if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+			return nil
+		}
+		return fmt.Errorf("URL of session manager must use https; plain http is only "+
+			"allowed for loopback hosts, got host %q", host)
+	default:
+		return fmt.Errorf("URL of session manager must use https, got scheme %q", u.Scheme)
+	}
+}
+
 // GetSharedToken executes an http request on session manager and gets the session manager
 // token that can be reused on govmomi sessions
 func GetSharedToken(ctx context.Context, options SharedTokenOptions) (string, error) {
 	if options.URL == "" {
 		return "", fmt.Errorf("URL of session manager cannot be empty")
+	}
+	// Validate before reading the token so a bad URL never touches the secret.
+	if err := validateSessionManagerURL(options.URL); err != nil {
+		return "", err
 	}
 
 	if options.TokenFile == "" {
