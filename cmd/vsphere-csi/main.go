@@ -28,6 +28,7 @@ import (
 
 	csiconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
+	profile_logger "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils/profile_logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -44,6 +45,8 @@ var (
 	internalFSSName      = flag.String("fss-name", "", "Name of the feature state switch configmap")
 	internalFSSNamespace = flag.String("fss-namespace", "", "Namespace of the feature state switch configmap")
 	enableProfileServer  = flag.Bool("enable-profile-server", false, "Enable profiling endpoint for the controller.")
+	enableProfileLogger  = flag.Bool("enable-profile-logger", true,
+		"Write memory profiles to the log when the live heap nears GOMEMLIMIT.")
 )
 
 // main is ignored when this package is built as a go plug-in.
@@ -63,6 +66,12 @@ func main() {
 		log.Infof("GOMEMLIMIT is set to: %s", goMemLimit)
 	} else {
 		log.Infof("GOMEMLIMIT is not set, using Go default memory management")
+	}
+
+	if *enableProfileLogger {
+		if err := profile_logger.InitProfileLogger(ctx, profile_logger.Config{}); err != nil {
+			log.Errorf("profile logger is not started. Error: %+v", err)
+		}
 	}
 
 	if *enableProfileServer {
