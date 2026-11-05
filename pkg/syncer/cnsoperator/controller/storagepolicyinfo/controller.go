@@ -269,12 +269,17 @@ func registerController(mgr manager.Manager, r *ReconcileStoragePolicyInfo) erro
 
 	// Only re-reconcile when InfraStoragePolicyInfo status actually changes.
 	// Generation-based predicates don't work for status-only updates, so we
-	// gate updates on resource-version changes.
+	// gate updates on a content comparison. The periodic zoneCapacity /
+	// capacityObservedTime refresh is excluded from it: capacity is infra-only
+	// and never copied into StoragePolicyInfo, so it must not fan out into a
+	// reconcile of every namespace's StoragePolicyInfo each time it is refreshed.
 	infraSPIPredicates := predicate.Funcs{
 		CreateFunc: func(_ event.CreateEvent) bool {
 			return false
 		},
-		UpdateFunc: predicate.ResourceVersionChangedPredicate{}.Update,
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			return infraSPIUpdateRelevant(e.ObjectOld, e.ObjectNew)
+		},
 		DeleteFunc: func(_ event.DeleteEvent) bool {
 			return false
 		},
@@ -1361,4 +1366,24 @@ func (r *ReconcileStoragePolicyInfo) completeReconciliationWithError(ctx context
 
 	log.Errorf("Failed to reconcile StoragePolicyInfo %q. Err: %v", namespacedName, err)
 	return reconcile.Result{RequeueAfter: timeout}, nil
+}
+
+// infraSPIUpdateRelevant reports whether an InfraStoragePolicyInfo update changes anything
+// besides resourceVersion/managedFields and the infra-only capacity fields (status.zoneCapacity,
+// status.capacityObservedTime), which are never copied into StoragePolicyInfo. Anything else is relevant.
+func infraSPIUpdateRelevant(oldObj, newObj client.Object) bool {
+	oldSPI, oldOK := oldObj.(*infraspiv1alpha1.InfraStoragePolicyInfo)
+	newSPI, newOK := newObj.(*infraspiv1alpha1.InfraStoragePolicyInfo)
+	if !oldOK || !newOK {
+		return true
+	}
+	strip := func(in *infraspiv1alpha1.InfraStoragePolicyInfo) *infraspiv1alpha1.InfraStoragePolicyInfo {
+		out := in.DeepCopy()
+		out.ResourceVersion = ""
+		out.ManagedFields = nil
+		out.Status.ZoneCapacity = nil
+		out.Status.CapacityObservedTime = nil
+		return out
+	}
+	return !equality.Semantic.DeepEqual(strip(oldSPI), strip(newSPI))
 }

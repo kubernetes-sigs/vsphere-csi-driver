@@ -327,6 +327,14 @@ func add(mgr manager.Manager, r *ReconcileClusterStoragePolicyInfo) error {
 	}
 
 	if err := mgr.Add(manager.RunnableFunc(func(mgrCtx context.Context) error {
+		r.startCapacitySync(mgrCtx)
+		return nil
+	})); err != nil {
+		log.Errorf("failed to register periodic capacity sync runnable. Err: %v", err)
+		return err
+	}
+
+	if err := mgr.Add(manager.RunnableFunc(func(mgrCtx context.Context) error {
 		forwardInventoryPolicyChanges(mgrCtx, resyncCh)
 		return nil
 	})); err != nil {
@@ -1084,6 +1092,15 @@ func (r *ReconcileClusterStoragePolicyInfo) syncInfraSPIAttributes(ctx context.C
 	if err != nil {
 		log.Errorf("Failed to populate topology capabilities for profile %s: %v", profile.ID, err)
 		overallErr = errors.Join(overallErr, err)
+	} else {
+		// The per-zone datastore map was just written to the cache; compute capacity from it now
+		// so a new policy isn't empty until the next periodic capacity sync. On failure the
+		// reconcile is retried and the error is reported on the CR; the previously published
+		// capacity is left as is.
+		if err := r.populateCapacity(ctx, infraSPI, vc); err != nil {
+			log.Errorf("Failed to populate capacity for profile %s: %v", profile.ID, err)
+			overallErr = errors.Join(overallErr, err)
+		}
 	}
 
 	if r.topologyMgr == nil {

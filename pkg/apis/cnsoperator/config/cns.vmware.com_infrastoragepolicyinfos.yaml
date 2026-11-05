@@ -71,6 +71,13 @@ spec:
             description: InfraStoragePolicyInfoStatus defines the observed state of
               InfraStoragePolicyInfo.
             properties:
+              capacityObservedTime:
+                description: |-
+                  CapacityObservedTime is when the datastore sizes behind ZoneCapacity were last read from vCenter.
+                  If vCenter cannot be reached, the previous ZoneCapacity is kept and this time is left unchanged,
+                  so it shows how stale the data is.
+                format: date-time
+                type: string
               error:
                 description: Error describes a failure condition when observing or
                   reconciling this resource.
@@ -141,6 +148,46 @@ spec:
                 - zonesSupportingHighPerformanceLinkedClone
                 - zonesSupportingLinkedClone
                 type: object
+              zoneCapacity:
+                description: |-
+                  ZoneCapacity lists the approximate capacity and free space of the policy in each zone. Zones
+                  with no usable compatible datastores are omitted. The values are meant for planning and display,
+                  not as a provisioning guarantee; see CapacityObservedTime for their age.
+                items:
+                  description: |-
+                    ZoneCapacity describes the approximate storage capacity of a storage policy within one zone.
+                    It sums the datastores compatible with the policy that are accessible and not in maintenance
+                    mode. A datastore shared by several zones is counted in each of them.
+                  properties:
+                    capacity:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      description: |-
+                        Capacity is the total capacity of the usable datastores compatible with the policy in this zone.
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    freeSpace:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      description: |-
+                        FreeSpace is the free space of the usable datastores compatible with the policy in this zone.
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    zone:
+                      description: Zone is the name of the zone.
+                      minLength: 1
+                      type: string
+                  required:
+                  - capacity
+                  - freeSpace
+                  - zone
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - zone
+                x-kubernetes-list-type: map
             type: object
         type: object
     served: true
