@@ -1828,3 +1828,63 @@ func TestSyncTopologyFromInfraSPI_MarkerPolicy_FSSDisabled(t *testing.T) {
 	assert.Equal(t, []string{"zone-a"}, instance.Status.Topology.AccessibleZones,
 		"with marker FSS off, the marker SPI must use the regular namespace-filtered zones")
 }
+
+func TestInfraSPIUpdateRelevant(t *testing.T) {
+	base := func() *infraspiv1alpha1.InfraStoragePolicyInfo {
+		return &infraspiv1alpha1.InfraStoragePolicyInfo{
+			ObjectMeta: metav1.ObjectMeta{Name: "p", ResourceVersion: "1"},
+			Status: infraspiv1alpha1.InfraStoragePolicyInfoStatus{
+				Topology: &infraspiv1alpha1.Topology{TopologyType: "zonal", AccessibleZones: []string{"zone-a"}},
+			},
+		}
+	}
+	observed := metav1.NewTime(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
+
+	t.Run("capacity-only change is not relevant", func(t *testing.T) {
+		oldObj, newObj := base(), base()
+		newObj.ResourceVersion = "2"
+		newObj.Status.ZoneCapacity = []infraspiv1alpha1.ZoneCapacity{{Zone: "zone-a"}}
+		newObj.Status.CapacityObservedTime = &observed
+		assert.False(t, infraSPIUpdateRelevant(oldObj, newObj))
+	})
+	t.Run("capacity refresh over existing capacity is not relevant", func(t *testing.T) {
+		oldObj, newObj := base(), base()
+		oldObj.Status.ZoneCapacity = []infraspiv1alpha1.ZoneCapacity{{Zone: "zone-a"}}
+		oldObj.Status.CapacityObservedTime = &observed
+		later := metav1.NewTime(observed.Add(time.Hour))
+		newObj.ResourceVersion = "2"
+		newObj.Status.CapacityObservedTime = &later
+		assert.False(t, infraSPIUpdateRelevant(oldObj, newObj))
+	})
+	t.Run("topology change is relevant", func(t *testing.T) {
+		oldObj, newObj := base(), base()
+		newObj.ResourceVersion = "2"
+		newObj.Status.Topology.AccessibleZones = []string{"zone-a", "zone-b"}
+		assert.True(t, infraSPIUpdateRelevant(oldObj, newObj))
+	})
+	t.Run("topology change alongside capacity is relevant", func(t *testing.T) {
+		oldObj, newObj := base(), base()
+		newObj.ResourceVersion = "2"
+		newObj.Status.Topology.AccessibleZones = nil
+		newObj.Status.CapacityObservedTime = &observed
+		assert.True(t, infraSPIUpdateRelevant(oldObj, newObj))
+	})
+	t.Run("error change is relevant", func(t *testing.T) {
+		oldObj, newObj := base(), base()
+		newObj.ResourceVersion = "2"
+		newObj.Status.Error = "boom"
+		assert.True(t, infraSPIUpdateRelevant(oldObj, newObj))
+	})
+	t.Run("spec change is relevant", func(t *testing.T) {
+		oldObj, newObj := base(), base()
+		newObj.ResourceVersion = "2"
+		newObj.Spec.ClusterStoragePolicyInfoRef.Name = "other"
+		assert.True(t, infraSPIUpdateRelevant(oldObj, newObj))
+	})
+	t.Run("identical objects are not relevant", func(t *testing.T) {
+		assert.False(t, infraSPIUpdateRelevant(base(), base()))
+	})
+	t.Run("non-InfraStoragePolicyInfo objects are treated as relevant", func(t *testing.T) {
+		assert.True(t, infraSPIUpdateRelevant(&spiv1alpha1.StoragePolicyInfo{}, &spiv1alpha1.StoragePolicyInfo{}))
+	})
+}
