@@ -377,6 +377,14 @@ func makeVSphereCluster(name, namespace string) *unstructured.Unstructured {
 	return c
 }
 
+// makeVSphereClusterWithClusterLabel is a test helper that returns an unstructured VSphereCluster
+// with the cluster.x-k8s.io/cluster-name label set to clusterName.
+func makeVSphereClusterWithClusterLabel(name, namespace, clusterName string) *unstructured.Unstructured {
+	c := makeVSphereCluster(name, namespace)
+	c.SetLabels(map[string]string{ccV1beta2.ClusterNameLabel: clusterName})
+	return c
+}
+
 func TestValidateVSphereClusterResource(t *testing.T) {
 	synced := func() bool { return true }
 	notSynced := func() bool { return false }
@@ -485,8 +493,11 @@ func TestValidatePvCSIServiceAccountWithStore(t *testing.T) {
 
 	guestCluster := makeVSphereCluster("guest-cluster", "vmware-system-csi")
 	e2eCluster := makeVSphereCluster("test-cluster-e2e-script-95jxs", "test-gc-e2e-demo-ns")
+	labeledCluster := makeVSphereClusterWithClusterLabel("test-cluster-e2e-script-vr5mp",
+		"test-gc-e2e-demo-ns", "test-cluster-e2e-script")
 
 	populatedStore := newFakeStore(guestCluster, e2eCluster)
+	labeledStore := newFakeStore(labeledCluster)
 	emptyStore := newFakeStore()
 
 	testCases := []struct {
@@ -539,6 +550,76 @@ func TestValidatePvCSIServiceAccountWithStore(t *testing.T) {
 				WithObjects(guestCluster).
 				Build(),
 			expected: true,
+		},
+		{
+			name:      "store synced, -pvcsi-sae SA — cluster found by cluster label",
+			username:  "system:serviceaccount:test-gc-e2e-demo-ns:test-cluster-e2e-script-pvcsi-sae",
+			store:     labeledStore,
+			hasSynced: synced,
+			k8sClient: emptyClient,
+			expected:  true,
+		},
+		{
+			name:      "store synced, -pvcsi SA with cluster name — cluster found by cluster label",
+			username:  "system:serviceaccount:test-gc-e2e-demo-ns:test-cluster-e2e-script-pvcsi",
+			store:     labeledStore,
+			hasSynced: synced,
+			k8sClient: emptyClient,
+			expected:  true,
+		},
+		{
+			name:      "store synced, -pvcsi-sae SA with VSphereCluster name — cluster found by name",
+			username:  "system:serviceaccount:test-gc-e2e-demo-ns:test-cluster-e2e-script-95jxs-pvcsi-sae",
+			store:     populatedStore,
+			hasSynced: synced,
+			k8sClient: emptyClient,
+			expected:  true,
+		},
+		{
+			name:      "store synced, -pvcsi-sae SA in wrong namespace — SA rejected",
+			username:  "system:serviceaccount:wrong-ns:test-cluster-e2e-script-pvcsi-sae",
+			store:     labeledStore,
+			hasSynced: synced,
+			k8sClient: emptyClient,
+			expected:  false,
+		},
+		{
+			name:      "store synced, -pvcsi-sae SA with unknown cluster — SA rejected",
+			username:  "system:serviceaccount:test-gc-e2e-demo-ns:other-cluster-pvcsi-sae",
+			store:     labeledStore,
+			hasSynced: synced,
+			k8sClient: emptyClient,
+			expected:  false,
+		},
+		{
+			name:      "store synced, empty cluster name with -pvcsi-sae suffix — SA rejected",
+			username:  "system:serviceaccount:test-gc-e2e-demo-ns:-pvcsi-sae",
+			store:     labeledStore,
+			hasSynced: synced,
+			k8sClient: emptyClient,
+			expected:  false,
+		},
+		{
+			name:      "store not synced, -pvcsi-sae SA — cluster found by cluster label via API fallback",
+			username:  "system:serviceaccount:test-gc-e2e-demo-ns:test-cluster-e2e-script-pvcsi-sae",
+			store:     emptyStore,
+			hasSynced: notSynced,
+			k8sClient: fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(labeledCluster).
+				Build(),
+			expected: true,
+		},
+		{
+			name:      "store not synced, -pvcsi-sae SA with unknown cluster — API fallback rejects",
+			username:  "system:serviceaccount:test-gc-e2e-demo-ns:other-cluster-pvcsi-sae",
+			store:     emptyStore,
+			hasSynced: notSynced,
+			k8sClient: fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(labeledCluster).
+				Build(),
+			expected: false,
 		},
 	}
 
