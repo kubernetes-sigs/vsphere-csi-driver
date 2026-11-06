@@ -261,10 +261,14 @@ func (r *Reconciler) reconcile(ctx context.Context,
 	instance *v1a1.CnsUnregisterVolume, request reconcile.Request) error {
 	log := logger.GetLogger(ctx).With("name", request.NamespacedName)
 
-	params := getParams(ctx, *instance)
+	params, err := getParams(ctx, *instance)
+	if err != nil {
+		log.Error("failed to get parameters for volume unregistration with error ", err)
+		return err
+	}
 
 	// protect the instance before performing any operation.
-	err := protectInstance(ctx, r.client, instance)
+	err = protectInstance(ctx, r.client, instance)
 	if err != nil {
 		log.Error("failed to protect instance with error ", err)
 		return err
@@ -315,7 +319,15 @@ func (r *Reconciler) reconcileDelete(ctx context.Context,
 		return nil
 	}
 
-	params := getParams(ctx, *instance)
+	params, err := getParams(ctx, *instance)
+	if err != nil {
+		// The parameters cannot be safely derived (e.g. the volume belongs to
+		// a PVC in a different namespace), so the volume cannot be unregistered
+		// through this instance and the instance can be deleted.
+		log.With("error", err).Warn("proceeding with deletion of the instance without unregistering the volume")
+		return nil
+	}
+
 	usageInfo, err := getVolumeUsageInfo(ctx, params.pvcName, params.namespace, params.force)
 	if err != nil {
 		log.Error("failed to get volume usage info with error ", err)
@@ -552,7 +564,10 @@ var getParams = _getParams
 // _getParams returns the parameters required for volume unregistration.
 // If VolumeID is specified, PVCName and PVName are derived.
 // If PVCName is specified, VolumeID and PVName are derived.
-func _getParams(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
+// An error is returned if VolumeID is bound to a PVC in a namespace other than
+// the instance's namespace, since the PVC operations would otherwise silently
+// target the wrong namespace while the PV and FCD are still removed.
+func _getParams(ctx context.Context, instance v1a1.CnsUnregisterVolume) (params, error) {
 	log := logger.GetLogger(ctx).With("name", instance.Namespace+"/"+instance.Name)
 	var err error
 	p := params{
@@ -564,9 +579,13 @@ func _getParams(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
 	if instance.Spec.VolumeID != "" {
 		p.volumeID = instance.Spec.VolumeID
 
-		p.pvcName, _, err = getPVCName(ctx, instance.Spec.VolumeID)
+		var pvcNamespace string
+		p.pvcName, pvcNamespace, err = getPVCName(ctx, instance.Spec.VolumeID)
 		if err != nil {
 			log.With("volumeID", instance.Spec.VolumeID).Info("no PVC found for the Volume ID")
+		} else if p.pvcName != "" && pvcNamespace != instance.Namespace {
+			return params{}, fmt.Errorf("volume %s is bound to PVC %s/%s which is not in namespace %s",
+				instance.Spec.VolumeID, pvcNamespace, p.pvcName, instance.Namespace)
 		}
 	} else {
 		p.pvcName = instance.Spec.PVCName
@@ -582,7 +601,7 @@ func _getParams(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
 	}
 
 	log.With("params", p).Info("derived parameters for volume unregistration")
-	return p
+	return p, nil
 }
 
 // getBackoffDuration returns the backoff duration for the instance.
