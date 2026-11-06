@@ -536,6 +536,7 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
 			WithObjects(&instance).
+			WithStatusSubresource(&instance, crv).
 			Build()
 		_ = fakeClient.Create(ctx, crv)
 
@@ -548,6 +549,7 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 			},
 		}
 		r = &ReconcileCnsRegisterVolume{
+			recorder:      record.NewFakeRecorder(100),
 			configInfo:    testConfigInfo(),
 			client:        fakeClient,
 			scheme:        scheme,
@@ -603,7 +605,7 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 			})
 
 		patches.ApplyFunc(setInstanceError, func(ctx context.Context, r *ReconcileCnsRegisterVolume,
-			instance *cnsregistervolumev1alpha1.CnsRegisterVolume, msg string) {
+			instance *cnsregistervolumev1alpha1.CnsRegisterVolume, msg string, _ ...*metav1.Condition) {
 			// no-op
 		})
 
@@ -644,7 +646,8 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 			},
 		}
 
-		result, err := r.Reconcile(ctx, req)
+		defer wireAsyncCnsTaskSuccess(r)()
+		result, err := reconcileUntilSettled(ctx, r, req)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result).To(Equal(reconcile.Result{RequeueAfter: 0}))
 	})
@@ -748,6 +751,7 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
 			WithObjects(diskURLCR).
+			WithStatusSubresource(diskURLCR).
 			Build()
 
 		var unregCalled bool
@@ -766,6 +770,7 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 			},
 		}
 		diskURLReconciler := &ReconcileCnsRegisterVolume{
+			recorder:      record.NewFakeRecorder(100),
 			configInfo:    testConfigInfo(),
 			client:        fakeClient,
 			scheme:        scheme,
@@ -809,7 +814,7 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 			return &cnstypes.CnsVolumeCreateSpec{Name: "fake-volume", VolumeType: "BLOCK"}, nil
 		})
 		patches.ApplyFunc(setInstanceError, func(ctx context.Context, r *ReconcileCnsRegisterVolume,
-			instance *cnsregistervolumev1alpha1.CnsRegisterVolume, msg string) {
+			instance *cnsregistervolumev1alpha1.CnsRegisterVolume, msg string, _ ...*metav1.Condition) {
 		})
 
 		req := reconcile.Request{
@@ -818,7 +823,8 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 				Namespace: "test-ns",
 			},
 		}
-		result, err := diskURLReconciler.Reconcile(ctx, req)
+		defer wireAsyncCnsTaskSuccess(diskURLReconciler)()
+		result, err := reconcileUntilSettled(ctx, diskURLReconciler, req)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result).To(Equal(reconcile.Result{RequeueAfter: 0}))
 		Expect(unregCalled).To(BeTrue(), "UnregisterVolume must be called for DiskURLPath accessibility failure")
@@ -849,8 +855,10 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
 			WithObjects(registerCR, staleRecord, otherRecord).
+			WithStatusSubresource(registerCR).
 			Build()
 		reconciler := &ReconcileCnsRegisterVolume{
+			recorder:   record.NewFakeRecorder(100),
 			client:     fakeClient,
 			scheme:     scheme,
 			configInfo: testConfigInfo(),
@@ -902,10 +910,11 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 			return &cnstypes.CnsVolumeCreateSpec{Name: "fake-volume", VolumeType: "BLOCK"}, nil
 		})
 		patches.ApplyFunc(setInstanceError, func(ctx context.Context, r *ReconcileCnsRegisterVolume,
-			instance *cnsregistervolumev1alpha1.CnsRegisterVolume, msg string) {
+			instance *cnsregistervolumev1alpha1.CnsRegisterVolume, msg string, _ ...*metav1.Condition) {
 		})
 
-		_, err := reconciler.Reconcile(ctx, reconcile.Request{
+		defer wireAsyncCnsTaskSuccess(reconciler)()
+		_, err := reconcileUntilSettled(ctx, reconciler, reconcile.Request{
 			NamespacedName: types.NamespacedName{Name: registerCR.Name, Namespace: registerCR.Namespace},
 		})
 		Expect(err).NotTo(HaveOccurred())
@@ -949,6 +958,7 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
 			WithObjects(diskURLCR, spq).
+			WithStatusSubresource(diskURLCR).
 			Build()
 
 		var unregCalled bool
@@ -981,6 +991,7 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 		k8sclientFake := k8sfake.NewClientset(pvc, sc)
 
 		diskURLReconciler := &ReconcileCnsRegisterVolume{
+			recorder:      record.NewFakeRecorder(100),
 			configInfo:    testConfigInfo(),
 			client:        fakeClient,
 			scheme:        scheme,
@@ -1039,13 +1050,14 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 				return fmt.Errorf("topology conflict: zone mismatch")
 			})
 		patches.ApplyFunc(setInstanceError, func(ctx context.Context, r *ReconcileCnsRegisterVolume,
-			instance *cnsregistervolumev1alpha1.CnsRegisterVolume, msg string) {
+			instance *cnsregistervolumev1alpha1.CnsRegisterVolume, msg string, _ ...*metav1.Condition) {
 		})
 
 		req := reconcile.Request{
 			NamespacedName: types.NamespacedName{Name: "disk-url-topo-test", Namespace: "test-ns"},
 		}
-		_, err := diskURLReconciler.Reconcile(ctx, req)
+		defer wireAsyncCnsTaskSuccess(diskURLReconciler)()
+		_, err := reconcileUntilSettled(ctx, diskURLReconciler, req)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(unregCalled).To(BeTrue(),
 			"UnregisterVolume must be called for DiskURLPath when topology validation fails")
@@ -2018,6 +2030,7 @@ func TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityE
 	}
 	cfg.Global.ClusterID = "test-cluster"
 	r := &ReconcileCnsRegisterVolume{
+		recorder:   record.NewFakeRecorder(100),
 		configInfo: config.NewConfigurationInfo(cfg),
 	}
 
@@ -2062,6 +2075,7 @@ func TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityD
 	}
 	cfg.Global.ClusterID = "test-cluster"
 	r := &ReconcileCnsRegisterVolume{
+		recorder:   record.NewFakeRecorder(100),
 		configInfo: config.NewConfigurationInfo(cfg),
 	}
 
@@ -2099,6 +2113,7 @@ func TestConstructCreateSpecForInstanceWithVolumeIDOnly(t *testing.T) {
 	}
 	cfg.Global.ClusterID = "test-cluster"
 	r := &ReconcileCnsRegisterVolume{
+		recorder:   record.NewFakeRecorder(100),
 		configInfo: config.NewConfigurationInfo(cfg),
 	}
 
@@ -2131,6 +2146,7 @@ func TestConstructCreateSpecForInstanceWithDiskURLPathOnly(t *testing.T) {
 	}
 	cfg.Global.ClusterID = "test-cluster"
 	r := &ReconcileCnsRegisterVolume{
+		recorder:   record.NewFakeRecorder(100),
 		configInfo: config.NewConfigurationInfo(cfg),
 	}
 
@@ -2164,6 +2180,7 @@ func TestConstructCreateSpecForInstanceWithoutStorageClassName(t *testing.T) {
 	}
 	cfg.Global.ClusterID = "test-cluster"
 	r := &ReconcileCnsRegisterVolume{
+		recorder:   record.NewFakeRecorder(100),
 		configInfo: config.NewConfigurationInfo(cfg),
 		k8sclient:  k8sfake.NewClientset(),
 	}
@@ -2202,6 +2219,7 @@ func TestConstructCreateSpecForInstanceWithStorageClassName(t *testing.T) {
 	}
 	cfg.Global.ClusterID = "test-cluster"
 	r := &ReconcileCnsRegisterVolume{
+		recorder:   record.NewFakeRecorder(100),
 		configInfo: config.NewConfigurationInfo(cfg),
 		k8sclient:  k8sfake.NewClientset(sc),
 	}
@@ -2238,6 +2256,7 @@ func TestConstructCreateSpecForInstanceWithMissingStorageClass(t *testing.T) {
 	}
 	cfg.Global.ClusterID = "test-cluster"
 	r := &ReconcileCnsRegisterVolume{
+		recorder:   record.NewFakeRecorder(100),
 		configInfo: config.NewConfigurationInfo(cfg),
 		k8sclient:  k8sfake.NewClientset(),
 	}
@@ -2274,6 +2293,7 @@ func TestConstructCreateSpecForInstanceWithStorageClassMissingPolicyIDParam(t *t
 	}
 	cfg.Global.ClusterID = "test-cluster"
 	r := &ReconcileCnsRegisterVolume{
+		recorder:   record.NewFakeRecorder(100),
 		configInfo: config.NewConfigurationInfo(cfg),
 		k8sclient:  k8sfake.NewClientset(sc),
 	}
@@ -2392,7 +2412,8 @@ func TestReconcileRejectsUnassignedStorageClassPolicy(t *testing.T) {
 			StorageClassName: "unauthorized-sc",
 		},
 	}
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(crv).Build()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(crv).WithStatusSubresource(crv).Build()
 
 	sc := &storagev1.StorageClass{
 		ObjectMeta: metav1.ObjectMeta{Name: "unauthorized-sc"},
@@ -2408,6 +2429,7 @@ func TestReconcileRejectsUnassignedStorageClassPolicy(t *testing.T) {
 	defer func() { syncer.IsPodVMOnStretchSupervisorFSSEnabled = origStretch }()
 
 	r := &ReconcileCnsRegisterVolume{
+		recorder:  record.NewFakeRecorder(100),
 		client:    fakeClient,
 		scheme:    scheme,
 		k8sclient: k8sclientFake,
@@ -2437,7 +2459,7 @@ func TestReconcileRejectsUnassignedStorageClassPolicy(t *testing.T) {
 	setErrCalled := false
 	var capturedMsg string
 	patches.ApplyFunc(setInstanceError, func(_ context.Context, _ *ReconcileCnsRegisterVolume,
-		_ *cnsregistervolumev1alpha1.CnsRegisterVolume, msg string) {
+		_ *cnsregistervolumev1alpha1.CnsRegisterVolume, msg string, _ ...*metav1.Condition) {
 		setErrCalled = true
 		capturedMsg = msg
 	})
@@ -2476,7 +2498,8 @@ func TestReconcileReusesSpecifiedStorageClassNameWithoutLateDiscovery(t *testing
 			StorageClassName: scName,
 		},
 	}
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(crv).Build()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(crv).WithStatusSubresource(crv).Build()
 
 	sc := &storagev1.StorageClass{
 		ObjectMeta: metav1.ObjectMeta{Name: scName},
@@ -2500,6 +2523,7 @@ func TestReconcileReusesSpecifiedStorageClassNameWithoutLateDiscovery(t *testing
 	defer func() { syncer.IsPodVMOnStretchSupervisorFSSEnabled = origStretch }()
 
 	r := &ReconcileCnsRegisterVolume{
+		recorder:  record.NewFakeRecorder(100),
 		client:    fakeClient,
 		scheme:    scheme,
 		k8sclient: k8sclientFake,
@@ -2562,13 +2586,14 @@ func TestReconcileReusesSpecifiedStorageClassNameWithoutLateDiscovery(t *testing
 	setErrCalled := false
 	var capturedMsg string
 	patches.ApplyFunc(setInstanceError, func(_ context.Context, _ *ReconcileCnsRegisterVolume,
-		_ *cnsregistervolumev1alpha1.CnsRegisterVolume, msg string) {
+		_ *cnsregistervolumev1alpha1.CnsRegisterVolume, msg string, _ ...*metav1.Condition) {
 		setErrCalled = true
 		capturedMsg = msg
 	})
 
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "test-volume", Namespace: "test-ns"}}
-	_, err := r.Reconcile(context.Background(), req)
+	defer wireAsyncCnsTaskSuccess(r)()
+	_, err := reconcileUntilSettled(context.Background(), r, req)
 
 	assert.NoError(t, err)
 	assert.False(t, lateDiscoveryCalled,
@@ -3155,6 +3180,7 @@ func TestPVRecreationWhenVolumeModeIncorrect(t *testing.T) {
 
 	// Create a minimal reconciler with mocked volumeManager
 	reconciler := &ReconcileCnsRegisterVolume{
+		recorder:      record.NewFakeRecorder(100),
 		configInfo:    testConfigInfo(),
 		volumeManager: nil, // Will be mocked
 	}
@@ -3283,11 +3309,11 @@ func TestPVNotRecreatedWhenClaimedByPVCInOtherNamespace(t *testing.T) {
 		})
 	var instanceErr string
 	patches.ApplyFunc(setInstanceError, func(ctx context.Context, r *ReconcileCnsRegisterVolume,
-		instance *cnsregistervolumev1alpha1.CnsRegisterVolume, errMsg string) {
+		instance *cnsregistervolumev1alpha1.CnsRegisterVolume, errMsg string, _ ...*metav1.Condition) {
 		instanceErr = errMsg
 	})
 
-	reconciler := &ReconcileCnsRegisterVolume{}
+	reconciler := &ReconcileCnsRegisterVolume{recorder: record.NewFakeRecorder(100)}
 	pvCapacity := *resource.NewQuantity(int64(1024)*common.MbInBytes, resource.BinarySI)
 	pvAfter, err := validateAndFixPVVolumeMode(ctx, k8sclient, reconciler, instance,
 		pvBefore, pvName, volumeID, pvCapacity, corev1.ReadWriteOnce, storageClassName, nil, time.Second, false)
@@ -3397,6 +3423,7 @@ func TestPVRecreationWithoutSharedDiskEnabled(t *testing.T) {
 
 	// Create a minimal reconciler with mocked volumeManager
 	reconciler := &ReconcileCnsRegisterVolume{
+		recorder:      record.NewFakeRecorder(100),
 		configInfo:    testConfigInfo(),
 		volumeManager: nil, // Will be mocked
 	}
@@ -3958,6 +3985,7 @@ func TestReconcileDelete(t *testing.T) {
 
 		mockVolMgr := &mockVolumeManager{}
 		r := &ReconcileCnsRegisterVolume{
+			recorder:      record.NewFakeRecorder(100),
 			configInfo:    testConfigInfo(),
 			client:        c,
 			volumeManager: mockVolMgr,
@@ -4026,6 +4054,7 @@ func TestReconcileDelete(t *testing.T) {
 
 		mockVolMgr := &mockVolumeManager{}
 		r := &ReconcileCnsRegisterVolume{
+			recorder:      record.NewFakeRecorder(100),
 			configInfo:    testConfigInfo(),
 			client:        c,
 			volumeManager: mockVolMgr,
@@ -4116,6 +4145,7 @@ func TestReconcileDelete(t *testing.T) {
 
 		mockVolMgr := &mockVolumeManager{}
 		r := &ReconcileCnsRegisterVolume{
+			recorder:      record.NewFakeRecorder(100),
 			configInfo:    testConfigInfo(),
 			client:        c,
 			volumeManager: mockVolMgr,
@@ -4196,6 +4226,7 @@ func TestReconcileDelete(t *testing.T) {
 
 		mockVolMgr := &mockVolumeManager{}
 		r := &ReconcileCnsRegisterVolume{
+			recorder:      record.NewFakeRecorder(100),
 			configInfo:    testConfigInfo(),
 			client:        c,
 			volumeManager: mockVolMgr,
@@ -4285,6 +4316,7 @@ func TestReconcileDelete(t *testing.T) {
 
 		mockVolMgr := &mockVolumeManager{}
 		r := &ReconcileCnsRegisterVolume{
+			recorder:      record.NewFakeRecorder(100),
 			configInfo:    testConfigInfo(),
 			client:        c,
 			volumeManager: mockVolMgr,
@@ -4389,6 +4421,7 @@ func TestReconcileDelete(t *testing.T) {
 		}
 
 		r := &ReconcileCnsRegisterVolume{
+			recorder:      record.NewFakeRecorder(100),
 			configInfo:    testConfigInfo(),
 			client:        c,
 			volumeManager: mockVolMgr,
@@ -4690,7 +4723,7 @@ func TestCleanupCNSVolume_DiskURLPath(t *testing.T) {
 			return "", nil
 		},
 	}
-	r := &ReconcileCnsRegisterVolume{volumeManager: mock}
+	r := &ReconcileCnsRegisterVolume{volumeManager: mock, recorder: record.NewFakeRecorder(100)}
 	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
 		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
 			DiskURLPath: "https://vc/disk.vmdk",
@@ -4714,7 +4747,7 @@ func TestCleanupCNSVolume_VolumeID(t *testing.T) {
 		},
 	}
 	mock := &mockVolumeManager{}
-	r := &ReconcileCnsRegisterVolume{volumeManager: mock}
+	r := &ReconcileCnsRegisterVolume{volumeManager: mock, recorder: record.NewFakeRecorder(100)}
 
 	var deletedVolumeID string
 	var deleteDisk bool
@@ -5043,7 +5076,10 @@ func newHostLocalReconcileFixture(patches *gomonkey.Patches, storageLocality str
 			PvcName: "test-pvc", VolumeID: "dummy-volume-id", AccessMode: "ReadWriteOnce",
 		},
 	}
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(crv).Build()
+	// WithStatusSubresource mirrors the real CRD, which declares subresources.status;
+	// without it the controller's Status().Patch calls cannot be exercised here.
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(crv).WithStatusSubresource(crv).Build()
 
 	commonco.ContainerOrchestratorUtility = &mockCOCommon{}
 	fssEnabledOverride = func(_ string) bool { return true }
@@ -5051,6 +5087,9 @@ func newHostLocalReconcileFixture(patches *gomonkey.Patches, storageLocality str
 	r := &ReconcileCnsRegisterVolume{
 		client: fakeClient,
 		scheme: scheme,
+		// A real recorder is required: the failure paths record a Warning event
+		// once the status write succeeds.
+		recorder: record.NewFakeRecorder(10),
 		// Empty clientset: a reconcile that gets past the host-local block stops at the storage
 		// class lookup rather than dereferencing a nil client.
 		k8sclient: k8sfake.NewSimpleClientset(),
@@ -5095,9 +5134,15 @@ func newHostLocalReconcileFixture(patches *gomonkey.Patches, storageLocality str
 	})
 
 	setErrCalled := false
-	patches.ApplyFunc(setInstanceError, func(_ context.Context, _ *ReconcileCnsRegisterVolume,
-		_ *cnsregistervolumev1alpha1.CnsRegisterVolume, _ string) {
-		setErrCalled = true
+	// Observe the error via the event it records rather than by replacing
+	// setInstanceError: stubbing that out would also swallow the status write, so
+	// the conditions explaining the failure would never reach the object and a
+	// test could not assert on them.
+	patches.ApplyFunc(recordEvent, func(_ context.Context, _ *ReconcileCnsRegisterVolume,
+		_ *cnsregistervolumev1alpha1.CnsRegisterVolume, eventtype string, _ string) {
+		if eventtype == corev1.EventTypeWarning {
+			setErrCalled = true
+		}
 	})
 	// cleanupCNSVolume (unexported) calls untagCNSVolume -> common.DeleteVolumeUtil for a non-DiskURLPath
 	// registration; patch DeleteVolumeUtil to observe the cleanup and avoid touching a real volume manager.
@@ -5119,6 +5164,7 @@ func TestReconcileHostLocalPBMIncompatible(t *testing.T) {
 	defer patches.Reset()
 
 	r, setErrCalled, cleanupCalled := newHostLocalReconcileFixture(patches, "HostLocalStorage")
+	defer wireAsyncCnsTaskSuccess(r)()
 	defer func() { fssEnabledOverride = nil }()
 
 	checkDatastorePolicyCompatibilityFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
@@ -5128,7 +5174,7 @@ func TestReconcileHostLocalPBMIncompatible(t *testing.T) {
 	defer func() { checkDatastorePolicyCompatibilityFn = checkDatastorePolicyCompatibility }()
 
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "test-volume", Namespace: "test-ns"}}
-	result, err := r.Reconcile(ctx, req)
+	result, err := reconcileUntilSettled(ctx, r, req)
 
 	assert.NoError(t, err)
 	assert.Equal(t, reconcile.Result{}, result)
@@ -5148,6 +5194,7 @@ func TestReconcileHostLocalDetectedFromNewSchemaPolicy(t *testing.T) {
 	defer patches.Reset()
 
 	r, _, cleanupCalled := newHostLocalReconcileFixture(patches, "HostLocalStorage")
+	defer wireAsyncCnsTaskSuccess(r)()
 	defer func() { fssEnabledOverride = nil }()
 
 	compatChecked := false
@@ -5170,7 +5217,7 @@ func TestReconcileHostLocalDetectedFromNewSchemaPolicy(t *testing.T) {
 	defer func() { getHostLocalAccessibleTopologyFn = getHostLocalAccessibleTopology }()
 
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "test-volume", Namespace: "test-ns"}}
-	_, err := r.Reconcile(ctx, req)
+	_, err := reconcileUntilSettled(ctx, r, req)
 
 	assert.NoError(t, err)
 	assert.True(t, compatChecked,
@@ -5193,6 +5240,7 @@ func TestReconcileHostLocalNotDetectedForStorageLocalityNone(t *testing.T) {
 	defer patches.Reset()
 
 	r, _, _ := newHostLocalReconcileFixture(patches, "None")
+	defer wireAsyncCnsTaskSuccess(r)()
 	defer func() { fssEnabledOverride = nil }()
 
 	// Pin the non-host-local route to the shared-datastore accessibility gate and observe it.
@@ -5224,7 +5272,7 @@ func TestReconcileHostLocalNotDetectedForStorageLocalityNone(t *testing.T) {
 	defer func() { getHostLocalAccessibleTopologyFn = getHostLocalAccessibleTopology }()
 
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "test-volume", Namespace: "test-ns"}}
-	_, err := r.Reconcile(ctx, req)
+	_, err := reconcileUntilSettled(ctx, r, req)
 
 	assert.NoError(t, err)
 	assert.False(t, compatChecked, "StorageLocality None must not enter the host-local branch")
@@ -5241,6 +5289,7 @@ func TestReconcileHostLocalTopologyError(t *testing.T) {
 	defer patches.Reset()
 
 	r, setErrCalled, cleanupCalled := newHostLocalReconcileFixture(patches, "HostLocalStorage")
+	defer wireAsyncCnsTaskSuccess(r)()
 	defer func() { fssEnabledOverride = nil }()
 
 	checkDatastorePolicyCompatibilityFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
@@ -5256,7 +5305,7 @@ func TestReconcileHostLocalTopologyError(t *testing.T) {
 	defer func() { getHostLocalAccessibleTopologyFn = getHostLocalAccessibleTopology }()
 
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "test-volume", Namespace: "test-ns"}}
-	result, err := r.Reconcile(ctx, req)
+	result, err := reconcileUntilSettled(ctx, r, req)
 
 	assert.NoError(t, err)
 	assert.Equal(t, reconcile.Result{}, result)
@@ -5294,7 +5343,7 @@ func TestClearStaleDeleteOperationRecord(t *testing.T) {
 		ns := cnsvolumeoperationrequest.GetCSINamespace()
 		c := fake.NewClientBuilder().WithScheme(scheme).
 			WithObjects(newRecord("delete-vol-1", ns), newRecord("delete-vol-2", ns)).Build()
-		r := &ReconcileCnsRegisterVolume{client: c}
+		r := &ReconcileCnsRegisterVolume{client: c, recorder: record.NewFakeRecorder(100)}
 
 		r.clearStaleDeleteOperationRecord(ctx, "vol-1")
 
@@ -5306,7 +5355,7 @@ func TestClearStaleDeleteOperationRecord(t *testing.T) {
 		t.Setenv(cnsvolumeoperationrequest.EnvCSINamespace, "custom-csi-ns")
 		c := fake.NewClientBuilder().WithScheme(scheme).
 			WithObjects(newRecord("delete-vol-1", "custom-csi-ns"), newRecord("delete-vol-1", "other-ns")).Build()
-		r := &ReconcileCnsRegisterVolume{client: c}
+		r := &ReconcileCnsRegisterVolume{client: c, recorder: record.NewFakeRecorder(100)}
 
 		r.clearStaleDeleteOperationRecord(ctx, "vol-1")
 
@@ -5316,7 +5365,7 @@ func TestClearStaleDeleteOperationRecord(t *testing.T) {
 
 	t.Run("a missing record is not an error", func(t *testing.T) {
 		c := fake.NewClientBuilder().WithScheme(scheme).Build()
-		r := &ReconcileCnsRegisterVolume{client: c}
+		r := &ReconcileCnsRegisterVolume{client: c, recorder: record.NewFakeRecorder(100)}
 		assert.NotPanics(t, func() { r.clearStaleDeleteOperationRecord(ctx, "vol-absent") })
 	})
 
@@ -5339,7 +5388,7 @@ func TestClearStaleDeleteOperationRecord(t *testing.T) {
 				return nil
 			},
 		}).Build()
-		r := &ReconcileCnsRegisterVolume{client: c}
+		r := &ReconcileCnsRegisterVolume{client: c, recorder: record.NewFakeRecorder(100)}
 
 		assert.NotPanics(t, func() { r.clearStaleDeleteOperationRecord(ctx, "vol-1") })
 		assert.Equal(t, 1, deleteCalls)

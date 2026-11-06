@@ -42,7 +42,7 @@ var (
 	// restoreLocks holds the volume IDs that a SnapService restore is reconciling right now, each with
 	// the UID of the CnsRegisterVolume holding it. Restores run only in the leader syncer, so a
 	// process-local lock serializes the restores of a volume. Which registration owns a restore is
-	// recorded in the restore stamps, not here, so losing the locks on a restart is harmless. An entry
+	// recorded in restore stamps and durable CR reservations (restore_async.go). An entry
 	// exists only while its reconcile runs.
 	restoreLocks      = make(map[string]apitypes.UID)
 	restoreLocksMutex = &sync.Mutex{}
@@ -83,6 +83,9 @@ func (r *ReconcileCnsRegisterVolume) startRestore(ctx context.Context,
 	if owner := instance.Annotations[cnsvolumeinfov1alpha1.AnnRestoreNotProcessed]; owner != "" {
 		log.Infof("CnsRegisterVolume %s/%s is not processed: volume %q was restored by CnsRegisterVolume %q",
 			instance.Namespace, instance.Name, volumeID, owner)
+		setInstanceConditions(ctx, r, instance, falseCondition(
+			cnsregistervolumev1alpha1.ConditionRestoreValidated,
+			cnsregistervolumev1alpha1.ReasonRestoreNotProcessed, "Another registration owns this restore"))
 		backOffDurationMapMutex.Lock()
 		delete(backOffDuration, request.NamespacedName)
 		backOffDurationMapMutex.Unlock()
@@ -95,6 +98,9 @@ func (r *ReconcileCnsRegisterVolume) startRestore(ctx context.Context,
 	if locked, holder := tryLockRestore(volumeID, instance.UID); !locked {
 		log.Infof("Volume %q is being restored by CnsRegisterVolume %q; retrying CnsRegisterVolume %s/%s "+
 			"in %s", volumeID, holder, instance.Namespace, instance.Name, timeout)
+		setInstanceConditions(ctx, r, instance, falseCondition(
+			cnsregistervolumev1alpha1.ConditionRestoreValidated,
+			cnsregistervolumev1alpha1.ReasonWaitingForRestoreOwner, "Waiting for the active restore of this volume"))
 		return nil, false, reconcile.Result{RequeueAfter: timeout}, false
 	}
 	unlock = func() { unlockRestore(volumeID, instance.UID) }
@@ -104,8 +110,27 @@ func (r *ReconcileCnsRegisterVolume) startRestore(ctx context.Context,
 	if err != nil {
 		unlock()
 		log.Errorf("Failed to find the owner of the restore of volume %q, will retry: %v", volumeID, err)
-		setInstanceError(ctx, r, instance, err.Error())
+		setInstanceError(ctx, r, instance, err.Error(), falseCondition(
+			cnsregistervolumev1alpha1.ConditionRestoreValidated,
+			cnsregistervolumev1alpha1.ReasonRestorePrecheckFailed, "Waiting to read restore ownership"))
 		return nil, false, reconcile.Result{RequeueAfter: timeout}, false
+	}
+	if owner == "" {
+		holder, err := r.restoreReservationOwner(ctx, instance)
+		if err != nil {
+			unlock()
+			setInstanceError(ctx, r, instance, err.Error(), falseCondition(
+				cnsregistervolumev1alpha1.ConditionRestoreValidated,
+				cnsregistervolumev1alpha1.ReasonRestorePrecheckFailed, "Waiting to read restore reservations"))
+			return nil, false, reconcile.Result{RequeueAfter: timeout}, false
+		}
+		if holder != "" {
+			unlock()
+			setInstanceConditions(ctx, r, instance, falseCondition(
+				cnsregistervolumev1alpha1.ConditionRestoreValidated,
+				cnsregistervolumev1alpha1.ReasonWaitingForRestoreOwner, "Waiting for the active restore of this volume"))
+			return nil, false, reconcile.Result{RequeueAfter: timeout}, false
+		}
 	}
 	if owner == "" || owner == string(instance.UID) {
 		log.Infof("Restore of volume %q by CnsRegisterVolume %s/%s proceeds (current stamp %q)", volumeID,
@@ -158,7 +183,9 @@ func (r *ReconcileCnsRegisterVolume) markRestoreNotProcessed(ctx context.Context
 		return reconcile.Result{RequeueAfter: timeout}
 	}
 	setInstanceError(ctx, r, instance, fmt.Sprintf("volume %s was restored by CnsRegisterVolume %s; this "+
-		"CnsRegisterVolume is not processed", instance.Spec.VolumeID, owner))
+		"CnsRegisterVolume is not processed", instance.Spec.VolumeID, owner), falseCondition(
+		cnsregistervolumev1alpha1.ConditionRestoreValidated,
+		cnsregistervolumev1alpha1.ReasonRestoreNotProcessed, "Another registration owns this restore"))
 	backOffDurationMapMutex.Lock()
 	delete(backOffDuration, request.NamespacedName)
 	backOffDurationMapMutex.Unlock()
