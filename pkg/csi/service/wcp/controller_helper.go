@@ -138,6 +138,12 @@ func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.Cont
 		return err
 	}
 
+	// Legacy vSAN file service volumes are NFS shares, not disks attached to VMs,
+	// so the offline-expansion attach check below does not apply to them.
+	if common.GetCnsVolumeType(ctx, req.GetVolumeId()) == common.FileVolumeType {
+		return nil
+	}
+
 	if !isOnlineExpansionEnabled {
 		var nodes []*vsphere.VirtualMachine
 
@@ -911,8 +917,8 @@ func validateCreateVolumeRequestInWcp(ctx context.Context, req *csi.CreateVolume
 	return nil
 }
 
-// validateControllerExpandVolumeRequest is the helper function to validate
-// ControllerExpandVolumeRequest for all block controllers.
+// validateControllerExpandVolumeRequestInWcp is the helper function to validate
+// ControllerExpandVolumeRequest for block and legacy vSAN file service volumes.
 // Function returns error if validation fails otherwise returns nil.
 func validateControllerExpandVolumeRequestInWcp(ctx context.Context, req *csi.ControllerExpandVolumeRequest) error {
 	log := logger.GetLogger(ctx)
@@ -930,12 +936,28 @@ func validateControllerExpandVolumeRequestInWcp(ctx context.Context, req *csi.Co
 		return logger.LogNewErrorCode(log, codes.InvalidArgument, "volume capabilities is a required parameter")
 	}
 
-	if isFileVolumeRequestInWcp(ctx, []*csi.VolumeCapability{volCaps}) {
+	// A file volume capability on a block volume id is not a legacy vSAN file
+	// service volume; keep rejecting it as before.
+	if isFileVolumeRequestInWcp(ctx, []*csi.VolumeCapability{volCaps}) &&
+		common.GetCnsVolumeType(ctx, req.GetVolumeId()) != common.FileVolumeType {
 		return logger.LogNewErrorCode(log, codes.Unimplemented,
-			"volume expansion is only supported for block volume type")
+			"volume expansion is only supported for block and file volume types")
 	}
 
 	return nil
+}
+
+// isNodeExpansionRequired returns whether kubelet must grow the filesystem on
+// the node after a successful controller expansion. Raw block volumes and
+// legacy vSAN file service (NFS) volumes do not need a node-side step.
+func isNodeExpansionRequired(cnsVolumeType string, volCap *csi.VolumeCapability) bool {
+	if cnsVolumeType == common.FileVolumeType {
+		return false
+	}
+	if _, ok := volCap.GetAccessType().(*csi.VolumeCapability_Block); ok {
+		return false
+	}
+	return true
 }
 
 // validateControllerPublishVolumeRequestInWcp is the helper function to validate
