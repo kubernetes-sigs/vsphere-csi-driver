@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -293,6 +294,10 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 					},
 					MinVersion: tls.VersionTLS12,
 				},
+				ReadHeaderTimeout: webhookReadHeaderTimeout,
+				ReadTimeout:       webhookReadTimeout,
+				WriteTimeout:      webhookWriteTimeout,
+				IdleTimeout:       webhookIdleTimeout,
 			}
 			// Define http server and server handler.
 			mux := http.NewServeMux()
@@ -345,7 +350,17 @@ func validationHandler(w http.ResponseWriter, r *http.Request) {
 	var body []byte
 	ctx, log := logger.GetNewContextWithLogger()
 	if r.Body != nil {
-		if data, err := io.ReadAll(r.Body); err == nil {
+		r.Body = http.MaxBytesReader(w, r.Body, maxAdmissionReviewBodyBytes)
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				log.Errorf("request body exceeds the limit of %d bytes", maxBytesErr.Limit)
+				http.Error(w, fmt.Sprintf("request body exceeds the limit of %d bytes", maxBytesErr.Limit),
+					http.StatusRequestEntityTooLarge)
+				return
+			}
+		} else {
 			body = data
 		}
 	}

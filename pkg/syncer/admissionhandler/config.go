@@ -19,6 +19,7 @@ package admissionhandler
 import (
 	"context"
 	"os"
+	"time"
 
 	"gopkg.in/gcfg.v1"
 
@@ -29,6 +30,18 @@ const (
 	envWebHookConfigPath     = "WEBHOOK_CONFIG_PATH"
 	defaultWebHookConfigPath = "/etc/webhook/webhook.config"
 	defaultWebhookServerPort = "8443"
+
+	// Timeouts for the webhook http server, to bound how long a client can
+	// hold a connection open (e.g. Slowloris-style slow headers or body).
+	webhookReadHeaderTimeout = 10 * time.Second
+	webhookReadTimeout       = 30 * time.Second
+	webhookWriteTimeout      = 30 * time.Second
+	webhookIdleTimeout       = 120 * time.Second
+
+	// maxAdmissionReviewBodyBytes caps the size of an AdmissionReview request
+	// body read by the webhook. This comfortably exceeds any legitimate
+	// AdmissionReview (the kube-apiserver limits objects to ~1.5 MiB in etcd).
+	maxAdmissionReviewBodyBytes = 3 << 20 // 3 MiB
 )
 
 // config holds webhook configuration and FeatureStatesConfig
