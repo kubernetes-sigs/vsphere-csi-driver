@@ -15,6 +15,11 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: vsphere-csi-controller-role
 rules:
+  # TODO: Confirm against the platform's published HostMapping CRD.
+  # Publishes which ESXi hosts each VirtualNode owns.
+  - apiGroups: ["virtualnode.vmware.com"]
+    resources: ["hostmappings"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["nodes", "pods", "resourcequotas", "namespaces", "services", "secrets"]
     verbs: ["get", "list", "watch"]

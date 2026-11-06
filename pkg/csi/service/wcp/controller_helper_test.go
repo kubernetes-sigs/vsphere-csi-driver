@@ -2,6 +2,7 @@ package wcp
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -396,9 +397,9 @@ func TestValidateCreateBlockReqParamHostLocalPolicy(t *testing.T) {
 func TestGetHostMoRefsForHostLocalVolume(t *testing.T) {
 	ctx := context.Background()
 	// Reverse map maintained by the orchestrator: node name -> ESX host MoID.
-	nodeNameToID := map[string]string{
-		"node-a": "host-1",
-		"node-b": "host-2",
+	nodeNameToID := map[string][]string{
+		"node-a": {"host-1"},
+		"node-b": {"host-2"},
 	}
 	// makeReq builds a topology requirement whose Preferred segments carry both the zone and the
 	// hostname for each node (zone defaults to zone-1, overridable via zoneFor).
@@ -632,4 +633,104 @@ func TestResolveHostLocalAccessibleTopologySegments(t *testing.T) {
 			[]vimtypes.ManagedObjectReference{hostRef1, hostRef2}, hostTopo, nil, "vol-1")
 		assert.Error(t, err)
 	})
+}
+
+// listVolumesInventoryCO keeps the RPC test independent of CNS and Kubernetes.
+type listVolumesInventoryCO struct {
+	commonco.COCommonInterface
+	owners map[string]string
+}
+
+func (f *listVolumesInventoryCO) GetNodeIDtoNameMap(context.Context) map[string]string {
+	return f.owners
+}
+func (f *listVolumesInventoryCO) GetFakeAttachedVolumes(_ context.Context, ids []string) map[string]bool {
+	result := make(map[string]bool)
+	for _, id := range ids {
+		result[id] = false
+	}
+	return result
+}
+func (f *listVolumesInventoryCO) GetNodesForVolumes(context.Context, []string) map[string][]string {
+	return nil
+}
+
+func TestListVolumesVirtualNodeOwnership(t *testing.T) {
+	original := commonco.ContainerOrchestratorUtility
+	t.Cleanup(func() { commonco.ContainerOrchestratorUtility = original })
+	for _, mode := range []string{"all legacy", "mixed", "all virtual"} {
+		t.Run(mode, func(t *testing.T) {
+			owners := map[string]string{"host-1": "esx-node-1", "host-2": "esx-node-2", "host-3": "esx-node-3"}
+			if mode != "all legacy" {
+				owners["host-1"], owners["host-2"] = "virtual-node-domain-c1", "virtual-node-domain-c1"
+			}
+			if mode == "all virtual" {
+				owners["host-3"] = "virtual-node-domain-c1"
+			}
+			commonco.ContainerOrchestratorUtility = &listVolumesInventoryCO{owners: owners}
+			response, err := getVolumeIDToVMMap(context.Background(), []string{"vol-1", "vol-2", "vol-3"},
+				map[string]string{"vm-1": "host-1", "vm-2": "host-2", "vm-3": "host-3"},
+				map[string]string{"vol-1": "vm-1", "vol-2": "vm-2", "vol-3": "vm-3"})
+			assert.NoError(t, err)
+			assert.Len(t, response.GetEntries(), 3)
+			for _, entry := range response.GetEntries() {
+				host := map[string]string{"vol-1": "host-1", "vol-2": "host-2", "vol-3": "host-3"}[entry.Volume.VolumeId]
+				assert.Equal(t, []string{owners[host]}, entry.Status.PublishedNodeIds)
+			}
+		})
+	}
+}
+
+func TestHostLocalVirtualNodeCandidates(t *testing.T) {
+	req := &csi.TopologyRequirement{Preferred: []*csi.Topology{{Segments: map[string]string{
+		v1.LabelTopologyZone: "zone-1", v1.LabelHostname: "virtual-node-domain-c1",
+	}}}}
+	refs, topology, err := getHostMoRefsForHostLocalVolume(context.Background(), req,
+		map[string][]string{"virtual-node-domain-c1": {"host-1", "host-2"}})
+	assert.NoError(t, err)
+	assert.Len(t, refs, 2)
+	assert.Len(t, topology, 2)
+}
+
+// Attachment resolves the Pod VM by the scheduled Kubernetes Node identity;
+// it must not reinterpret a VirtualNode as an ESXi host or require host-local storage.
+func TestGetPodVMUUIDStorageFeatureMatrix(t *testing.T) {
+	original, originalClient := commonco.ContainerOrchestratorUtility, newK8sClient
+	t.Cleanup(func() { commonco.ContainerOrchestratorUtility, newK8sClient = original, originalClient })
+	for _, hostLocal := range []bool{false, true} {
+		for _, podVMV2 := range []bool{false, true} {
+			nodes := []string{"esx-node-1"}
+			if podVMV2 {
+				nodes = append(nodes, "virtual-node-domain-c1")
+			}
+			for _, node := range nodes {
+				t.Run(fmt.Sprintf("hostLocal=%t/podVMV2=%t/node=%s", hostLocal, podVMV2, node), func(t *testing.T) {
+					co, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+					if err != nil {
+						t.Fatal(err)
+					}
+					commonco.ContainerOrchestratorUtility = co
+					features := map[string]bool{common.HostLocalStorageSupport: hostLocal, common.PodVMV2Support: podVMV2}
+					for feature, enabled := range features {
+						if enabled {
+							assert.NoError(t, co.EnableFSS(context.Background(), feature))
+						}
+					}
+					client := fake.NewClientset()
+					client.PrependReactor("list", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+						list := action.(k8stesting.ListAction)
+						assert.Equal(t, "mock-namespace", action.GetNamespace())
+						assert.Equal(t, "spec.nodeName="+node+",status.phase=Pending", list.GetListRestrictions().Fields.String())
+						pod := newMockPod("consumer", "mock-namespace", node, []string{"mock-pvc"},
+							map[string]string{vmwareSystemVMUUIDAnn: "pod-vm-uuid"}, v1.PodPending)
+						return true, &v1.PodList{Items: []v1.Pod{*pod}}, nil
+					})
+					newK8sClient = func(context.Context) (kubernetes.Interface, error) { return client, nil }
+					uuid, err := getPodVMUUID(context.Background(), "mock-volume-id", node)
+					assert.NoError(t, err)
+					assert.Equal(t, "pod-vm-uuid", uuid)
+				})
+			}
+		}
+	}
 }

@@ -1564,6 +1564,17 @@ type fakeCOOverrides struct {
 	linkedCloneUUIDErr error
 }
 
+func (f *fakeCOOverrides) GetNodeIDtoNameMap(ctx context.Context) map[string]string {
+	if f.nodeNameToHostMoID == nil {
+		return f.COCommonInterface.GetNodeIDtoNameMap(ctx)
+	}
+	result := make(map[string]string)
+	for node, host := range f.nodeNameToHostMoID {
+		result[host] = node
+	}
+	return result
+}
+
 func (f *fakeCOOverrides) GetNodeNameToHostMoIDMap(ctx context.Context) map[string]string {
 	if f.nodeNameToHostMoID == nil {
 		return f.COCommonInterface.GetNodeNameToHostMoIDMap(ctx)

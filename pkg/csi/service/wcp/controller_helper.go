@@ -479,7 +479,7 @@ func checkTopologyKeysFromAccessibilityReqs(topologyRequirement *csi.TopologyReq
 // avoiding any vCenter call.
 func getHostMoRefsForHostLocalVolume(ctx context.Context,
 	topologyRequirement *csi.TopologyRequirement,
-	nodeNameToID map[string]string) ([]vimtypes.ManagedObjectReference, map[string]map[string]string, error) {
+	nodeNameToID map[string][]string) ([]vimtypes.ManagedObjectReference, map[string]map[string]string, error) {
 	log := logger.GetLogger(ctx)
 	if topologyRequirement == nil || len(topologyRequirement.GetPreferred()) == 0 {
 		return nil, nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
@@ -500,19 +500,21 @@ func getHostMoRefsForHostLocalVolume(ctx context.Context,
 			continue
 		}
 		seen[normalizedHostname] = struct{}{}
-		hostMoID, found := nodeNameToID[normalizedHostname]
+		hostMoIDs, found := nodeNameToID[normalizedHostname]
 		if !found {
 			return nil, nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to resolve ESX host MoID for node %q while provisioning host-local volume", hostname)
 		}
-		hostMoRefs = append(hostMoRefs, vimtypes.ManagedObjectReference{Type: "HostSystem", Value: hostMoID})
-		// Record the zone + hostname for this host from the same Preferred segment. Both keys are
-		// expected to be present for host-local provisioning.
-		hostTopology := map[string]string{v1.LabelHostname: hostname}
-		if zone, hasZone := segments[v1.LabelTopologyZone]; hasZone && zone != "" {
-			hostTopology[v1.LabelTopologyZone] = zone
+		for _, hostMoID := range hostMoIDs {
+			hostMoRefs = append(hostMoRefs, vimtypes.ManagedObjectReference{Type: "HostSystem", Value: hostMoID})
+			// Record the zone + hostname for this host from the same Preferred segment. Both keys are
+			// expected to be present for host-local provisioning.
+			hostTopology := map[string]string{v1.LabelHostname: hostname}
+			if zone, hasZone := segments[v1.LabelTopologyZone]; hasZone && zone != "" {
+				hostTopology[v1.LabelTopologyZone] = zone
+			}
+			hostMoIDToTopology[hostMoID] = hostTopology
 		}
-		hostMoIDToTopology[hostMoID] = hostTopology
 	}
 	if len(hostMoRefs) == 0 {
 		return nil, nil, logger.LogNewErrorCode(log, codes.InvalidArgument,

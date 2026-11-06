@@ -736,6 +736,11 @@ const (
 	// on the supervisor.
 	HostLocalStorageSupportFSS = "host-local-storage-support"
 
+	// PodVMV2Support indicates Supervisor support for cluster-backed virtual nodes.
+	PodVMV2Support = "supports_podvm_v2"
+	// PodVMV2SupportFSS is the guest FSS paired with the Supervisor capability.
+	PodVMV2SupportFSS = "podvm-v2-support"
+
 	// VSphereDPLPModernApp is the WCP capability that gates the Supervisor
 	// CnsRegisterVolume controller accepting a spec with both VolumeID and DiskURLPath
 	// set (the VKS volume-restore path). It is activated when VC >= 9.1.2,
@@ -779,6 +784,7 @@ var WCPFeatureStates = map[string]struct{}{
 	SupportsPerNamespaceNetworkProviders:    {},
 	VMPVCStoragePolicyMutability:            {},
 	HostLocalStorageSupport:                 {},
+	PodVMV2Support:                          {},
 	VSphereDPLPModernApp:                    {},
 	SupportsSnapServiceLocalProtection:      {},
 }
@@ -801,6 +807,7 @@ var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
 	SupportsPerNamespaceNetworkProviders:    {},
 	VMPVCStoragePolicyMutability:            {},
 	HostLocalStorageSupport:                 {},
+	PodVMV2Support:                          {},
 	VSphereDPLPModernApp:                    {},
 	SupportsSnapServiceLocalProtection:      {},
 }
@@ -816,5 +823,6 @@ var WCPFeatureStateAssociatedWithPVCSI = map[string]string{
 	CSI_Backup_API_FSS:                      CSI_Backup_API,
 	VMPVCStoragePolicyMutabilityFSS:         VMPVCStoragePolicyMutability,
 	HostLocalStorageSupportFSS:              HostLocalStorageSupport,
+	PodVMV2SupportFSS:                       PodVMV2Support,
 	SupportsExposingStoragePolicyAttributes: SupportsExposingStoragePolicyAttributes,
 }

@@ -188,14 +188,7 @@ func getHostLocalAccessibleTopology(ctx context.Context, vc *vsphere.VirtualCent
 
 	// hostname: reverse the node-name -> host-MoID map to resolve the host to its node name,
 	// which is the kubernetes.io/hostname value on a supervisor.
-	nodeNameToHostMoID := commonco.ContainerOrchestratorUtility.GetNodeNameToHostMoIDMap(ctx)
-	hostname := ""
-	for nodeName, hostMoID := range nodeNameToHostMoID {
-		if hostMoID == hostRef.Value {
-			hostname = nodeName
-			break
-		}
-	}
+	hostname := commonco.ContainerOrchestratorUtility.GetNodeIDtoNameMap(ctx)[hostRef.Value]
 	if hostname == "" {
 		return nil, logger.LogNewErrorf(log,
 			"failed to resolve kubernetes.io/hostname for ESX host %q backing host-local datastore %q",

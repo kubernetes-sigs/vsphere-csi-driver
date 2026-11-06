@@ -300,6 +300,7 @@ type K8sOrchestrator struct {
 	volumeIDToPvcMap     *volumeIDToPvcMap
 	pvcToVolumeIDMap     *pvcToVolumeIDMap
 	nodeIDToNameMap      *nodeIDToNameMap
+	hostInventory        *hostInventory
 	volumeNameToNodesMap *volumeNameToNodesMap // used when ListVolume FSS is enabled
 	volumeIDToNameMap    *volumeIDToNameMap    // used when ListVolume FSS is enabled
 	k8sClient            clientset.Interface
@@ -2037,6 +2038,8 @@ func initNodeIDToNameMap(ctx context.Context) error {
 		nameToID: make(map[string]string),
 	}
 
+	k8sOrchestratorInstance.hostInventory = k8sOrchestratorInstance.newHostInventory(ctx)
+
 	// Set up kubernetes resource listener to listen events on Node
 	err := k8sOrchestratorInstance.informerManager.AddNodeListener(
 		ctx,
@@ -2119,9 +2122,44 @@ func nodeRemove(obj interface{}) {
 	k8sOrchestratorInstance.nodeIDToNameMap.remove(nodeMoID)
 }
 
+// newHostInventory returns the PodVM v2 Node/HostMapping inventory, or nil when
+// the capability is disabled so that the legacy dedicated-Node informer map is
+// used unchanged. The decision is made once at startup: if the capability is
+// enabled later, HandleLateEnablementOfCapability restarts the controller and
+// syncer containers. vCenter and the HostMapping client are resolved lazily
+// because neither may be available during orchestrator initialization.
+func (c *K8sOrchestrator) newHostInventory(ctx context.Context) *hostInventory {
+	if !c.IsFSSEnabled(ctx, common.PodVMV2Support) {
+		return nil
+	}
+	return &hostInventory{
+		client:       c.k8sClient,
+		hostMappings: listHostMappings,
+		vcenterUUID:  configuredVCenterUUID,
+	}
+}
+
+// usesHostInventory reports whether host ownership comes from the PodVM v2
+// Node/HostMapping inventory instead of the legacy dedicated-Node informer map.
+func (c *K8sOrchestrator) usesHostInventory() bool {
+	return c.hostInventory != nil
+}
+
 // GetNodeIDtoNameMap returns a map containing the nodeID to node name
 func (c *K8sOrchestrator) GetNodeIDtoNameMap(ctx context.Context) map[string]string {
-	return c.nodeIDToNameMap.items
+	if c.usesHostInventory() {
+		return c.hostInventory.snapshot(ctx)
+	}
+	result := make(map[string]string)
+	if c.nodeIDToNameMap == nil {
+		return result
+	}
+	c.nodeIDToNameMap.RLock()
+	defer c.nodeIDToNameMap.RUnlock()
+	for host, node := range c.nodeIDToNameMap.items {
+		result[host] = node
+	}
+	return result
 }
 
 // GetNodeNameToHostMoIDMap returns a race-free copy of the node name to ESXi host MoID map,
@@ -2129,7 +2167,25 @@ func (c *K8sOrchestrator) GetNodeIDtoNameMap(ctx context.Context) map[string]str
 // candidate hosts from the hostnames in the accessibility requirement without rebuilding the
 // reverse map on every CreateVolume call.
 func (c *K8sOrchestrator) GetNodeNameToHostMoIDMap(ctx context.Context) map[string]string {
-	return c.nodeIDToNameMap.getNameToIDCopy()
+	if !c.usesHostInventory() {
+		if c.nodeIDToNameMap == nil {
+			return make(map[string]string)
+		}
+		return c.nodeIDToNameMap.getNameToIDCopy()
+	}
+	// Compatibility accessor: omit cluster-backed Nodes instead of choosing one host.
+	result := make(map[string]string)
+	multiple := make(map[string]bool)
+	for host, node := range c.GetNodeIDtoNameMap(ctx) {
+		if _, exists := result[node]; exists {
+			multiple[node] = true
+		}
+		result[node] = host
+	}
+	for node := range multiple {
+		delete(result, node)
+	}
+	return result
 }
 
 // GetFakeAttachedVolumes returns a map of volumeIDs to a bool, which is set
