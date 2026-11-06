@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"sync"
 	"testing"
 
@@ -243,25 +244,96 @@ func TestDeleteVolumeResumesTaskOnListViewAdditionFailure(t *testing.T) {
 		"a listview addition failure must stay pending so the same task is resumed")
 }
 
-// TestDeleteVolumeShortCircuitsOnSuccessRecord documents why no delete path may
-// record Success without a successful CNS response: a Success record turns every
-// later delete of the same volume ID into a no-op.
-func TestDeleteVolumeShortCircuitsOnSuccessRecord(t *testing.T) {
+// seedSuccessfulDelete stores the record left behind by a completed delete.
+func seedSuccessfulDelete(store *fakeOperationStore, instanceName string) {
+	store.records[instanceName] = cnsvolumeoperationrequest.CreateVolumeOperationRequestDetails(
+		instanceName, "", "", 0, nil, metav1.Now(), "task-1", "", "test-op-id",
+		cnsvolumeoperationrequest.TaskInvocationStatusSuccess, "", "")
+}
+
+// TestDeleteVolumeWithSuccessRecord covers a prior Success delete record. The
+// record may only short-circuit the delete when the volume is verified absent;
+// if the volume ID was re-registered (e.g. restored under its original ID) the
+// record is stale and CNS must be invoked. CNS being invoked is observed through
+// AddTask, which is only reached once a DeleteVolume task exists.
+func TestDeleteVolumeWithSuccessRecord(t *testing.T) {
 	const (
 		volumeID     = "test-volume-id"
 		instanceName = "delete-" + volumeID
 	)
+	tests := []struct {
+		name      string
+		exists    bool
+		existsErr error
+		expectCNS bool
+	}{
+		{name: "volume absent short-circuits without contacting CNS", exists: false},
+		{name: "volume present again invokes CNS DeleteVolume", exists: true, expectCNS: true},
+		{name: "existence check failure invokes CNS DeleteVolume",
+			existsErr: errors.New("query failed"), expectCNS: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := logger.NewContextWithLogger(context.Background())
+			store := newFakeOperationStore()
+			seedSuccessfulDelete(store, instanceName)
+			m := newDeleteVolumeTestManager(store, errors.New("should not be called"))
+			queried := 0
+			m.volumeExistsFunc = func(ctx context.Context, id string) (bool, error) {
+				queried++
+				assert.Equal(t, volumeID, id)
+				return tt.exists, tt.existsErr
+			}
+
+			// The test manager has no CNS client, so a call that reaches CNS
+			// DeleteVolume panics with a nil dereference. Any other panic is a
+			// test failure, not evidence that CNS was invoked.
+			cnsInvoked := false
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						rtErr, ok := r.(runtime.Error)
+						assert.True(t, ok, "unexpected panic: %v", r)
+						if ok {
+							assert.Contains(t, rtErr.Error(), "nil pointer dereference")
+						}
+						cnsInvoked = true
+					}
+				}()
+				faultType, err := m.deleteVolumeWithImprovedIdempotency(ctx, volumeID, true, false)
+				if !tt.expectCNS {
+					assert.NoError(t, err)
+					assert.Empty(t, faultType)
+				}
+			}()
+			assert.Equal(t, 1, queried, "the volume must be looked up exactly once")
+			assert.Equal(t, tt.expectCNS, cnsInvoked)
+
+			if !tt.expectCNS {
+				record := store.records[instanceName]
+				assert.NotNil(t, record)
+				assert.Equal(t, cnsvolumeoperationrequest.TaskInvocationStatusSuccess,
+					record.OperationDetails.TaskStatus,
+					"short-circuiting must leave the Success record untouched")
+			}
+		})
+	}
+}
+
+// TestDeleteVolumeWithoutSuccessRecordSkipsExistenceCheck ensures the extra CNS
+// query is limited to retries that hit a Success record.
+func TestDeleteVolumeWithoutSuccessRecordSkipsExistenceCheck(t *testing.T) {
+	const volumeID = "test-volume-id"
 	ctx := logger.NewContextWithLogger(context.Background())
 	store := newFakeOperationStore()
-	store.records[instanceName] = cnsvolumeoperationrequest.CreateVolumeOperationRequestDetails(
-		instanceName, "", "", 0, nil, metav1.Now(), "task-1", "", "test-op-id",
-		cnsvolumeoperationrequest.TaskInvocationStatusSuccess, "", "")
-	// AddTask would fail if it were reached, proving CNS is never contacted.
-	m := newDeleteVolumeTestManager(store, errors.New("should not be called"))
-
-	faultType, err := m.deleteVolumeWithImprovedIdempotency(ctx, volumeID, true, false)
-	assert.NoError(t, err)
-	assert.Empty(t, faultType)
+	seedPendingDelete(store, "delete-"+volumeID, "task-55858")
+	m := newDeleteVolumeTestManager(store, errors.New("poll failed"))
+	m.volumeExistsFunc = func(ctx context.Context, id string) (bool, error) {
+		t.Fatal("existence check must not run without a Success record")
+		return false, nil
+	}
+	_, err := m.deleteVolumeWithImprovedIdempotency(ctx, volumeID, true, false)
+	assert.Error(t, err)
 }
 
 // TestIsTaskPendingRetryContract covers IsTaskPending directly, since the choice
