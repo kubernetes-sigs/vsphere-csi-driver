@@ -51,6 +51,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
@@ -2602,4 +2603,57 @@ func TestCreateSnapshotWithCnsSnapshotCreatedFault(t *testing.T) {
 	} else {
 		t.Fatal("expected error was not received for create snapshot operation.")
 	}
+}
+
+// TestSnapshotLockSerializesPerVolume verifies that acquireSnapshotLock serializes
+// concurrent callers on the same volume and cleans up locks once released.
+func TestSnapshotLockSerializesPerVolume(t *testing.T) {
+	// Initialize the logger before spawning goroutines.
+	ctx := logger.NewContextWithLogger(context.Background())
+	c := &controller{}
+	const (
+		volumeID   = "vol-1"
+		goroutines = 50
+	)
+	var (
+		wg       sync.WaitGroup
+		inside   int
+		maxInner int
+		mu       sync.Mutex
+	)
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.acquireSnapshotLock(ctx, volumeID)
+			defer c.releaseSnapshotLock(ctx, volumeID)
+			mu.Lock()
+			inside++
+			if inside > maxInner {
+				maxInner = inside
+			}
+			mu.Unlock()
+			mu.Lock()
+			inside--
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+	if maxInner != 1 {
+		t.Fatalf("expected at most 1 holder of the snapshot lock for volume %q, got %d", volumeID, maxInner)
+	}
+	if n := len(c.snapshotLockMgr.locks); n != 0 {
+		t.Fatalf("expected snapshot locks to be cleaned up after release, %d remaining", n)
+	}
+
+	// Locks on different volumes must not block each other.
+	c.acquireSnapshotLock(ctx, "vol-a")
+	done := make(chan struct{})
+	go func() {
+		c.acquireSnapshotLock(ctx, "vol-b")
+		c.releaseSnapshotLock(ctx, "vol-b")
+		close(done)
+	}()
+	<-done
+	c.releaseSnapshotLock(ctx, "vol-a")
 }
