@@ -244,10 +244,12 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 	batchAttachCtx = logger.NewContextWithLogger(batchAttachCtx)
 	log := logger.GetLogger(batchAttachCtx)
 
-	// Initialize backOffDuration for the instance, if required.
+	// Initialize backOffDuration for the instance, if required. Also repair an
+	// invalid value left behind by an earlier reconciliation so that a failure
+	// always schedules a retry.
 	backOffDurationMapMutex.Lock()
 	var timeout time.Duration
-	if _, exists := backOffDuration[request.NamespacedName]; !exists {
+	if duration, exists := backOffDuration[request.NamespacedName]; !exists || duration < time.Second {
 		backOffDuration[request.NamespacedName] = time.Second
 	}
 	timeout = backOffDuration[request.NamespacedName]
@@ -272,6 +274,12 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			log.Info("CnsNodeVMBatchAttachment resource not found. Ignoring since object must be deleted.")
+			// Remove any backOffDuration left behind by this or an earlier
+			// generation of the object, so that a recreated object with the
+			// same name starts again from 1 second.
+			backOffDurationMapMutex.Lock()
+			delete(backOffDuration, request.NamespacedName)
+			backOffDurationMapMutex.Unlock()
 			return reconcile.Result{}, nil
 		}
 		log.Errorf("Error reading the CnsNodeVMBatchAttachment with name: %q on namespace: %q. Err: %+v",
@@ -667,7 +675,6 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 
 // recordEvent records the event, sets the backOffDuration for the instance
 // appropriately and logs the message.
-// backOffDuration is reset to 1 second on success and doubled on failure.
 func recordEvent(ctx context.Context, r *Reconciler,
 	instance *v1alpha1.CnsNodeVMBatchAttachment, eventtype string, msg string) {
 	log := logger.GetLogger(ctx)
@@ -681,15 +688,16 @@ func recordEvent(ctx context.Context, r *Reconciler,
 	case v1.EventTypeWarning:
 		// Double backOff duration.
 		backOffDurationMapMutex.Lock()
-		backOffDuration[namespacedName] = min(backOffDuration[namespacedName]*2,
+		currentBackOffDuration := backOffDuration[namespacedName]
+		if currentBackOffDuration < time.Second {
+			currentBackOffDuration = time.Second
+		}
+		backOffDuration[namespacedName] = min(currentBackOffDuration*2,
 			cnsoperatortypes.MaxBackOffDurationForReconciler)
 		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeWarning, "NodeVmBatchAttachFailed", msg)
 	case v1.EventTypeNormal:
-		// Reset backOff duration to one second.
-		backOffDurationMapMutex.Lock()
-		backOffDuration[namespacedName] = time.Second
-		backOffDurationMapMutex.Unlock()
+		// backOffDuration for the instance is removed by completeReconciliationWithSuccess;
 		r.recorder.Event(instance, v1.EventTypeNormal, "NodeVmBatchAttachSucceeded", msg)
 	}
 }

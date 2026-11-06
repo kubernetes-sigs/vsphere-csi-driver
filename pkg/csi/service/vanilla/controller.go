@@ -894,6 +894,16 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 							})
 					}
 					if err != nil {
+						if errors.Is(err, cnsvolume.ErrTaskMonitoring) {
+							// The create may still be running on this vCenter and its
+							// CnsVolumeOperationRequest still names it. Moving on would
+							// hand that record to the next vCenter's manager, which would
+							// monitor this vCenter's task ID with its own client. Fail the
+							// request instead; the provisioner retries and comes back here.
+							return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
+								"CreateVolume outcome on vCenter %q is unknown, not falling back to another "+
+									"vCenter. Error: %+v", vcHost, err)
+						}
 						log.Error(err)
 						combinedErrMssgs = append(combinedErrMssgs, err.Error())
 						continue
@@ -1383,6 +1393,14 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 					vcenter, c.managers.VolumeManagers[vcHost], c.managers.CnsConfig, &createVolumeSpec,
 					fsEnabledCandidateDatastores, []string{}, filterSuspendedDatastores, false, nil)
 				if err != nil {
+					if errors.Is(err, cnsvolume.ErrTaskMonitoring) {
+						// Same reasoning as the block volume loop above: an unknown
+						// outcome leaves a pending record naming this vCenter, and
+						// the next vCenter's manager must not pick it up.
+						return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
+							"CreateVolume outcome on vCenter %q is unknown, not falling back to another "+
+								"vCenter. Error: %+v", vcHost, err)
+					}
 					log.Error(err)
 					combinedErrMssgs = append(combinedErrMssgs, err.Error())
 					continue
