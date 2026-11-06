@@ -18,6 +18,7 @@ package manager
 
 import (
 	"context"
+	"net"
 	"sync"
 	"testing"
 
@@ -191,4 +192,20 @@ func BenchmarkGetGlobalSchemeConcurrent(b *testing.B) {
 			getGlobalScheme(ctx)
 		}
 	})
+}
+
+// TestMetricsBindAddressIsLoopback verifies the controller-runtime metrics
+// server binds to loopback only. The endpoint is unauthenticated plain HTTP and
+// the Supervisor controller runs with hostNetwork, so binding all interfaces
+// would expose it on the node IP.
+func TestMetricsBindAddressIsLoopback(t *testing.T) {
+	addr := metricsBindAddress()
+	assert.Equal(t, "127.0.0.1:8383", addr)
+
+	host, _, err := net.SplitHostPort(addr)
+	assert.NoError(t, err)
+	ip := net.ParseIP(host)
+	if assert.NotNilf(t, ip, "metrics host %q should be an IP literal", host) {
+		assert.Truef(t, ip.IsLoopback(), "metrics host %q should be a loopback address", host)
+	}
 }
