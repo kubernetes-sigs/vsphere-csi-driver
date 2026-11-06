@@ -633,3 +633,136 @@ func TestResolveHostLocalAccessibleTopologySegments(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+
+// expandRequestWithMode builds a ControllerExpandVolumeRequest with a mount
+// access type and the given access mode.
+func expandRequestWithMode(volumeID string,
+	mode csi.VolumeCapability_AccessMode_Mode) *csi.ControllerExpandVolumeRequest {
+	return &csi.ControllerExpandVolumeRequest{
+		VolumeId:      volumeID,
+		CapacityRange: &csi.CapacityRange{RequiredBytes: 1 << 30},
+		VolumeCapability: &csi.VolumeCapability{
+			AccessMode: &csi.VolumeCapability_AccessMode{Mode: mode},
+			AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+		},
+	}
+}
+
+// TestValidateControllerExpandVolumeRequestInWcp_LegacyFileVolume verifies that
+// RWX/ROX legacy vSAN file service volumes are no longer rejected for expansion.
+func TestValidateControllerExpandVolumeRequestInWcp_LegacyFileVolume(t *testing.T) {
+	ctx := context.Background()
+	original := commonco.ContainerOrchestratorUtility
+	t.Cleanup(func() { commonco.ContainerOrchestratorUtility = original })
+	orchestrator, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	assert.NoError(t, err)
+	commonco.ContainerOrchestratorUtility = orchestrator
+
+	for _, mode := range []csi.VolumeCapability_AccessMode_Mode{
+		csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+		csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY,
+		csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER,
+		csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+	} {
+		assert.NoError(t, validateControllerExpandVolumeRequestInWcp(ctx,
+			expandRequestWithMode("file:1234-abcd", mode)), "mode=%s", mode)
+	}
+
+	// Required-parameter validation still applies.
+	req := expandRequestWithMode("file:1234-abcd", csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER)
+	req.VolumeCapability = nil
+	err = validateControllerExpandVolumeRequestInWcp(ctx, req)
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+// TestValidateWCPControllerExpandVolumeRequest_LegacyFileSkipsOnlineCheck verifies
+// that with online expansion disabled, a legacy RWX file volume skips the VM
+// attach check (which would otherwise need a vCenter manager) and passes.
+func TestValidateWCPControllerExpandVolumeRequest_LegacyFileSkipsOnlineCheck(t *testing.T) {
+	ctx := context.Background()
+	original := commonco.ContainerOrchestratorUtility
+	t.Cleanup(func() { commonco.ContainerOrchestratorUtility = original })
+	orchestrator, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	assert.NoError(t, err)
+	commonco.ContainerOrchestratorUtility = orchestrator
+
+	req := expandRequestWithMode("file:1234-abcd", csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER)
+	// A nil manager would panic if the online-expansion attach check were reached.
+	assert.NoError(t, validateWCPControllerExpandVolumeRequest(ctx, req, nil, false))
+}
+
+// TestValidateControllerExpandVolumeRequestInWcp_VolumeTypes checks that
+// RWX expansion validation is decided by both the volume id and the capability:
+// legacy file and FVS ids are accepted, and a block id with a file capability
+// is still rejected.
+func TestValidateControllerExpandVolumeRequestInWcp_VolumeTypes(t *testing.T) {
+	ctx := context.Background()
+	original := commonco.ContainerOrchestratorUtility
+	t.Cleanup(func() { commonco.ContainerOrchestratorUtility = original })
+
+	rwx := csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER
+	for _, sharedDisk := range []bool{false, true} {
+		orchestrator, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+		assert.NoError(t, err)
+		if sharedDisk {
+			assert.NoError(t, orchestrator.EnableFSS(ctx, common.SharedDiskFss))
+		}
+		commonco.ContainerOrchestratorUtility = orchestrator
+
+		for _, tc := range []struct {
+			name     string
+			volumeID string
+			mode     csi.VolumeCapability_AccessMode_Mode
+			rawBlock bool
+			wantErr  bool
+		}{
+			{"legacy file RWX", "file:1234-abcd", rwx, false, false},
+			{"FVS file RWX", common.FVSVolumeIDPrefix + "ns:fv", rwx, false, false},
+			{"block id with file capability", "1234-abcd", rwx, false, true},
+		} {
+			req := expandRequestWithMode(tc.volumeID, tc.mode)
+			if tc.rawBlock {
+				req.VolumeCapability.AccessType = &csi.VolumeCapability_Block{
+					Block: &csi.VolumeCapability_BlockVolume{}}
+			}
+			err := validateControllerExpandVolumeRequestInWcp(ctx, req)
+			if tc.wantErr {
+				assert.Equal(t, codes.Unimplemented, status.Code(err),
+					"%s sharedDisk=%t", tc.name, sharedDisk)
+			} else {
+				assert.NoError(t, err, "%s sharedDisk=%t", tc.name, sharedDisk)
+			}
+		}
+	}
+}
+
+// TestValidateWCPControllerExpandVolumeRequest_OnlineExpansionEnabled verifies
+// that with online expansion enabled no attach check runs for legacy file volumes.
+func TestValidateWCPControllerExpandVolumeRequest_OnlineExpansionEnabled(t *testing.T) {
+	ctx := context.Background()
+	original := commonco.ContainerOrchestratorUtility
+	t.Cleanup(func() { commonco.ContainerOrchestratorUtility = original })
+	orchestrator, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	assert.NoError(t, err)
+	commonco.ContainerOrchestratorUtility = orchestrator
+
+	for _, req := range []*csi.ControllerExpandVolumeRequest{
+		expandRequestWithMode("file:1234-abcd", csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER),
+	} {
+		// A nil manager would panic if the attach check were reached.
+		assert.NoError(t, validateWCPControllerExpandVolumeRequest(ctx, req, nil, true), req.VolumeId)
+	}
+}
+
+// TestIsNodeExpansionRequired verifies legacy file volumes never require
+// node-side expansion.
+func TestIsNodeExpansionRequired(t *testing.T) {
+	mount := &csi.VolumeCapability{
+		AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+	}
+	block := &csi.VolumeCapability{
+		AccessType: &csi.VolumeCapability_Block{Block: &csi.VolumeCapability_BlockVolume{}},
+	}
+	assert.False(t, isNodeExpansionRequired(common.FileVolumeType, mount), "legacy file volume")
+	assert.False(t, isNodeExpansionRequired(common.FileVolumeType, block), "file volume, block capability")
+}

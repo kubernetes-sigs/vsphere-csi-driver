@@ -3355,6 +3355,15 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		if shouldExpandFileVolumeViaFVS(req.VolumeId) {
 			return c.expandFileVolumeViaFVS(ctx, req)
 		}
+		// Past this point only legacy vSAN file service volumes ("file:<uuid>") may be expanded
+		// as file volumes, and only when the VsanFileVolumeExpansion FSS is enabled. FVS
+		// volume ids that were not handled above (FVS disabled) are not legacy volumes.
+		if cnsVolumeType == common.FileVolumeType &&
+			(common.IsFVSVolumeHandle(req.VolumeId) ||
+				!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VsanFileVolumeExpansion)) {
+			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.Unimplemented,
+				"volume expansion is only supported for block volume type")
+		}
 		isOnlineExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
 		err = validateWCPControllerExpandVolumeRequest(ctx, req, c.manager, isOnlineExpansionEnabled)
 		if err != nil {
@@ -3362,7 +3371,11 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 				logger.RedactCSIRequest(req), err)
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
-		volumeType = prometheus.PrometheusBlockVolumeType
+		// Legacy vSAN file service volumes ("file:<uuid>") are expanded through
+		// the same CNS ExpandVolume API as block volumes.
+		if cnsVolumeType != common.FileVolumeType {
+			volumeType = prometheus.PrometheusBlockVolumeType
+		}
 		volumeID := req.GetVolumeId()
 		volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 		volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
@@ -3400,11 +3413,9 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		// in this case. Setting nodeExpandsionRequired to false marks PVC
 		// resize as finished which prevents kubelet from expanding the filesystem.
 		// Ref: https://github.com/kubernetes-csi/external-resizer/blob/master/pkg/controller/controller.go#L335
-		nodeExpansionRequired := true
-		// Set NodeExpansionRequired to false for raw block volumes.
-		if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
-			nodeExpansionRequired = false
-		}
+		// NodeExpansionRequired is false for raw block volumes and for NFS shares,
+		// which grow on the vSAN file service side.
+		nodeExpansionRequired := isNodeExpansionRequired(cnsVolumeType, req.GetVolumeCapability())
 		if isPodVMOnStretchSupervisorFSSEnabled {
 			// Increase capacity in CNSVolumeInfo instance.
 			patch := map[string]interface{}{
