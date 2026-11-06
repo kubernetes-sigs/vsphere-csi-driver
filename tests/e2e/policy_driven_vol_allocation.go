@@ -1542,7 +1542,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			}
 
 			sharedvmfs2URL = os.Getenv(envSharedVMFSDatastore2URL)
-			if sharedvmfsURL == "" {
+			if sharedvmfs2URL == "" {
 				ginkgo.Skip(fmt.Sprintf("Env %v is missing", envSharedVMFSDatastore2URL))
 			}
 			datastoreUrls = append(datastoreUrls, sharedvmfsURL, sharedvmfs2URL)
@@ -2677,7 +2677,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		vsanDDatstoreURL := os.Getenv(envVsanDDatastoreURL)
-		if sharedvmfsURL == "" {
+		if vsanDDatstoreURL == "" {
 			ginkgo.Skip(fmt.Sprintf("Env %v is missing", envVsanDDatastoreURL))
 		}
 
@@ -2901,7 +2901,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		sharedvmfs2URL = os.Getenv(envSharedVMFSDatastore2URL)
-		if sharedvmfsURL == "" {
+		if sharedvmfs2URL == "" {
 			ginkgo.Skip(fmt.Sprintf("Env %v is missing", envSharedVMFSDatastore2URL))
 		}
 		datastoreUrls = append(datastoreUrls, sharedvmfsURL, sharedvmfs2URL)
@@ -3129,7 +3129,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		sharedvmfs2URL = os.Getenv(envSharedVMFSDatastore2URL)
-		if sharedvmfsURL == "" {
+		if sharedvmfs2URL == "" {
 			ginkgo.Skip(fmt.Sprintf("Env %v is missing", envSharedVMFSDatastore2URL))
 		}
 		datastoreUrls = append(datastoreUrls, sharedvmfsURL, sharedvmfs2URL)
@@ -3373,7 +3373,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		sharedvmfs2URL = os.Getenv(envSharedVMFSDatastore2URL)
-		if sharedvmfsURL == "" {
+		if sharedvmfs2URL == "" {
 			ginkgo.Skip(fmt.Sprintf("Env %v is missing", envSharedVMFSDatastore2URL))
 		}
 		datastoreUrls = append(datastoreUrls, sharedvmfsURL, sharedvmfs2URL)

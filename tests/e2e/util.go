@@ -1045,6 +1045,11 @@ func updateDeploymentReplicawithWait(client clientset.Interface, count int32, na
 			ginkgo.By("Waiting for update operation on deployment to take effect")
 			deployment, err = client.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
 			if err != nil {
+				if apierrors.IsConflict(err) {
+					framework.Logf("conflict updating deployment %s/%s, will retry with latest version: %v",
+						namespace, name, err)
+					return false, nil
+				}
 				return false, err
 			}
 			err = fdep.WaitForDeploymentComplete(client, deployment)
@@ -1212,6 +1217,20 @@ func getLabelsMapFromKeyValue(labels []vim25types.KeyValue) map[string]string {
 		labelsMap[label.Key] = label.Value
 	}
 	return labelsMap
+}
+
+// containsExpectedLabels returns true if every key/value pair in expected is
+// present with the same value in actual. Unlike reflect.DeepEqual, this
+// tolerates extra labels in actual that aren't part of expected - e.g.
+// platform-injected labels (such as VCF's platform.vcf.vmware.com/* labels)
+// that a controller other than the test may add to the underlying PV/PVC.
+func containsExpectedLabels(actual, expected map[string]string) bool {
+	for k, v := range expected {
+		if actualValue, ok := actual[k]; !ok || actualValue != v {
+			return false
+		}
+	}
+	return true
 }
 
 // getDatastoreByURL returns the *Datastore instance given its URL.
@@ -4190,7 +4209,11 @@ func getK8sMasterIPs(ctx context.Context, client clientset.Interface) []string {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	var k8sMasterIPs []string
 	for _, node := range nodes.Items {
-		if strings.Contains(node.Name, "master") || strings.Contains(node.Name, "control") {
+		_, hasControlPlaneLabel := node.Labels[controlPlaneLabel]
+		_, hasMasterLabel := node.Labels["node-role.kubernetes.io/master"]
+		isControlPlane := hasControlPlaneLabel || hasMasterLabel ||
+			strings.Contains(node.Name, "master") || strings.Contains(node.Name, "control")
+		if isControlPlane {
 			addrs := node.Status.Addresses
 			for _, addr := range addrs {
 				if addr.Type == v1.NodeExternalIP && (net.ParseIP(addr.Address)).To4() != nil {
