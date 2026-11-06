@@ -19,6 +19,7 @@ package service
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -27,7 +28,11 @@ import (
 	"google.golang.org/grpc/status"
 
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/k8sorchestrator"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/wcpguest/nfsdriver"
 )
 
 func TestNodeStageVolume_FileVolume(t *testing.T) {
@@ -452,4 +457,67 @@ func TestOsUtilsInitialization(t *testing.T) {
 	assert.Error(t, err)
 	// OsUtils is not initialized when CO initialization fails because it happens after CO init
 	assert.Nil(t, driver.osUtils, "OsUtils should not be initialized when CO initialization fails")
+}
+
+// setGuestNFSVolumeFSS installs a fake container orchestrator for the test, with the
+// guest-nfs-volume FSS enabled or disabled.
+func setGuestNFSVolumeFSS(t *testing.T, enabled bool) {
+	t.Helper()
+	co, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	if err != nil {
+		t.Fatalf("failed to create fake container orchestrator: %v", err)
+	}
+	if enabled {
+		if err := co.EnableFSS(context.Background(), common.GuestNFSVolume); err != nil {
+			t.Fatalf("failed to enable %s: %v", common.GuestNFSVolume, err)
+		}
+	}
+	old := commonco.ContainerOrchestratorUtility
+	commonco.ContainerOrchestratorUtility = co
+	t.Cleanup(func() { commonco.ContainerOrchestratorUtility = old })
+}
+
+const (
+	testGuestNFSVolumeID           = nfsdriver.VolumeIDPrefix + testGuestNFSVolumeIDUnprefixed
+	testGuestNFSVolumeIDUnprefixed = "10.0.0.1#export#pvc-1##"
+)
+
+func TestNodePublishVolume_GuestNFSVolumeNotGatedByFSS(t *testing.T) {
+	setGuestNFSVolumeFSS(t, false)
+	driver := NewDriver().(*vsphereCSIDriver)
+	req := &csi.NodePublishVolumeRequest{
+		VolumeId:          testGuestNFSVolumeID,
+		StagingTargetPath: filepath.Join(t.TempDir(), "staging"),
+		TargetPath:        filepath.Join(t.TempDir(), "target"),
+		VolumeCapability: &csi.VolumeCapability{
+			AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{FsType: "nfs4"}},
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+			},
+		},
+	}
+
+	// node.go strips the prefix and hands the request to the vendored nfsdriver even with the
+	// FSS off. The vendored driver then rejects it with InvalidArgument because the volume
+	// context has no "server"; the vSphere file-volume path would fail with Internal instead.
+	resp, err := driver.NodePublishVolume(context.Background(), req)
+	assert.Nil(t, resp)
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+	assert.Equal(t, testGuestNFSVolumeIDUnprefixed, req.VolumeId)
+}
+
+func TestNodeUnpublishVolume_GuestNFSVolumeNotGatedByFSS(t *testing.T) {
+	setGuestNFSVolumeFSS(t, false)
+	driver := NewDriver().(*vsphereCSIDriver)
+	req := &csi.NodeUnpublishVolumeRequest{
+		VolumeId:   testGuestNFSVolumeID,
+		TargetPath: filepath.Join(t.TempDir(), "not-mounted"),
+	}
+
+	// node.go strips the prefix only on its guest NFS path, which hands the request to the
+	// vendored nfsdriver; unmounting a target that does not exist succeeds.
+	resp, err := driver.NodeUnpublishVolume(context.Background(), req)
+	assert.NoError(t, err, "unmount must not be blocked by a disabled FSS")
+	assert.NotNil(t, resp)
+	assert.Equal(t, testGuestNFSVolumeIDUnprefixed, req.VolumeId)
 }

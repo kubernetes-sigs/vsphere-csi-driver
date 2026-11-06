@@ -1570,6 +1570,11 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 				log.Info("list-volumes is set to true in pvcsi fss configmap. Skipping SV FSS check")
 				return true
 			}
+			// Guest-local NFS volumes never involve the Supervisor, so the pvcsi FSS alone decides.
+			if featureName == common.GuestNFSVolume {
+				log.Info("guest-nfs-volume is set to true in pvcsi fss configmap. Skipping SV FSS check")
+				return true
+			}
 
 			// If PVCSI FSS has associated WCP capability in supervisor cluster, then check if that WCP
 			// capability is enabled or disabled by fetching its value from capabilities CR on supervisor.
