@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1138,6 +1139,191 @@ func TestPvcHasUsedByAnnotaion(t *testing.T) {
 
 			result := pvcHasUsedByAnnotaion(ctx, pvc)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// countingVolumeManager wraps MockVolumeManager and records AttachVolume calls.
+type countingVolumeManager struct {
+	*unittestcommon.MockVolumeManager
+	attachCalls int
+}
+
+func (m *countingVolumeManager) AttachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine,
+	volumeID string, checkNVMeController bool) (string, string, error) {
+	m.attachCalls++
+	return "test-disk-uuid", "", nil
+}
+
+// TestReconcileAttachRejectsVMInDifferentNamespace verifies that the legacy attach
+// path only attaches the PVC when a VirtualMachine CR with the requested BIOS UUID
+// exists in the CnsNodeVmAttachment's namespace. The vCenter lookup is
+// datacenter-wide, so without this check a VM from another namespace would be
+// accepted as the attach target.
+func TestReconcileAttachRejectsVMInDifferentNamespace(t *testing.T) {
+	const (
+		namespace = "test-ns"
+		nodeUUID  = "test-node-uuid"
+	)
+
+	tests := []struct {
+		name          string
+		vmNamespace   string
+		vmBiosUUID    string
+		expectAttach  bool
+		expectRequeue bool
+	}{
+		{
+			name:         "VM CR in the same namespace",
+			vmNamespace:  namespace,
+			vmBiosUUID:   nodeUUID,
+			expectAttach: true,
+		},
+		{
+			name:          "VM CR with the UUID only in a different namespace",
+			vmNamespace:   "other-ns",
+			vmBiosUUID:    nodeUUID,
+			expectAttach:  false,
+			expectRequeue: true,
+		},
+		{
+			name:          "VM CR in the same namespace with a different UUID",
+			vmNamespace:   namespace,
+			vmBiosUUID:    "other-node-uuid",
+			expectAttach:  false,
+			expectRequeue: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			s := runtime.NewScheme()
+			require.NoError(t, scheme.AddToScheme(s))
+			require.NoError(t, cnsopapis.AddToScheme(s))
+
+			pvc := &v1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-pvc", Namespace: namespace},
+				Spec:       v1.PersistentVolumeClaimSpec{VolumeName: "test-pv"},
+				Status:     v1.PersistentVolumeClaimStatus{Phase: v1.ClaimBound},
+			}
+			pv := &v1.PersistentVolume{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-pv"},
+				Spec: v1.PersistentVolumeSpec{
+					PersistentVolumeSource: v1.PersistentVolumeSource{
+						CSI: &v1.CSIPersistentVolumeSource{
+							Driver:       "csi.vsphere.vmware.com",
+							VolumeHandle: "test-volume-handle",
+						},
+					},
+				},
+			}
+			instance := &v1a1.CnsNodeVmAttachment{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-attachment", Namespace: namespace},
+				Spec: v1a1.CnsNodeVmAttachmentSpec{
+					NodeUUID:   nodeUUID,
+					VolumeName: "test-pvc",
+				},
+			}
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(s).
+				WithStatusSubresource(instance).
+				WithRuntimeObjects(instance, pvc, pv).
+				Build()
+
+			vmScheme := runtime.NewScheme()
+			require.NoError(t, vmoperatortypes.AddToScheme(vmScheme))
+			vm := &vmoperatortypes.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-vm", Namespace: tt.vmNamespace},
+				Status:     vmoperatortypes.VirtualMachineStatus{BiosUUID: tt.vmBiosUUID},
+			}
+			vmOperatorClient := fake.NewClientBuilder().
+				WithScheme(vmScheme).
+				WithRuntimeObjects(vm).
+				Build()
+
+			fakeCOIf, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+			require.NoError(t, err)
+			fakeCO, ok := fakeCOIf.(*unittestcommon.FakeK8SOrchestrator)
+			require.True(t, ok)
+			origCO := commonco.ContainerOrchestratorUtility
+			commonco.ContainerOrchestratorUtility = fakeCO
+			defer func() { commonco.ContainerOrchestratorUtility = origCO }()
+			fakeCO.SetPVCs([]*v1.PersistentVolumeClaim{pvc})
+			fakeCO.SetPVs([]*v1.PersistentVolume{pv})
+
+			backOffDuration = make(map[k8stypes.NamespacedName]time.Duration)
+
+			volumeManager := &countingVolumeManager{MockVolumeManager: &unittestcommon.MockVolumeManager{}}
+			r := &ReconcileCnsNodeVMAttachment{
+				client:           fakeClient,
+				scheme:           s,
+				vmOperatorClient: vmOperatorClient,
+				volumeManager:    volumeManager,
+				configInfo: &config.ConfigurationInfo{
+					Cfg: &config.Config{
+						VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
+							commontypes.NewFQDN("test-vc"): {Datacenters: "dc-1"},
+						},
+					},
+				},
+				recorder: record.NewFakeRecorder(1024),
+			}
+
+			originalGetVirtualCenterInstance := getVirtualCenterInstance
+			originalConnectToVCenter := connectToVCenter
+			originalCreateDatacenterFromVC := createDatacenterFromVC
+			originalGetVMByUUID := getVMByUUIDFromVCenter
+			originalIsSharedDiskEnabled := isSharedDiskEnabled
+			defer func() {
+				getVirtualCenterInstance = originalGetVirtualCenterInstance
+				connectToVCenter = originalConnectToVCenter
+				createDatacenterFromVC = originalCreateDatacenterFromVC
+				getVMByUUIDFromVCenter = originalGetVMByUUID
+				isSharedDiskEnabled = originalIsSharedDiskEnabled
+			}()
+			isSharedDiskEnabled = false
+			getVirtualCenterInstance = func(ctx context.Context, cfg *config.ConfigurationInfo,
+				filterSuspendedDatastores bool) (*cnsvsphere.VirtualCenter, error) {
+				return &cnsvsphere.VirtualCenter{}, nil
+			}
+			connectToVCenter = func(ctx context.Context, vc *cnsvsphere.VirtualCenter) error {
+				return nil
+			}
+			createDatacenterFromVC = func(ctx context.Context, vc *cnsvsphere.VirtualCenter,
+				dcMoref, host string) (*cnsvsphere.Datacenter, error) {
+				return &cnsvsphere.Datacenter{}, nil
+			}
+			// vCenter resolves the UUID regardless of Kubernetes namespace.
+			getVMByUUIDFromVCenter = func(ctx context.Context, dc *cnsvsphere.Datacenter,
+				nodeUUID string) (*cnsvsphere.VirtualMachine, error) {
+				return &cnsvsphere.VirtualMachine{}, nil
+			}
+
+			req := reconcile.Request{
+				NamespacedName: k8stypes.NamespacedName{Name: "test-attachment", Namespace: namespace},
+			}
+			result, err := r.Reconcile(ctx, req)
+			require.NoError(t, err)
+
+			updated := &v1a1.CnsNodeVmAttachment{}
+			require.NoError(t, fakeClient.Get(ctx, req.NamespacedName, updated))
+
+			if tt.expectAttach {
+				assert.Equal(t, 1, volumeManager.attachCalls, "AttachVolume should be called")
+				assert.True(t, updated.Status.Attached)
+				assert.Empty(t, updated.Status.Error)
+			} else {
+				assert.Equal(t, 0, volumeManager.attachCalls, "AttachVolume must not be called")
+				assert.False(t, updated.Status.Attached)
+				assert.Contains(t, updated.Status.Error, "not found in namespace")
+				assert.NotContains(t, updated.Finalizers, cnsoptypes.CNSFinalizer,
+					"CNS finalizer should not be added when attach is rejected")
+			}
+			if tt.expectRequeue {
+				assert.NotZero(t, result.RequeueAfter, "rejected attach should be requeued")
+			}
 		})
 	}
 }
