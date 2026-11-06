@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -29,7 +28,6 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/fsnotify/fsnotify"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/units"
@@ -380,8 +378,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		prometheus.CsiInfo.WithLabelValues(version).Set(1)
 		for {
 			log.Info("Starting the http server to expose Prometheus metrics..")
-			http.Handle("/metrics", promhttp.Handler())
-			err = http.ListenAndServe(":2112", nil)
+			err := prometheus.NewMetricsServer(":2112").ListenAndServe()
 			if err != nil {
 				log.Warnf("Http server that exposes the Prometheus exited with err: %+v", err)
 			}
