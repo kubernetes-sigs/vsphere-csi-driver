@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-nfs
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 101
+    fsGroup: 101
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+  - name: nginx-nfs
+    image: nginxinc/nginx-unprivileged:latest
+    ports:
+    - containerPort: 8080
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+    volumeMounts:
+    - name: nfs-vol
+      mountPath: /usr/share/nginx/html
+  volumes:
+  - name: nfs-vol
+    persistentVolumeClaim:
+      claimName: pvc-nfs-dynamic
+---
+# NOTE: VolumeSnapshot/VolumeSnapshotClass support is NOT wired up for this backend yet.
+# pkg/csi/service/wcpguest/controller.go only dispatches CreateVolume, DeleteVolume,
+# ControllerExpandVolume, ControllerPublishVolume, and ControllerUnpublishVolume to
+# pkg/csi/service/wcpguest/nfsdriver — CreateSnapshot/DeleteSnapshot are a known follow-up gap.
