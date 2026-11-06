@@ -14,25 +14,24 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// ControllerExpandVolume handling for the new vSAN FileVolumeService (FVS)
-// workflow on the guest cluster.
+// ControllerExpandVolume handling for RWX file volumes on the guest cluster,
+// covering both the new vSAN FileVolumeService (FVS) workflow and legacy CNS
+// (vSAN file service) file volumes.
 //
 // Background:
-// For legacy CNS file volumes, volume expansion is not supported (the storage
-// backend does not allow it, and there is no node-side filesystem resize step).
-//
-// For FVS-backed file volumes the supervisor controller drives the resize by
-// updating the FileVolume CR when the supervisor PVC's
-// spec.resources.requests.storage is increased (see the supervisor-side
-// expandFileVolumeViaFVS). The guest cluster's role is:
+// When the supervisor PVC's spec.resources.requests.storage is increased the
+// supervisor drives the resize: for FVS-backed volumes by updating the
+// FileVolume CR (see the supervisor-side expandFileVolumeViaFVS), and for
+// legacy file volumes by calling CNS ExpandVolume on the file share. The guest
+// cluster's role is:
 //   1. Patch spec.resources.requests.storage on the supervisor PVC.
-//   2. Wait until status.capacity reflects the new size (set by the supervisor
-//      FVS controller once the underlying NFS share has grown).
+//   2. Wait until status.capacity reflects the new size (set on the supervisor
+//      once the underlying NFS share has grown).
 //   3. Return NodeExpansionRequired=false — NFS shares grow on the server side
 //      so no kubelet filesystem resize step is needed on the guest node.
 //
-// Identification: the controller must gate on IsVsanFileVolumeServiceEnabled
-// and common.IsFVSPersistentVolumeClaim(supervisor PVC) before calling the
+// Identification: the controller must verify the volume is a file volume
+// (FVS-backed supervisor PVC or a file volume capability) before calling the
 // helpers in this file.
 
 package wcpguest
@@ -57,16 +56,15 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
-// controllerExpandForFVSFileVolume handles a ControllerExpandVolume request for
-// a file volume provisioned by the new vSAN FileVolumeService. It patches the
+// controllerExpandForFileVolume handles a ControllerExpandVolume request for
+// an RWX file volume (FVS-backed or legacy vSAN file service). It patches the
 // supervisor PVC's spec.resources.requests.storage to trigger the supervisor-side
-// FVS expansion reconciler, then waits for status.capacity to reflect the new
-// size before returning success with NodeExpansionRequired=false.
+// expansion, then waits for status.capacity to reflect the new size before
+// returning success with NodeExpansionRequired=false.
 //
-// The caller must have verified FVS (IsVsanFileVolumeServiceEnabled &&
-// common.IsFVSPersistentVolumeClaim on the supervisor PVC) before invoking this
-// function.
-func controllerExpandForFVSFileVolume(ctx context.Context,
+// The caller must have verified the volume is a file volume before invoking
+// this function.
+func controllerExpandForFileVolume(ctx context.Context,
 	req *csi.ControllerExpandVolumeRequest,
 	svPVC *corev1.PersistentVolumeClaim,
 	c *controller) (*csi.ControllerExpandVolumeResponse, string, error) {
@@ -96,7 +94,7 @@ func controllerExpandForFVSFileVolume(ctx context.Context,
 			}
 			supervisorRuntimeClient = rc
 		}
-		log.Infof("ControllerExpandVolume: increasing supervisor PVC %s/%s from %s to %s for FVS file volume",
+		log.Infof("ControllerExpandVolume: increasing supervisor PVC %s/%s from %s to %s for file volume",
 			c.supervisorNamespace, volumeID, svPvcRequestSize.String(), gcPvcRequestSize.String())
 		if patchErr := k8s.PatchObject(ctx, supervisorRuntimeClient, original, clone); patchErr != nil {
 			msg := fmt.Sprintf("failed to patch supervisor PVC %q in %q namespace. Error: %+v",
@@ -111,7 +109,7 @@ func controllerExpandForFVSFileVolume(ctx context.Context,
 		// Wait for the FVS controller to reflect the new size in status.capacity.
 		if waitErr := checkForSupervisorPVCCapacityReached(ctx, c.supervisorClient, clone,
 			gcPvcRequestSize, timeout); waitErr != nil {
-			msg := fmt.Sprintf("failed to expand FVS file volume %s: %+v", volumeID, waitErr)
+			msg := fmt.Sprintf("failed to expand file volume %s: %+v", volumeID, waitErr)
 			log.Error(msg)
 			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 		}
@@ -122,16 +120,16 @@ func controllerExpandForFVSFileVolume(ctx context.Context,
 		svPvcCapacity := svPVC.Status.Capacity[corev1.ResourceStorage]
 		if gcPvcRequestSize.Cmp(svPvcCapacity) > 0 {
 			log.Infof("ControllerExpandVolume: supervisor PVC %s/%s spec already at %s but "+
-				"status.capacity is %s; waiting for FVS controller to converge",
+				"status.capacity is %s; waiting for supervisor to converge",
 				c.supervisorNamespace, volumeID, gcPvcRequestSize.String(), svPvcCapacity.String())
 			if err := checkForSupervisorPVCCapacityReached(ctx, c.supervisorClient, svPVC,
 				gcPvcRequestSize, timeout); err != nil {
-				msg := fmt.Sprintf("failed to expand FVS file volume %s: %+v", volumeID, err)
+				msg := fmt.Sprintf("failed to expand file volume %s: %+v", volumeID, err)
 				log.Error(msg)
 				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 			}
 		} else {
-			log.Infof("ControllerExpandVolume: FVS file volume %s already at requested size %s; skipping resize",
+			log.Infof("ControllerExpandVolume: file volume %s already at requested size %s; skipping resize",
 				volumeID, gcPvcRequestSize.String())
 		}
 	default:
@@ -143,7 +141,7 @@ func controllerExpandForFVSFileVolume(ctx context.Context,
 		return nil, csifault.CSIInternalFault, status.Error(codes.InvalidArgument, msg)
 	}
 
-	log.Infof("ControllerExpandVolume: FVS file volume %s expanded to %s; NodeExpansionRequired=false",
+	log.Infof("ControllerExpandVolume: file volume %s expanded to %s; NodeExpansionRequired=false",
 		volumeID, gcPvcRequestSize.String())
 	// Volume is expanded, remove the error recorded by an earlier attempt, if any.
 	guestPVCNamespace, guestPVCName := guestPVCFromSupervisorPVC(svPVC)
