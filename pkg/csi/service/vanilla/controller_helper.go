@@ -64,6 +64,46 @@ func validateVanillaControllerUnpublishVolumeRequest(ctx context.Context,
 	return common.ValidateControllerUnpublishVolumeRequest(ctx, req)
 }
 
+// isVanillaFileVolume returns true if volumeID is a CNS file volume. It is decided by the volume id
+// and not by the access mode in the request capability, so a block volume id sent with a file
+// capability is not treated as a file volume.
+func isVanillaFileVolume(ctx context.Context, volumeID string) bool {
+	return common.GetCnsVolumeType(ctx, volumeID) == common.FileVolumeType
+}
+
+// validateVanillaControllerExpandFileVolumeRequest is the helper function to validate
+// ExpandVolumeRequest for a CNS file volume on Vanilla CSI driver.
+// File volumes can be expanded only for legacy vSAN file service volumes ("file:<uuid>") and
+// only when the VsanFileVolumeExpansion FSS is enabled. Otherwise the request is rejected as it
+// was before file volume expansion was supported.
+// Function returns error if validation fails otherwise returns nil.
+func validateVanillaControllerExpandFileVolumeRequest(ctx context.Context,
+	req *csi.ControllerExpandVolumeRequest, isFileVolumeExpansionEnabled bool) error {
+	log := logger.GetLogger(ctx)
+	if err := common.ValidateControllerExpandVolumeRequest(ctx, req); err != nil {
+		return err
+	}
+	if common.IsFVSVolumeHandle(req.GetVolumeId()) || !isFileVolumeExpansionEnabled {
+		return logger.LogNewErrorCode(log, codes.Unimplemented,
+			"volume expansion is only supported for block volume type")
+	}
+	return nil
+}
+
+// isNodeExpansionRequired returns whether kubelet must grow the filesystem on the node after a
+// successful controller expansion. Raw block volumes and file volumes (NFS shares, which grow on
+// the vSAN file service side) do not need a node-side step. NodeExpandVolume looks up a block
+// device from the mount, so asking for it on an NFS mount would fail and leave the PVC stuck.
+func isNodeExpansionRequired(isFileVolume bool, volCap *csi.VolumeCapability) bool {
+	if isFileVolume {
+		return false
+	}
+	if _, ok := volCap.GetAccessType().(*csi.VolumeCapability_Block); ok {
+		return false
+	}
+	return true
+}
+
 // validateVanillaControllerExpandVolumeRequest is the helper function to
 // validate ExpandVolumeRequest for Vanilla CSI driver.
 // Function returns error if validation fails otherwise returns nil.
