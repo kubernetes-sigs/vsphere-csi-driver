@@ -66,6 +66,7 @@ import (
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/runtimeconfig"
 	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -743,19 +744,11 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				// For such operations, fsnotify handles the event as a CREATE
 				// event. The conditions below also ensures that the event is for
 				// the expected ca file path.
-				if event.Op&fsnotify.Create == fsnotify.Create && event.Name == cnsconfig.SupervisorCAFilePath {
-					for {
-						reconnectVCErr := ReloadConfiguration(metadataSyncer, true)
-						if reconnectVCErr == nil {
-							log.Infof("Successfully re-established connection with VC from: %q",
-								cnsconfig.SupervisorCAFilePath)
-							break
-						}
-						log.Errorf("failed to re-establish VC connection. Will retry again in 60 seconds. err: %+v",
-							reconnectVCErr)
-						time.Sleep(60 * time.Second)
-					}
-				}
+				// When the CA bundle is a ConfigMap volume, a rotation shows up as a Create of the
+				// volume's ..data symlink instead (see runtimeconfig.IsCAFileRotation).
+				runtimeconfig.HandleCAFileEvent(ctx, event, func() error {
+					return ReloadConfiguration(metadataSyncer, true)
+				})
 			case err, ok := <-watcher.Errors:
 				if !ok {
 					log.Errorf("fsnotify error: %+v", err)
@@ -779,6 +772,12 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		if err != nil {
 			log.Errorf("failed to watch on path: %q. err=%v", caFileDirPath, err)
 			return err
+		}
+		// Reconnect when the vCenter credentials change, and reload when the vSAN file volume
+		// settings change. Both are no-ops unless the runtime config FSS is on.
+		err = runtimeconfig.StartReloading(ctx, configInfo.Cfg, syncerReloader{metadataSyncer})
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to watch the runtime configuration sources. err=%v", err)
 		}
 	}
 
@@ -2766,6 +2765,16 @@ func vcConfigChanged(currentHost commontypes.FQDN, oldVCConfig *cnsconfig.Virtua
 		forceReconnect
 }
 
+// syncerReloader adapts the syncer's ReloadConfiguration to runtimeconfig.Reloader.
+type syncerReloader struct {
+	metadataSyncer *metadataSyncInformer
+}
+
+// ReloadConfiguration implements runtimeconfig.Reloader.
+func (r syncerReloader) ReloadConfiguration(reconnectToVC bool) error {
+	return ReloadConfiguration(r.metadataSyncer, reconnectToVC)
+}
+
 // ReloadConfiguration reloads configuration from the secret, and update
 // controller's cached configs. The function takes metadatasyncerInformer and
 // reconnectToVCFromNewConfig as parameters. If reconnectToVCFromNewConfig
@@ -2774,6 +2783,7 @@ func vcConfigChanged(currentHost commontypes.FQDN, oldVCConfig *cnsconfig.Virtua
 // config, reloads VC connection when credentials are changed and returns
 // appropriate error.
 func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFromNewConfig bool) error {
+	defer runtimeconfig.LockReload()()
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Info("Reloading Configuration")
 	var cfg *cnsconfig.Config
