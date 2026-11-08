@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -84,4 +85,68 @@ func TestDeleteGuestNFSVolumeRejectedWhenFSSDisabled(t *testing.T) {
 	require.Equal(t, codes.FailedPrecondition, status.Code(err))
 	require.Equal(t, nfsdriver.VolumeIDPrefix+"10.0.0.1#export#pvc-1##", req.VolumeId,
 		"the volume ID must be left untouched when the call is rejected")
+}
+
+func guestNFSCreateRequest(params map[string]string) *csi.CreateVolumeRequest {
+	return &csi.CreateVolumeRequest{
+		Name:       "pvc-1",
+		Parameters: params,
+		VolumeCapabilities: []*csi.VolumeCapability{{
+			AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER},
+		}},
+	}
+}
+
+// A "server" key alone routes a request here, so the whole parameter set is validated before
+// anything is created: a stray key on an ordinary vSphere StorageClass must fail, not provision
+// NFS on whatever host the key names.
+func TestCreateGuestNFSVolumeValidatesStorageClassParameters(t *testing.T) {
+	useFakeOrchestrator(t, true)
+	c := &controller{}
+
+	tests := map[string]map[string]string{
+		"vSphere storage policy next to server": {"server": "10.0.0.1", "storagePolicyName": "gold"},
+		"supervisor storage class":              {"server": "10.0.0.1", "svStorageClass": "gold"},
+		"server that is not a host":             {"server": "10.0.0.1/export"},
+		"server with whitespace":                {"server": "nas 1"},
+	}
+	for name, params := range tests {
+		t.Run(name, func(t *testing.T) {
+			resp, fault, err := c.createGuestNFSVolume(context.Background(), guestNFSCreateRequest(params))
+			require.Nil(t, resp)
+			require.Equal(t, codes.InvalidArgument, status.Code(err), "got: %v", err)
+			require.Equal(t, csifault.CSIInvalidArgumentFault, fault)
+		})
+	}
+}
+
+// Requests that pass the wrapper's checks reach the vendored driver, which rejects unsafe ones
+// before it mounts anything.
+func TestCreateGuestNFSVolumeReachesDriverValidation(t *testing.T) {
+	useFakeOrchestrator(t, true)
+	c := &controller{}
+
+	_, fault, err := c.createGuestNFSVolume(context.Background(), guestNFSCreateRequest(
+		map[string]string{"server": "10.0.0.1", "share": "/export", "subDir": "."}))
+	require.Equal(t, codes.InvalidArgument, status.Code(err), "got: %v", err)
+	require.Equal(t, csifault.CSIInvalidArgumentFault, fault, "an invalid argument is reported as one")
+	require.Contains(t, err.Error(), "share root")
+}
+
+// DeleteVolume hands the ID to the vendored driver exactly as it received it, prefix included;
+// the driver is the only place that understands the prefix. An ID that points at the share root
+// is treated as already gone and nothing is deleted.
+func TestDeleteGuestNFSVolumeLeavesIDUntouchedAndIgnoresShareRootIDs(t *testing.T) {
+	useFakeOrchestrator(t, true)
+	c := &controller{}
+
+	id := nfsdriver.VolumeIDPrefix + "10.0.0.1#export#.#pvc-1"
+	req := &csi.DeleteVolumeRequest{VolumeId: id}
+	resp, fault, err := c.deleteGuestNFSVolume(context.Background(), req)
+	require.NoError(t, err)
+	require.Empty(t, fault)
+	require.NotNil(t, resp)
+	require.Equal(t, id, req.VolumeId, "the wrapper must not rewrite the volume ID")
 }

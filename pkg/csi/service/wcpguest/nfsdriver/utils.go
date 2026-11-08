@@ -19,6 +19,7 @@ package nfsdriver
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -150,11 +151,7 @@ func chmodIfPermissionMismatch(targetPath string, mode uint32) error {
 	mask := os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky
 	currentMode := info.Mode() & mask
 	if currentMode != desiredMode {
-		// DEVIATION FROM VENDORED UPSTREAM: klog.Errorf instead of klog.V(2).Infof — this
-		// binary never registers klog's flags, so V(2) is always suppressed and this call
-		// was otherwise invisible. Errorf is unconditional. Temporary, for diagnosing the
-		// EACCES on chmod seen in the field; revert once root-caused (see nfsdriver/doc.go).
-		klog.Errorf("chmodIfPermissionMismatch: about to chmod targetPath(%s, currentMode:0%o) to desiredMode(0%o)",
+		klog.V(2).Infof("chmodIfPermissionMismatch: about to chmod targetPath(%s, currentMode:0%o) to desiredMode(0%o)",
 			targetPath, currentMode, mode)
 		if err := chmod(targetPath, mode); err != nil {
 			klog.Errorf("chmodIfPermissionMismatch: chmod(%s, 0%o) failed: %v", targetPath, mode, err)
@@ -189,6 +186,10 @@ func setKeyValueInMap(m map[string]string, key, value string) {
 	m[key] = value
 }
 
+// pathPollInterval is how often waitForPathNotExistWithTimeout re-checks the path. Each check is
+// an Lstat that goes over NFS, so it must not be polled in a tight loop.
+const pathPollInterval = 500 * time.Millisecond
+
 func waitForPathNotExistWithTimeout(path string, timeout time.Duration) error {
 	// Loop until the path no longer exists or the timeout is reached
 	timeoutTime := time.Now().Add(timeout)
@@ -203,7 +204,7 @@ func waitForPathNotExistWithTimeout(path string, timeout time.Duration) error {
 		if time.Now().After(timeoutTime) {
 			return fmt.Errorf("time out waiting for path %s not exist", path)
 		}
-		time.Sleep(500 * time.Microsecond)
+		time.Sleep(pathPollInterval)
 	}
 }
 
@@ -225,7 +226,9 @@ func removeEmptyDirs(parentDir, dir string) error {
 		return err
 	}
 
-	if !strings.HasPrefix(absDir, absParentDir) {
+	// Compare on path boundaries: a plain string prefix would accept a sibling such as
+	// "/data/vol-10" as being under "/data/vol-1".
+	if absDir != absParentDir && !strings.HasPrefix(absDir, absParentDir+string(filepath.Separator)) {
 		return fmt.Errorf("dir %s is not a subdirectory of parentDir %s", dir, parentDir)
 	}
 
@@ -233,11 +236,16 @@ func removeEmptyDirs(parentDir, dir string) error {
 	for absDir != absParentDir {
 		entries, err := os.ReadDir(absDir)
 		if err != nil {
-			return err
-		}
-		if len(entries) == 0 {
+			if !os.IsNotExist(err) {
+				return err
+			}
+			// Already removed, e.g. by an earlier DeleteVolume whose response was lost, or
+			// because this directory was the empty parent of a nested subDir. Keep walking
+			// up so the remaining parents are still cleaned.
+			klog.V(2).Infof("Directory %s no longer exists, continuing with its parent", absDir)
+		} else if len(entries) == 0 {
 			klog.V(2).Infof("Removing empty directory %s", absDir)
-			if err := os.Remove(absDir); err != nil {
+			if err := os.Remove(absDir); err != nil && !os.IsNotExist(err) {
 				return err
 			}
 		} else {
@@ -261,22 +269,35 @@ type TimeoutFunc func() (err error)
 
 // WaitUntilTimeout waits for the exec function to complete or return timeout error
 func WaitUntilTimeout(timeout time.Duration, execFunc ExecFunc, timeoutFunc TimeoutFunc) error {
-	// Create a channel to receive the result of the exec function
-	done := make(chan bool, 1)
-	var err error
+	_, err := waitUntilTimeoutWithCleanup(timeout, execFunc, timeoutFunc, nil)
+	return err
+}
 
-	// Start the exec function in a goroutine
+// waitUntilTimeoutWithCleanup behaves like WaitUntilTimeout but also reports whether the
+// timeout was hit. execFunc cannot be cancelled, so on timeout it keeps running in the
+// background; onLateCompletion (if non-nil) is then called, from its own goroutine, with
+// execFunc's eventual result so the caller can undo a late success and release anything it
+// kept held while the operation was in flight.
+func waitUntilTimeoutWithCleanup(timeout time.Duration, execFunc ExecFunc, timeoutFunc TimeoutFunc,
+	onLateCompletion func(err error)) (timedOut bool, err error) {
+	// Buffered so the exec goroutine never blocks, whether or not anyone is still waiting.
+	done := make(chan error, 1)
 	go func() {
-		err = execFunc()
-		done <- true
+		done <- execFunc()
 	}()
 
-	// Wait for the function to complete or time out
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 	select {
-	case <-done:
-		return err
-	case <-time.After(timeout):
-		return timeoutFunc()
+	case err := <-done:
+		return false, err
+	case <-timer.C:
+		if onLateCompletion != nil {
+			go func() {
+				onLateCompletion(<-done)
+			}()
+		}
+		return true, timeoutFunc()
 	}
 }
 
@@ -298,11 +319,36 @@ func getVolumeCapabilityFromSecret(volumeID string, secret map[string]string) *c
 	return nil
 }
 
-func validatePath(path string) error {
-	for _, segment := range strings.Split(path, "/") {
+func validatePath(p string) error {
+	for _, segment := range strings.Split(p, "/") {
 		if segment == ".." {
 			return fmt.Errorf("path contains directory traversal sequence")
 		}
+	}
+	return nil
+}
+
+// validateSubDir validates a per-volume directory name. On top of validatePath it rejects
+// anything that resolves to the root of the share (empty, ".", "/", "./", ...): a volume
+// rooted at the share would make CreateVolume chmod the export itself and DeleteVolume
+// recursively remove every other volume stored on it.
+func validateSubDir(subDir string) error {
+	if err := validatePath(subDir); err != nil {
+		return err
+	}
+	if path.Clean("/"+subDir) == "/" {
+		return fmt.Errorf("must name a directory below the share root, not the share root itself")
+	}
+	return nil
+}
+
+// validateIDComponent rejects a value that cannot be safely embedded in a CSI volume or
+// snapshot ID. IDs are joined with separator and split on it again by getNfsVolFromID, so a
+// component containing separator would be decoded as different (possibly unrelated)
+// directories on DeleteVolume.
+func validateIDComponent(name, value string) error {
+	if strings.Contains(value, separator) {
+		return fmt.Errorf("%s %q must not contain %q", name, value, separator)
 	}
 	return nil
 }

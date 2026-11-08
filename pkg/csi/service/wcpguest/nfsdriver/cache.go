@@ -70,6 +70,9 @@ type TimedCache struct {
 	MutexLock sync.RWMutex
 	TTL       time.Duration
 	Getter    GetFunc
+
+	// lastSweep is when expired entries were last evicted from Store. Guarded by MutexLock.
+	lastSweep time.Time
 }
 
 // NewTimedCache creates a new cache.Resource.
@@ -119,12 +122,40 @@ func (t *TimedCache) getInternal(key string) (*CacheEntry, error) {
 
 	// Still not found, add new entry with nil data.
 	// Note the data will be filled later by getter.
+	t.evictExpiredLocked()
 	newEntry := &CacheEntry{
 		Key:  key,
 		Data: nil,
 	}
 	_ = t.Store.Add(newEntry)
 	return newEntry, nil
+}
+
+// evictExpiredLocked removes entries older than TTL from Store. TTL otherwise only decides
+// whether Get refreshes an entry, so without this the Store would keep one entry for every key
+// ever looked up or set (e.g. every volume ID ever deleted) for the life of the process.
+// The sweep is a full scan, so it is throttled to run at most once per TTL; a stale entry can
+// therefore live for up to two TTLs, which is harmless as Get never serves data past one.
+// Callers must hold MutexLock.
+func (t *TimedCache) evictExpiredLocked() {
+	now := time.Now().UTC()
+	if now.Sub(t.lastSweep) < t.TTL {
+		return
+	}
+	t.lastSweep = now
+	for _, obj := range t.Store.List() {
+		entry := obj.(*CacheEntry)
+		// An entry that is locked is being read or refreshed right now; leave it for the
+		// next sweep rather than blocking on it while holding MutexLock.
+		if !entry.Lock.TryLock() {
+			continue
+		}
+		expired := now.Sub(entry.CreatedOn) >= t.TTL
+		entry.Lock.Unlock()
+		if expired {
+			_ = t.Store.Delete(entry)
+		}
+	}
 }
 
 // Get returns the requested item by key.
@@ -160,6 +191,9 @@ func (t *TimedCache) Get(key string, _ CacheReadType) (interface{}, error) {
 
 // Set sets the data cache for the key.
 func (t *TimedCache) Set(key string, data interface{}) {
+	t.MutexLock.Lock()
+	defer t.MutexLock.Unlock()
+	t.evictExpiredLocked()
 	_ = t.Store.Add(&CacheEntry{
 		Key:       key,
 		Data:      data,

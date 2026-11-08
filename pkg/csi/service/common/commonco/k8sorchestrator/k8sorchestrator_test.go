@@ -130,11 +130,12 @@ func TestIsFSSEnabledInGcWithoutSync(t *testing.T) {
 	}
 }
 
-// TestIsFSSEnabledInGcGuestNFSVolume verifies that the guest-nfs-volume FSS is decided by the
-// pvcsi FSS configmap alone, since guest NFS volumes never involve the Supervisor: it must read
-// true even when the Supervisor FSS has no entry for it, and false when the pvcsi FSS disables it.
-func TestIsFSSEnabledInGcGuestNFSVolume(t *testing.T) {
-	newOrchestrator := func(internalValue string) K8sOrchestrator {
+// TestIsFSSEnabledInGcPVCSIOnlyFeatures verifies that every feature in pvcsiOnlyFeatures
+// (Windows support, ListVolumes, guest-nfs-volume) is decided by the pvcsi FSS configmap alone:
+// it must read true even when the Supervisor FSS has no entry for it, and false when the pvcsi
+// FSS disables it.
+func TestIsFSSEnabledInGcPVCSIOnlyFeatures(t *testing.T) {
+	newOrchestrator := func(feature, internalValue string) K8sOrchestrator {
 		return K8sOrchestrator{
 			supervisorFSS: FSSConfigMapInfo{
 				configMapName:      cnsconfig.DefaultSupervisorFSSConfigMapName,
@@ -146,19 +147,29 @@ func TestIsFSSEnabledInGcGuestNFSVolume(t *testing.T) {
 			internalFSS: FSSConfigMapInfo{
 				configMapName:      cnsconfig.DefaultInternalFSSConfigMapName,
 				configMapNamespace: cnsconfig.DefaultCSINamespace,
-				featureStates:      map[string]string{common.GuestNFSVolume: internalValue},
+				featureStates:      map[string]string{feature: internalValue},
 				featureStatesLock:  &sync.RWMutex{},
 			},
 		}
 	}
 
-	enabled := newOrchestrator("true")
-	if !enabled.IsFSSEnabled(ctx, common.GuestNFSVolume) {
-		t.Errorf("%s must be enabled by the pvcsi FSS alone", common.GuestNFSVolume)
+	for _, feature := range []string{common.CSIWindowsSupport, common.ListVolumes, common.GuestNFSVolume} {
+		if _, ok := pvcsiOnlyFeatures[feature]; !ok {
+			t.Errorf("%s must be listed in pvcsiOnlyFeatures", feature)
+		}
 	}
-	disabled := newOrchestrator("false")
-	if disabled.IsFSSEnabled(ctx, common.GuestNFSVolume) {
-		t.Errorf("%s must be disabled when the pvcsi FSS is false", common.GuestNFSVolume)
+	for feature, reason := range pvcsiOnlyFeatures {
+		if reason == "" {
+			t.Errorf("%s must document why it has no supervisor dependency", feature)
+		}
+		enabled := newOrchestrator(feature, "true")
+		if !enabled.IsFSSEnabled(ctx, feature) {
+			t.Errorf("%s must be enabled by the pvcsi FSS alone", feature)
+		}
+		disabled := newOrchestrator(feature, "false")
+		if disabled.IsFSSEnabled(ctx, feature) {
+			t.Errorf("%s must be disabled when the pvcsi FSS is false", feature)
+		}
 	}
 }
 

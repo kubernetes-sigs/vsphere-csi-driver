@@ -182,6 +182,11 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 
 	// Create subdirectory under base-dir
 	internalVolumePath := getInternalVolumePath(cs.Driver.workingMountDir, nfsVol)
+	// Only a directory created by this call may be removed again if populating it fails. One
+	// that was already there belongs to an earlier, possibly successful, attempt of the same
+	// volume, whose data must not be deleted.
+	_, statErr := os.Lstat(internalVolumePath)
+	createdByThisCall := os.IsNotExist(statErr)
 	if err = os.MkdirAll(internalVolumePath, 0777); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to make subdirectory: %v", err)
 	}
@@ -195,6 +200,11 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 
 	if req.GetVolumeContentSource() != nil {
 		if err := cs.copyVolume(ctx, req, nfsVol); err != nil {
+			// Leaving the half-populated directory would make the provisioner's retry find the
+			// directory, copy again over a partial result and report success.
+			if createdByThisCall {
+				cs.removeFailedVolumeDir(ctx, nfsVol, volCap, internalVolumePath)
+			}
 			return nil, err
 		}
 	}
@@ -257,38 +267,9 @@ func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 		internalVolumePath := getInternalVolumePath(cs.Driver.workingMountDir, nfsVol)
 
 		if strings.EqualFold(nfsVol.onDelete, archive) {
-			archivedInternalVolumePath := filepath.Join(
-				getInternalMountPath(cs.Driver.workingMountDir, nfsVol), "archived-"+nfsVol.subDir)
-			if strings.Contains(nfsVol.subDir, "/") {
-				parentDir := filepath.Dir(archivedInternalVolumePath)
-				klog.V(2).Infof("DeleteVolume: subdirectory(%s) contains '/', make sure the parent directory(%s) exists",
-					nfsVol.subDir, parentDir)
-				if err = os.MkdirAll(parentDir, 0777); err != nil {
-					return nil, status.Errorf(codes.Internal, "create parent directory(%s) of %s failed with %v",
-						parentDir, archivedInternalVolumePath, err)
-				}
+			if err = archiveVolumeDir(cs.Driver, nfsVol, internalVolumePath); err != nil {
+				return nil, err
 			}
-
-			// archive subdirectory under base-dir, remove stale archived copy if exists.
-			klog.V(2).Infof("archiving subdirectory %s --> %s", internalVolumePath, archivedInternalVolumePath)
-			if cs.Driver.removeArchivedVolumePath {
-				klog.V(2).Infof("removing archived subdirectory at %v", archivedInternalVolumePath)
-				if err = os.RemoveAll(archivedInternalVolumePath); err != nil {
-					return nil, status.Errorf(codes.Internal, "failed to delete archived subdirectory %s: %v",
-						archivedInternalVolumePath, err)
-				}
-				klog.V(2).Infof("removed archived subdirectory at %v", archivedInternalVolumePath)
-			}
-			if err = os.Rename(internalVolumePath, archivedInternalVolumePath); err != nil {
-				return nil, status.Errorf(codes.Internal, "archive subdirectory(%s, %s) failed with %v",
-					internalVolumePath, archivedInternalVolumePath, err)
-			}
-			// make sure internalVolumePath does not exist with 1 minute timeout
-			if err = waitForPathNotExistWithTimeout(internalVolumePath, time.Minute); err != nil {
-				return nil, status.Errorf(codes.Internal, "DeleteVolume: internalVolumePath(%s) still exists after 1 minute",
-					internalVolumePath)
-			}
-			klog.V(2).Infof("archived subdirectory %s --> %s", internalVolumePath, archivedInternalVolumePath)
 		} else {
 			klog.V(2).Infof("removing subdirectory at %v", internalVolumePath)
 			if err = os.RemoveAll(internalVolumePath); err != nil {
@@ -521,12 +502,13 @@ func (cs *ControllerServer) internalMount(ctx context.Context, vol *nfsVolume, v
 		paramShare:  sharePath,
 		// DEVIATION FROM VENDORED UPSTREAM: force mountPermissions off for internal mounts.
 		// This target path is a short-lived scratch mount of the *root export*, used only so
-		// the controller can mkdir/rmdir a per-volume subdirectory under it. NodePublishVolume
-		// otherwise falls back to the driver-level mountPermissions default (see
-		// glue.go defaultMountPermissions) and would chmod the export root itself — which the
-		// NFS server rejects under root_squash, failing the whole mount with EACCES. The
-		// permissions we actually care about are applied to the per-volume subdirectory by
-		// CreateVolume, and to the pod's target path by the real (non-internal) NodePublish.
+		// the controller can mkdir/rmdir a per-volume subdirectory under it. Without this,
+		// NodePublishVolume would fall back to the driver-level mountPermissions default (see
+		// glue.go defaultMountPermissions) and, whenever that is non-zero, chmod the export
+		// root itself — which the NFS server rejects under root_squash, failing the whole
+		// mount with EACCES. The permissions we actually care about are applied to the
+		// per-volume subdirectory by CreateVolume, and to the pod's target path by the real
+		// (non-internal) NodePublish.
 		mountPermissionsField: "0",
 	}
 	for k, v := range volumeContext {
@@ -542,10 +524,8 @@ func (cs *ControllerServer) internalMount(ctx context.Context, vol *nfsVolume, v
 		}
 	}
 
-	// DEVIATION FROM VENDORED UPSTREAM: klog.Errorf instead of klog.V(2).Infof — see the
-	// matching note in utils.go chmodIfPermissionMismatch. Temporary diagnostic.
-	klog.Errorf("internalMount: mounting %s:%s at scratch path %s with volContext %+v",
-		vol.server, sharePath, targetPath, volContext)
+	// volContext is deliberately not logged: it can carry user-supplied mount options.
+	klog.V(2).Infof("internalMount: mounting %s:%s at scratch path %s", vol.server, sharePath, targetPath)
 	_, err := cs.Driver.ns.NodePublishVolume(ctx, &csi.NodePublishVolumeRequest{
 		TargetPath:       targetPath,
 		VolumeContext:    volContext,
@@ -682,6 +662,74 @@ func (cs *ControllerServer) copyVolume(ctx context.Context, req *csi.CreateVolum
 	}
 }
 
+// removeFailedVolumeDir removes the directory of a volume whose creation failed part-way, so a
+// retry starts from an empty directory. Copying into the volume unmounts it, so it is mounted
+// again first; failures here are only logged because the original error is what the caller
+// must see.
+func (cs *ControllerServer) removeFailedVolumeDir(ctx context.Context, vol *nfsVolume,
+	volCap *csi.VolumeCapability, internalVolumePath string) {
+	if err := cs.internalMount(ctx, vol, nil, volCap); err != nil {
+		klog.Warningf("failed to mount nfs server to clean up the partially created volume %s: %v", vol.id, err)
+		return
+	}
+	if err := os.RemoveAll(internalVolumePath); err != nil {
+		klog.Warningf("failed to remove partially created volume directory %s: %v", internalVolumePath, err)
+		return
+	}
+	if err := removeEmptyDirs(getInternalMountPath(cs.Driver.workingMountDir, vol),
+		filepath.Dir(internalVolumePath)); err != nil {
+		klog.Warningf("failed to remove empty parents of %s: %v", internalVolumePath, err)
+	}
+}
+
+// archiveVolumeDir moves internalVolumePath to its "archived-" sibling. It is idempotent: if
+// the source is already gone (a previous attempt renamed it but the response was lost, or the
+// deletion cache expired / the controller restarted in between) there is nothing left to
+// archive, and the stale archived copy must not be touched either.
+func archiveVolumeDir(d *Driver, nfsVol *nfsVolume, internalVolumePath string) error {
+	if _, err := os.Lstat(internalVolumePath); err != nil {
+		if os.IsNotExist(err) {
+			klog.V(2).Infof("DeleteVolume: %s does not exist, treating it as already archived", internalVolumePath)
+			return nil
+		}
+		return status.Errorf(codes.Internal, "failed to stat %s: %v", internalVolumePath, err)
+	}
+
+	archivedInternalVolumePath := filepath.Join(
+		getInternalMountPath(d.workingMountDir, nfsVol), "archived-"+nfsVol.subDir)
+	if strings.Contains(nfsVol.subDir, "/") {
+		parentDir := filepath.Dir(archivedInternalVolumePath)
+		klog.V(2).Infof("DeleteVolume: subdirectory(%s) contains '/', make sure the parent directory(%s) exists",
+			nfsVol.subDir, parentDir)
+		if err := os.MkdirAll(parentDir, 0777); err != nil {
+			return status.Errorf(codes.Internal, "create parent directory(%s) of %s failed with %v",
+				parentDir, archivedInternalVolumePath, err)
+		}
+	}
+
+	// archive subdirectory under base-dir, remove stale archived copy if exists.
+	klog.V(2).Infof("archiving subdirectory %s --> %s", internalVolumePath, archivedInternalVolumePath)
+	if d.removeArchivedVolumePath {
+		klog.V(2).Infof("removing archived subdirectory at %v", archivedInternalVolumePath)
+		if err := os.RemoveAll(archivedInternalVolumePath); err != nil {
+			return status.Errorf(codes.Internal, "failed to delete archived subdirectory %s: %v",
+				archivedInternalVolumePath, err)
+		}
+		klog.V(2).Infof("removed archived subdirectory at %v", archivedInternalVolumePath)
+	}
+	if err := os.Rename(internalVolumePath, archivedInternalVolumePath); err != nil {
+		return status.Errorf(codes.Internal, "archive subdirectory(%s, %s) failed with %v",
+			internalVolumePath, archivedInternalVolumePath, err)
+	}
+	// make sure internalVolumePath does not exist with 1 minute timeout
+	if err := waitForPathNotExistWithTimeout(internalVolumePath, time.Minute); err != nil {
+		return status.Errorf(codes.Internal, "DeleteVolume: internalVolumePath(%s) still exists after 1 minute",
+			internalVolumePath)
+	}
+	klog.V(2).Infof("archived subdirectory %s --> %s", internalVolumePath, archivedInternalVolumePath)
+	return nil
+}
+
 // newNFSSnapshot Convert VolumeSnapshot parameters to a nfsSnapshot
 func newNFSSnapshot(name string, params map[string]string, vol *nfsVolume) (*nfsSnapshot, error) {
 	server := vol.server
@@ -715,6 +763,14 @@ func newNFSSnapshot(name string, params map[string]string, vol *nfsVolume) (*nfs
 	}
 	if snapshot.src == "" {
 		return nil, fmt.Errorf("missing required source volume name")
+	}
+	for name, value := range map[string]string{
+		paramServer: snapshot.server, paramShare: snapshot.baseDir,
+		"snapshot name": snapshot.uuid, "source volume name": snapshot.src,
+	} {
+		if err := validateIDComponent(name, value); err != nil {
+			return nil, err
+		}
 	}
 	snapshot.id = getSnapshotIDFromNfsSnapshot(snapshot)
 	return snapshot, nil
@@ -755,6 +811,12 @@ func newNFSVolume(name string, size int64, params map[string]string, defaultOnDe
 	if err := validatePath(subDir); err != nil {
 		return nil, fmt.Errorf("invalid subDir %q: %v", subDir, err)
 	}
+	if err := validateIDComponent(paramServer, server); err != nil {
+		return nil, err
+	}
+	if err := validateIDComponent(paramShare, baseDir); err != nil {
+		return nil, err
+	}
 
 	vol := &nfsVolume{
 		server:  server,
@@ -769,6 +831,24 @@ func newNFSVolume(name string, size int64, params map[string]string, defaultOnDe
 		vol.subDir = replaceWithMap(subDir, subDirReplaceMap)
 		// make volume id unique if subDir is provided
 		vol.uuid = name
+	}
+
+	// Validate the directory actually used, i.e. after defaulting to the volume name and after
+	// ${pvc.metadata.*}/${pv.metadata.name} expansion, not just the raw parameter: a subDir of
+	// "." or "/", or a template that expands to nothing, would root the volume at the share.
+	if err := validateSubDir(vol.subDir); err != nil {
+		return nil, fmt.Errorf("invalid subDir %q: %v", vol.subDir, err)
+	}
+	if vol.uuid != "" {
+		if err := validateSubDir(vol.uuid); err != nil {
+			return nil, fmt.Errorf("invalid volume name %q: %v", vol.uuid, err)
+		}
+	}
+	if err := validateIDComponent(paramSubDir, vol.subDir); err != nil {
+		return nil, err
+	}
+	if err := validateIDComponent("volume name", vol.uuid); err != nil {
+		return nil, err
 	}
 
 	if err := validateOnDeleteValue(onDelete); err != nil {
@@ -818,7 +898,7 @@ func getVolumeIDFromNfsVol(vol *nfsVolume) string {
 		idElements[idOnDelete] = vol.onDelete
 	}
 
-	return strings.Join(idElements, separator)
+	return VolumeIDPrefix + strings.Join(idElements, separator)
 }
 
 // Given a nfsSnapshot, return a CSI snapshot id.
@@ -829,7 +909,7 @@ func getSnapshotIDFromNfsSnapshot(snap *nfsSnapshot) string {
 	idElements[idSnapUUID] = snap.uuid
 	idElements[idSnapArchivePath] = snap.uuid
 	idElements[idSnapArchiveName] = snap.src
-	return strings.Join(idElements, separator)
+	return VolumeIDPrefix + strings.Join(idElements, separator)
 }
 
 // Given a CSI volume id, return a nfsVolume
@@ -841,6 +921,10 @@ func getSnapshotIDFromNfsSnapshot(snap *nfsSnapshot) string {
 //	  old volumeID: nfs-server.default.svc.cluster.local/share/pvc-4bcbf944-b6f7-4bd0-b50f-3c3dd00efc64
 func getNfsVolFromID(id string) (*nfsVolume, error) {
 	var server, baseDir, subDir, uuid, onDelete string
+	// IDs minted by this package carry VolumeIDPrefix (see getVolumeIDFromNfsVol). Remember the
+	// ID as given, which is what the volume must be reported back as, and parse the rest.
+	rawID := id
+	id = strings.TrimPrefix(id, VolumeIDPrefix)
 	segments := strings.Split(id, separator)
 	if len(segments) < 3 {
 		klog.V(2).Infof("could not split %s into server, baseDir and subDir with separator(%s)", id, separator)
@@ -865,18 +949,22 @@ func getNfsVolFromID(id string) (*nfsVolume, error) {
 		}
 	}
 
-	if err := validatePath(subDir); err != nil {
+	// An ID that decodes to the share root (empty or "." subDir/uuid) must never be accepted:
+	// DeleteVolume would remove the whole export's contents.
+	if err := validateSubDir(subDir); err != nil {
 		return nil, fmt.Errorf("invalid subDir %q: %v", subDir, err)
 	}
 	if err := validatePath(baseDir); err != nil {
 		return nil, fmt.Errorf("invalid baseDir %q: %v", baseDir, err)
 	}
-	if err := validatePath(uuid); err != nil {
-		return nil, fmt.Errorf("invalid uuid %q: %v", uuid, err)
+	if uuid != "" {
+		if err := validateSubDir(uuid); err != nil {
+			return nil, fmt.Errorf("invalid uuid %q: %v", uuid, err)
+		}
 	}
 
 	return &nfsVolume{
-		id:       id,
+		id:       rawID,
 		server:   server,
 		baseDir:  baseDir,
 		subDir:   subDir,
@@ -891,7 +979,7 @@ func getNfsVolFromID(id string) (*nfsVolume, error) {
 //	nfs-server.default.svc.cluster.local#share#snapshot-016f784f-...#
 //	snapshot-016f784f-...#pvc-4bcbf944-b6f7-4bd0-b50f-3c3dd00efc64
 func getNfsSnapFromID(id string) (*nfsSnapshot, error) {
-	segments := strings.Split(id, separator)
+	segments := strings.Split(strings.TrimPrefix(id, VolumeIDPrefix), separator)
 	if len(segments) == totalIDSnapElements {
 		return &nfsSnapshot{
 			id:      id,
@@ -911,8 +999,18 @@ func isValidVolumeCapabilities(volCaps []*csi.VolumeCapability) error {
 		return fmt.Errorf("volume capabilities missing in request")
 	}
 	for _, c := range volCaps {
+		if c == nil {
+			return fmt.Errorf("volume capability must not be nil")
+		}
 		if c.GetBlock() != nil {
 			return fmt.Errorf("block volume capability not supported")
+		}
+		if c.GetMount() == nil {
+			return fmt.Errorf("volume capability must specify a mount access type")
+		}
+		if c.GetAccessMode() == nil ||
+			c.GetAccessMode().GetMode() == csi.VolumeCapability_AccessMode_UNKNOWN {
+			return fmt.Errorf("volume capability must specify an access mode")
 		}
 	}
 	return nil

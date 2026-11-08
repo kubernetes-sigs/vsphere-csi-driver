@@ -36,6 +36,10 @@ import (
 
 const mountTimeoutInSec = 110
 
+// mountTimeout is how long NodePublishVolume waits for the mount; a variable so tests can
+// shorten it.
+var mountTimeout = mountTimeoutInSec * time.Second
+
 // lstatFunc is used for testing to inject stale file handle errors
 var lstatFunc = os.Lstat
 
@@ -66,7 +70,14 @@ func (ns *NodeServer) NodePublishVolume(_ context.Context, req *csi.NodePublishV
 	if acquired := ns.Driver.volumeLocks.TryAcquire(lockKey); !acquired {
 		return nil, status.Errorf(codes.Aborted, volumeOperationAlreadyExistsFmt, volumeID)
 	}
-	defer ns.Driver.volumeLocks.Release(lockKey)
+	// If the mount times out it is still running; the lock is then handed to
+	// onLateMountCompletion below, which releases it only once the mount has really finished.
+	releaseLock := true
+	defer func() {
+		if releaseLock {
+			ns.Driver.volumeLocks.Release(lockKey)
+		}
+	}()
 
 	mountOptions := volCap.GetMount().GetMountFlags()
 	if req.GetReadonly() {
@@ -159,7 +170,29 @@ func (ns *NodeServer) NodePublishVolume(_ context.Context, req *csi.NodePublishV
 	timeoutFunc := func() error {
 		return fmt.Errorf("mount volume %s to %s timeout after %ds", source, targetPath, mountTimeoutInSec)
 	}
-	if err := WaitUntilTimeout(mountTimeoutInSec*time.Second, execFunc, timeoutFunc); err != nil {
+	// A mount that outlives the timeout cannot be cancelled. Keep holding the volume lock until
+	// it finishes so a retry cannot race it on the same path, and undo it if it succeeds late:
+	// the caller was told the mount failed, and for CreateVolume's scratch mount nothing else
+	// would ever unmount it.
+	onLateMountCompletion := func(mountErr error) {
+		defer ns.Driver.volumeLocks.Release(lockKey)
+		if mountErr != nil {
+			klog.Warningf("NodePublishVolume: mount of %s on %s failed after timing out: %v",
+				source, targetPath, mountErr)
+			return
+		}
+		klog.Warningf("NodePublishVolume: mount of %s on %s completed after timing out, unmounting it",
+			source, targetPath)
+		if err := ns.mounter.Unmount(targetPath); err != nil {
+			klog.Warningf("NodePublishVolume: failed to unmount %s after late mount: %v", targetPath, err)
+		}
+	}
+	timedOut, err := waitUntilTimeoutWithCleanup(mountTimeout, execFunc, timeoutFunc,
+		onLateMountCompletion)
+	if timedOut {
+		releaseLock = false
+	}
+	if err != nil {
 		if os.IsPermission(err) {
 			return nil, status.Error(codes.PermissionDenied, err.Error())
 		}

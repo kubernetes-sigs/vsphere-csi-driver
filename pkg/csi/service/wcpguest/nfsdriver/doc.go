@@ -38,4 +38,14 @@ limitations under the License.
 //     internal scratch mount of the root export, so it is never chmod'd. Required because
 //     glue.go sets a non-zero driver-level mountPermissions default, which upstream leaves at
 //     0; without this, the export root gets chmod'd and the mount fails under root_squash.
+//   - Hardening against deleting or mis-decoding the wrong data (utils.go validateSubDir /
+//     validateIDComponent, controllerserver.go newNFSVolume / getNfsVolFromID): a subDir,
+//     volume name or decoded ID that resolves to the share root is rejected, as is a '#' in any
+//     ID component, and getNfsVolFromID tolerates the pvCSI VolumeIDPrefix.
+//   - DeleteVolume is idempotent after a lost response or a restart: archiveVolumeDir and
+//     removeEmptyDirs treat an already-removed path as done.
+//   - isValidVolumeCapabilities also requires a mount access type and an access mode.
+//   - cache.go TimedCache evicts expired entries instead of only refreshing them on read.
+//   - nodeserver.go NodePublishVolume keeps its volume lock until a timed-out mount actually
+//     finishes, and unmounts it if it succeeds late.
 package nfsdriver
