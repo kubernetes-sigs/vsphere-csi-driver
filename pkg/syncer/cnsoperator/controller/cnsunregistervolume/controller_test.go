@@ -670,6 +670,98 @@ func TestUnregisterVolume(t *testing.T) {
 		// Assert
 		assert.Equal(tt, expErr, err.Error(), "Expected error to match")
 	})
+	t.Run("WhenVolumeNotFoundInCNS", func(tt *testing.T) {
+		// Setup
+		newK8sClient = func(ctx context.Context) (clientset.Interface, error) {
+			return &clientset.Clientset{}, nil
+		}
+		protectPVC = func(ctx context.Context, k8sClient clientset.Interface, pvcName, pvcNamespace,
+			finalizer string) error {
+			return nil
+		}
+		deletePVC = func(ctx context.Context, k8sClient clientset.Interface, pvcName, pvcNamespace string) error {
+			return nil
+		}
+		mockMgr := volume.NewMockManager(true, errors.New("not found"), fault.VimFaultNotFound)
+		params := params{pvcName: "mock-pvc", namespace: "mock-namespace", volumeID: "mock-volume-id"}
+
+		tt.Run("RemovesFinalizerAndReturnsNotFound", func(tt *testing.T) {
+			// Setup
+			calls := 0
+			removeFinalizerFromPVC = func(ctx context.Context, k8sClient clientset.Interface,
+				pvcName, pvcNamespace, finalizer string) error {
+				calls++
+				return nil
+			}
+
+			// Execute
+			faultType, err := unregisterVolume(context.Background(), mockMgr, request, params)
+
+			// Assert
+			assert.Equal(tt, 1, calls, "Expected finalizer to be removed")
+			assert.Equal(tt, fault.VimFaultNotFound, faultType, "Expected NotFound fault")
+			assert.NotNil(tt, err, "Expected the NotFound error to be returned")
+		})
+		tt.Run("WhenPVCNotFound", func(tt *testing.T) {
+			// Setup
+			removeFinalizerFromPVC = func(ctx context.Context, k8sClient clientset.Interface,
+				pvcName, pvcNamespace, finalizer string) error {
+				return apierrors.NewNotFound(schema.GroupResource{Resource: "persistentvolumeclaims"}, pvcName)
+			}
+
+			// Execute
+			faultType, err := unregisterVolume(context.Background(), mockMgr, request, params)
+
+			// Assert
+			assert.Equal(tt, fault.VimFaultNotFound, faultType, "Expected NotFound fault")
+			assert.NotNil(tt, err, "Expected the NotFound error to be returned")
+		})
+		tt.Run("WhenRemovingFinalizerFails", func(tt *testing.T) {
+			// Setup
+			removeFinalizerFromPVC = func(ctx context.Context, k8sClient clientset.Interface,
+				pvcName, pvcNamespace, finalizer string) error {
+				return errors.New("internal server error")
+			}
+			expErr := fmt.Sprintf("failed to remove finalizer from associated PVC %s/%s",
+				params.namespace, params.pvcName)
+
+			// Execute
+			faultType, err := unregisterVolume(context.Background(), mockMgr, request, params)
+
+			// Assert
+			assert.Empty(tt, faultType, "Expected no fault so that the caller retries")
+			assert.EqualError(tt, err, expErr, "Expected error to match")
+		})
+	})
+	t.Run("WhenUnregisteringVolumeFailsWithOtherFault", func(tt *testing.T) {
+		// Setup
+		newK8sClient = func(ctx context.Context) (clientset.Interface, error) {
+			return &clientset.Clientset{}, nil
+		}
+		protectPVC = func(ctx context.Context, k8sClient clientset.Interface, pvcName, pvcNamespace,
+			finalizer string) error {
+			return nil
+		}
+		deletePVC = func(ctx context.Context, k8sClient clientset.Interface, pvcName, pvcNamespace string) error {
+			return nil
+		}
+		calls := 0
+		removeFinalizerFromPVC = func(ctx context.Context, k8sClient clientset.Interface,
+			pvcName, pvcNamespace, finalizer string) error {
+			calls++
+			return nil
+		}
+		mockMgr := volume.NewMockManager(true, errors.New("cns fault"), fault.VimFaultCNSFault)
+		params := params{pvcName: "mock-pvc", namespace: "mock-namespace", volumeID: "mock-volume-id"}
+
+		// Execute
+		faultType, err := unregisterVolume(context.Background(), mockMgr, request, params)
+
+		// Assert
+		assert.Equal(tt, 0, calls, "Expected finalizer to be kept")
+		assert.Equal(tt, fault.VimFaultCNSFault, faultType, "Expected fault to be preserved")
+		assert.NotNil(tt, err, "Expected error")
+	})
 	t.Run("WhenSuccessful", func(tt *testing.T) {
 		// Setup
 		newK8sClient = func(ctx context.Context) (clientset.Interface, error) {
