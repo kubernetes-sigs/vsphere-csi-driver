@@ -1038,6 +1038,13 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			return nil, csifault.CSIInvalidArgumentFault, status.Error(codes.Internal, msg)
 		}
 
+		// A guest NFS volume (see createGuestNFSVolume) is not a Supervisor PVC: the node mounts
+		// it directly, so nothing is attached and the Supervisor must not be consulted.
+		if IsGuestNFSVolumeID(req.GetVolumeId()) {
+			volumeType = prometheus.PrometheusFileVolumeType
+			return publishGuestNFSVolume(ctx, req)
+		}
+
 		// File volumes support
 		if isFileVolumeRequest {
 			volumeType = prometheus.PrometheusFileVolumeType
@@ -1580,6 +1587,11 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
 
+		if IsGuestNFSVolumeID(req.GetVolumeId()) {
+			volumeType = prometheus.PrometheusFileVolumeType
+			return unpublishGuestNFSVolume(ctx, req)
+		}
+
 		// Retrieve Supervisor PVC
 		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
 			ctx, req.VolumeId, metav1.GetOptions{})
@@ -1905,6 +1917,11 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
 
+		if IsGuestNFSVolumeID(req.GetVolumeId()) {
+			volumeType = prometheus.PrometheusFileVolumeType
+			return expandGuestNFSVolume(ctx, req)
+		}
+
 		volumeID := req.GetVolumeId()
 		volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 
@@ -2069,6 +2086,9 @@ func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.Va
 
 	log := logger.GetLogger(ctx)
 	log.Infof("ValidateVolumeCapabilities: called with args %+v", logger.RedactCSIRequest(req))
+	if IsGuestNFSVolumeID(req.GetVolumeId()) {
+		return validateGuestNFSVolumeCapabilities(ctx, req)
+	}
 	volCaps := req.GetVolumeCapabilities()
 	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
 	if err := common.IsValidVolumeCapabilities(ctx, volCaps); err == nil {
@@ -2165,6 +2185,11 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 	start := time.Now()
 	volumeType := prometheus.PrometheusBlockVolumeType
 	log.Infof("CreateSnapshot: called with args %+v", logger.RedactCSIRequest(req))
+	// Snapshots of a guest NFS volume are taken by the vendored driver on the NFS server, not on
+	// the Supervisor, so they do not depend on the Supervisor's block volume snapshot feature.
+	if IsGuestNFSVolumeID(req.GetSourceVolumeId()) {
+		return createGuestNFSSnapshot(ctx, req)
+	}
 	isBlockVolumeSnapshotWCPEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.BlockVolumeSnapshot)
 	if !isBlockVolumeSnapshotWCPEnabled {
@@ -2337,6 +2362,9 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 	start := time.Now()
 	volumeType := prometheus.PrometheusBlockVolumeType
 	log.Infof("DeleteSnapshot: called with args %+v", logger.RedactCSIRequest(req))
+	if IsGuestNFSVolumeID(req.GetSnapshotId()) {
+		return deleteGuestNFSSnapshot(ctx, req)
+	}
 	isBlockVolumeSnapshotWCPEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 	if !isBlockVolumeSnapshotWCPEnabled {
 		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "deleteSnapshot")
@@ -2430,6 +2458,9 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 	start := time.Now()
 	volumeType := prometheus.PrometheusBlockVolumeType
 	log.Infof("ListSnapshots: called with args %+v", logger.RedactCSIRequest(req))
+	if IsGuestNFSVolumeID(req.GetSnapshotId()) || IsGuestNFSVolumeID(req.GetSourceVolumeId()) {
+		return listGuestNFSSnapshots(ctx, req)
+	}
 	isBlockVolumeSnapshotEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 	if !isBlockVolumeSnapshotEnabled {
 		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "listSnapshot")

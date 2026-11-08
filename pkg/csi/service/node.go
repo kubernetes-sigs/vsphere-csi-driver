@@ -307,6 +307,9 @@ func (driver *vsphereCSIDriver) NodeGetVolumeStats(
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
 			"NodeGetVolumeStats: Volume ID must be provided")
 	}
+	if isGuestNFSVolume(volumeID) {
+		return nodeGetGuestNFSVolumeStats(ctx, req)
+	}
 
 	if targetPath == "" {
 		return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
@@ -553,6 +556,9 @@ func (driver *vsphereCSIDriver) NodeExpandVolume(
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "capacity range must be provided")
 	} else if req.GetCapacityRange().GetRequiredBytes() < 0 || req.GetCapacityRange().GetLimitBytes() < 0 {
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "capacity ranges values cannot be negative")
+	}
+	if isGuestNFSVolume(volumeID) {
+		return nodeExpandGuestNFSVolume(ctx, req)
 	}
 
 	reqVolSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())

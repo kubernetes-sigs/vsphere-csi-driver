@@ -20,9 +20,7 @@ import (
 	"context"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"google.golang.org/grpc/codes"
 
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/wcpguest"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/wcpguest/nfsdriver"
@@ -57,21 +55,33 @@ func nodeUnstageGuestNFSVolume(ctx context.Context, req *csi.NodeUnstageVolumeRe
 	return &csi.NodeUnstageVolumeResponse{}, nil
 }
 
-// nodePublishGuestNFSVolume mounts the export onto the target path.
+// nodePublishGuestNFSVolume mounts the export onto the target path. The guest-nfs-volume feature
+// state gates provisioning only (see wcpguest.isGuestNFSEnabled): refusing to mount a volume that
+// already exists would turn an FSS reset into an outage, since pods moved to another node, and
+// pods re-mounted after a kubelet restart, could no longer start.
 func nodePublishGuestNFSVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (
 	*csi.NodePublishVolumeResponse, error) {
-	log := logger.GetLogger(ctx)
-	if !wcpguest.IsGuestNFSEnabled(ctx) {
-		return nil, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-			"cannot publish guest NFS volume %q: the %q feature state is disabled",
-			req.GetVolumeId(), common.GuestNFSVolume)
-	}
 	return nfsdriver.GetOrCreateDriver().NodeServer().NodePublishVolume(ctx, req)
 }
 
-// nodeUnpublishGuestNFSVolume unmounts the export. It is not gated on the feature state, so a
-// pod can always be torn down.
+// nodeUnpublishGuestNFSVolume unmounts the export. Failing here would leave the pod stuck
+// Terminating and the node impossible to drain, so it is never gated on the feature state.
 func nodeUnpublishGuestNFSVolume(ctx context.Context, req *csi.NodeUnpublishVolumeRequest) (
 	*csi.NodeUnpublishVolumeResponse, error) {
 	return nfsdriver.GetOrCreateDriver().NodeServer().NodeUnpublishVolume(ctx, req)
+}
+
+// nodeGetGuestNFSVolumeStats reports usage of the mounted export.
+func nodeGetGuestNFSVolumeStats(ctx context.Context, req *csi.NodeGetVolumeStatsRequest) (
+	*csi.NodeGetVolumeStatsResponse, error) {
+	return nfsdriver.GetOrCreateDriver().NodeServer().NodeGetVolumeStats(ctx, req)
+}
+
+// nodeExpandGuestNFSVolume acknowledges NodeExpandVolume: the controller never asks for node
+// expansion of an NFS volume, but if kubelet calls it anyway there is no filesystem to grow.
+func nodeExpandGuestNFSVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (
+	*csi.NodeExpandVolumeResponse, error) {
+	logger.GetLogger(ctx).Infof("NodeExpandVolume: %q is a guest NFS volume, there is nothing to expand",
+		req.GetVolumeId())
+	return &csi.NodeExpandVolumeResponse{CapacityBytes: req.GetCapacityRange().GetRequiredBytes()}, nil
 }

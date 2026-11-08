@@ -1,0 +1,31 @@
+# Mounts the PVC from example-pvc.yaml. The pod runs as a non-root user with every capability
+# dropped, as a restricted Pod Security profile requires. The volume is writable by this user only
+# if the StorageClass sets mountPermissions (see example-sc.yaml).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-nfs
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 101
+    fsGroup: 101
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+  - name: nginx-nfs
+    image: nginxinc/nginx-unprivileged:latest
+    ports:
+    - containerPort: 8080
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+    volumeMounts:
+    - name: nfs-vol
+      mountPath: /usr/share/nginx/html
+  volumes:
+  - name: nfs-vol
+    persistentVolumeClaim:
+      claimName: pvc-nfs-dynamic

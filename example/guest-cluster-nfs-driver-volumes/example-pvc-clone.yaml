@@ -1,0 +1,18 @@
+# A new volume whose directory starts as a copy of pvc-nfs-dynamic (example-pvc.yaml). Both
+# volumes must be on the same NFS server. If the copy fails, the new directory is removed so a
+# retry starts from nothing instead of finishing against a partial copy.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-nfs-clone
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: nfs-csi
+  dataSource:
+    kind: PersistentVolumeClaim
+    name: pvc-nfs-dynamic

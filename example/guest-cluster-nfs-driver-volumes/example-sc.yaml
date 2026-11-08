@@ -1,0 +1,39 @@
+# Guest-cluster (VKS) RWX volumes served entirely locally by the vendored NFS driver
+# (pkg/csi/service/wcpguest/nfsdriver, ported from kubernetes-csi/csi-driver-nfs). The
+# provisioner is still csi.vsphere.vmware.com — this is NOT a second CSI driver — the
+# "server" parameter alone selects this backend, dispatched inside
+# pkg/csi/service/wcpguest/controller.go. No Supervisor PVC is ever created for these volumes.
+#
+# Prerequisites:
+# - Set "guest-nfs-volume": "true" in the internal-feature-states.csi.vsphere.vmware.com ConfigMap
+#   (vmware-system-csi namespace). It defaults to "false" and gates provisioning only: while it is
+#   off, creating or deleting volumes and creating snapshots is refused, but mounting, unmounting
+#   and detaching existing volumes keeps working.
+# - The vsphere-csi-controller container creates and deletes each volume's directory by mounting
+#   the export itself, so it needs permission to mount. The default pvcsi manifest does not grant
+#   it: the controller must run as root with the SYS_ADMIN capability (or privileged).
+# - The NFS server must export the share to the guest cluster nodes and to the controller pod.
+# - Use ReadWriteMany or ReadOnlyMany PVCs only.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-csi
+provisioner: csi.vsphere.vmware.com
+# Only the parameters below are accepted. Anything else next to "server" — a vSphere
+# storagePolicyName, for example — fails the request instead of provisioning NFS silently.
+parameters:
+  server: <nfs-server-ip-or-hostname>
+  share: /<exported-path>
+  # Permissions applied to each volume's directory. The default is 0 (no chmod), which keeps the
+  # directory private to the user the controller runs as, so no workload can read or write another
+  # PVC's data just by being able to mount the export. kubelet does not apply fsGroup to RWX CSI
+  # volumes, so pods that run as a different user cannot write to such a directory. If your pods
+  # need to, opt in here — 0777 makes the directory writable by every pod that mounts the export.
+  mountPermissions: "0777"
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+# Expansion is accepted and the PVC's size is updated, but an NFS export has no per-volume quota,
+# so the size is not enforced.
+allowVolumeExpansion: true
+mountOptions:
+  - nfsvers=4.1

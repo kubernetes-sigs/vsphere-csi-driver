@@ -102,54 +102,38 @@ func TestNodeStageAndUnstageStillRejectBadRequestsForOtherVolumes(t *testing.T) 
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 }
 
-func TestNodePublishVolumeGuestNFSVolumeNeedsFeatureState(t *testing.T) {
-	useFakeOrchestrator(t, false)
-	driver := NewDriver().(*vsphereCSIDriver)
-
-	resp, err := driver.NodePublishVolume(context.Background(), &csi.NodePublishVolumeRequest{
-		VolumeId:   guestNFSTestVolumeID,
-		TargetPath: t.TempDir(),
-		VolumeCapability: &csi.VolumeCapability{
+// The request is answered by the vendored NFS driver, whose own argument checks produce the
+// wording below, not the block volume path. This holds with the feature state on or off: the FSS
+// gates provisioning only, so a volume that exists can always be mounted (an FSS reset during an
+// upgrade must not stop pods starting on another node or re-mounting after a kubelet restart).
+func TestNodePublishVolumeGuestNFSVolumeReachesNFSDriverRegardlessOfFeatureState(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		useFakeOrchestrator(t, enabled)
+		driver := NewDriver().(*vsphereCSIDriver)
+		mountCap := &csi.VolumeCapability{
 			AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
-		},
-	})
-	require.Nil(t, resp)
-	require.Equal(t, codes.FailedPrecondition, status.Code(err), "got: %v", err)
-	require.Contains(t, err.Error(), common.GuestNFSVolume)
-}
+		}
 
-// With the feature on, the request reaches the vendored NFS driver, whose own argument checks
-// are what answer it. The wording below is that driver's, not the block volume path's.
-func TestNodePublishVolumeGuestNFSVolumeReachesNFSDriver(t *testing.T) {
-	useFakeOrchestrator(t, true)
-	driver := NewDriver().(*vsphereCSIDriver)
+		_, err := driver.NodePublishVolume(context.Background(), &csi.NodePublishVolumeRequest{
+			VolumeId: guestNFSTestVolumeID, VolumeCapability: mountCap,
+		})
+		require.Equal(t, codes.InvalidArgument, status.Code(err), "enabled=%v: %v", enabled, err)
+		require.Contains(t, err.Error(), "Target path not provided")
 
-	_, err := driver.NodePublishVolume(context.Background(), &csi.NodePublishVolumeRequest{
-		VolumeId: guestNFSTestVolumeID,
-		VolumeCapability: &csi.VolumeCapability{
-			AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
-		},
-	})
-	require.Equal(t, codes.InvalidArgument, status.Code(err), "got: %v", err)
-	require.Contains(t, err.Error(), "Target path not provided")
+		_, err = driver.NodePublishVolume(context.Background(), &csi.NodePublishVolumeRequest{
+			VolumeId: guestNFSTestVolumeID, TargetPath: t.TempDir(),
+		})
+		require.Equal(t, codes.InvalidArgument, status.Code(err), "enabled=%v: %v", enabled, err)
+		require.Contains(t, err.Error(), "Volume capability missing")
 
-	_, err = driver.NodePublishVolume(context.Background(), &csi.NodePublishVolumeRequest{
-		VolumeId: guestNFSTestVolumeID, TargetPath: t.TempDir(),
-	})
-	require.Equal(t, codes.InvalidArgument, status.Code(err), "got: %v", err)
-	require.Contains(t, err.Error(), "Volume capability missing")
-
-	// The parameters the controller put in the volume context are validated by the driver too.
-	_, err = driver.NodePublishVolume(context.Background(), &csi.NodePublishVolumeRequest{
-		VolumeId:   guestNFSTestVolumeID,
-		TargetPath: t.TempDir(),
-		VolumeCapability: &csi.VolumeCapability{
-			AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
-		},
-		VolumeContext: map[string]string{"share": "/export"},
-	})
-	require.Equal(t, codes.InvalidArgument, status.Code(err), "got: %v", err)
-	require.Contains(t, err.Error(), "server is a required parameter")
+		// The parameters the controller put in the volume context are validated by the driver too.
+		_, err = driver.NodePublishVolume(context.Background(), &csi.NodePublishVolumeRequest{
+			VolumeId: guestNFSTestVolumeID, TargetPath: t.TempDir(), VolumeCapability: mountCap,
+			VolumeContext: map[string]string{"share": "/export"},
+		})
+		require.Equal(t, codes.InvalidArgument, status.Code(err), "enabled=%v: %v", enabled, err)
+		require.Contains(t, err.Error(), "server is a required parameter")
+	}
 }
 
 // Unmounting must work whether or not the feature is on, so a pod can always be torn down.
@@ -181,4 +165,46 @@ func TestNodeUnpublishVolumeGuestNFSVolumeIsIdempotent(t *testing.T) {
 		require.NoError(t, err, "call %d", i)
 		require.NotNil(t, resp)
 	}
+}
+
+func TestNodeGetVolumeStatsGuestNFSVolume(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		useFakeOrchestrator(t, enabled)
+		driver := NewDriver().(*vsphereCSIDriver)
+
+		_, err := driver.NodeGetVolumeStats(context.Background(), &csi.NodeGetVolumeStatsRequest{
+			VolumeId: guestNFSTestVolumeID,
+		})
+		require.Equal(t, codes.InvalidArgument, status.Code(err), "enabled=%v: %v", enabled, err)
+		require.Contains(t, err.Error(), "volume path was empty", "answered by the NFS driver")
+
+		_, err = driver.NodeGetVolumeStats(context.Background(), &csi.NodeGetVolumeStatsRequest{
+			VolumeId: guestNFSTestVolumeID, VolumePath: t.TempDir() + "/missing",
+		})
+		require.Equal(t, codes.NotFound, status.Code(err), "enabled=%v: %v", enabled, err)
+	}
+}
+
+func TestNodeGetVolumeStatsGuestNFSVolumeReportsUsage(t *testing.T) {
+	useFakeOrchestrator(t, true)
+	driver := NewDriver().(*vsphereCSIDriver)
+
+	resp, err := driver.NodeGetVolumeStats(context.Background(), &csi.NodeGetVolumeStatsRequest{
+		VolumeId: guestNFSTestVolumeID, VolumePath: t.TempDir(),
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, resp.GetUsage())
+	require.Equal(t, csi.VolumeUsage_BYTES, resp.GetUsage()[0].GetUnit())
+}
+
+func TestNodeExpandVolumeGuestNFSVolumeIsANoOp(t *testing.T) {
+	driver := NewDriver().(*vsphereCSIDriver)
+
+	resp, err := driver.NodeExpandVolume(context.Background(), &csi.NodeExpandVolumeRequest{
+		VolumeId:      guestNFSTestVolumeID,
+		VolumePath:    "/does/not/matter",
+		CapacityRange: &csi.CapacityRange{RequiredBytes: 2 << 30},
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(2<<30), resp.GetCapacityBytes())
 }
