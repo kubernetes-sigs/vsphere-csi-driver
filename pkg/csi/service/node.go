@@ -59,6 +59,10 @@ func (driver *vsphereCSIDriver) NodeStageVolume(
 	volumeID := req.GetVolumeId()
 	volCap := req.GetVolumeCapability()
 
+	if isGuestNFSVolume(volumeID) {
+		return nodeStageGuestNFSVolume(ctx, req)
+	}
+
 	if volCap == nil {
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
 			"NodeStageVolume failed: volume capability not provided")
@@ -125,6 +129,9 @@ func (driver *vsphereCSIDriver) NodeUnstageVolume(
 	if len(volumeID) == 0 {
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "NodeUnstageVolume Volume ID must be provided")
 	}
+	if isGuestNFSVolume(volumeID) {
+		return nodeUnstageGuestNFSVolume(ctx, req)
+	}
 	if len(stagingTarget) == 0 {
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
 			"NodeUnstageVolume Staging Target Path must be provided")
@@ -187,6 +194,9 @@ func (driver *vsphereCSIDriver) NodePublishVolume(
 	if len(volumeID) == 0 {
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
 			"NodePublishVolume: Volume ID must be provided")
+	}
+	if isGuestNFSVolume(volumeID) {
+		return nodePublishGuestNFSVolume(ctx, req)
 	}
 	params := osutils.NodePublishParams{
 		VolID:  volumeID,
@@ -257,6 +267,9 @@ func (driver *vsphereCSIDriver) NodeUnpublishVolume(
 	if len(volID) == 0 {
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
 			"NodeUnpublishVolume: Volume ID must be provided")
+	}
+	if isGuestNFSVolume(volID) {
+		return nodeUnpublishGuestNFSVolume(ctx, req)
 	}
 
 	if target == "" {

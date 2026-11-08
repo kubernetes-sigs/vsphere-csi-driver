@@ -37,8 +37,13 @@ func IsGuestNFSVolumeID(id string) bool {
 	return nfsdriver.IsGuestVolumeID(id)
 }
 
-// isGuestNFSEnabled reports whether the guest-nfs-volume pvCSI FSS is enabled. Every guest NFS
-// volume operation is gated on it.
+// IsGuestNFSEnabled reports whether the guest-nfs-volume pvCSI FSS is enabled. Every guest NFS
+// volume operation, on the controller and on the node, is gated on it.
+func IsGuestNFSEnabled(ctx context.Context) bool {
+	return isGuestNFSEnabled(ctx)
+}
+
+// isGuestNFSEnabled reports whether the guest-nfs-volume pvCSI FSS is enabled.
 func isGuestNFSEnabled(ctx context.Context) bool {
 	return commonco.ContainerOrchestratorUtility != nil &&
 		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.GuestNFSVolume)
