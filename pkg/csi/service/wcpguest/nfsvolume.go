@@ -37,6 +37,18 @@ func IsGuestNFSVolumeID(id string) bool {
 	return nfsdriver.IsGuestVolumeID(id)
 }
 
+// guestNFSContentSourceID returns the ID of the guest NFS snapshot or volume that src refers to,
+// or "" when src is nil or refers to anything else.
+func guestNFSContentSourceID(src *csi.VolumeContentSource) string {
+	if id := src.GetSnapshot().GetSnapshotId(); IsGuestNFSVolumeID(id) {
+		return id
+	}
+	if id := src.GetVolume().GetVolumeId(); IsGuestNFSVolumeID(id) {
+		return id
+	}
+	return ""
+}
+
 // isGuestNFSEnabled reports whether the guest-nfs-volume pvCSI FSS is enabled.
 //
 // The FSS gates what creates or removes guest NFS state on the provisioning side: CreateVolume,

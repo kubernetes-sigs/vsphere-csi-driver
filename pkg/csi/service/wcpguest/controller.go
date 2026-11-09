@@ -466,6 +466,15 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				logger.RedactCSIRequest(req), err)
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
+		// A guest NFS snapshot or volume exists only in this guest cluster, so it cannot seed a
+		// Supervisor-backed volume: the Supervisor PVC created below would reference a
+		// VolumeSnapshot that can never exist and stay Pending. Only an NFS StorageClass, handled
+		// above, can restore or clone it.
+		if srcID := guestNFSContentSourceID(req.GetVolumeContentSource()); srcID != "" {
+			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+				"volume content source %q is a guest NFS snapshot or volume; it can only be restored or "+
+					"cloned with a StorageClass that sets the \"server\" parameter", srcID)
+		}
 		isFileVolumeRequest := common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities())
 		if isFileVolumeRequest {
 			volumeType = prometheus.PrometheusFileVolumeType
@@ -2558,6 +2567,12 @@ func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.Contro
 	if volumeID == "" {
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "Volume ID must be provided")
 	}
+	// A guest NFS volume has no Supervisor PVC whose VolumeAttributesClass could be changed.
+	// InvalidArgument lets external-resizer mark the modification infeasible instead of retrying.
+	if IsGuestNFSVolumeID(volumeID) {
+		return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			"ControllerModifyVolume is not supported for guest NFS volume %q", volumeID)
+	}
 
 	// Resolve target VAC from the guest PVC
 	targetVAC, err := c.getTargetVACForVolume(ctx, volumeID)
@@ -2870,13 +2885,18 @@ const (
 	// volumeKindFVSFile: no per-VM ACL/record exists; echoes the guest VolumeAttachment's
 	// node instead - not real detection.
 	volumeKindFVSFile
+	// volumeKindGuestNFS: a guest-local NFS volume (see nfsvolume.go). It has no Supervisor
+	// object of any kind and ControllerPublishVolume is a no-op for it, so, as for FVS, its
+	// published nodes are echoed from the guest VolumeAttachment - not real detection.
+	volumeKindGuestNFS
 )
 
 // ownedVolume represents a single entry in the ownership set, built by scanning guest
 // PersistentVolumes. Only volume handles that make it into this set are eligible to appear in
-// the response. kind starts out as volumeKindBlock or volumeKindLegacyFile from the ownership
-// pass (VolumeMode/access mode alone distinguishes block from file), and is refined to
-// volumeKindFVSFile by the classification pass, which needs the supervisor PVC's storage class.
+// the response. kind starts out as volumeKindGuestNFS (from the volume handle), volumeKindBlock
+// or volumeKindLegacyFile from the ownership pass (VolumeMode/access mode alone distinguishes
+// block from file), and a legacy file volume is refined to volumeKindFVSFile by the
+// classification pass, which needs the supervisor PVC's storage class.
 type ownedVolume struct {
 	kind          volumeKind
 	capacityBytes int64
@@ -2913,10 +2933,11 @@ type listVolumesCache struct {
 }
 
 // ListVolumes implements the CSI ListVolumes RPC for the guest (pvCSI) flavor, covering block
-// volumes, legacy file volumes and vSAN File Service (FVS) file volumes. It queries neither CNS
-// nor vCenter for this RPC, reading instead the same Kubernetes objects the attach path already
-// trusts. FVS file volumes get no genuine detection value: no per-node backend record exists
-// for them, so their published nodes are echoed straight from the guest VolumeAttachment.
+// volumes, legacy file volumes, vSAN File Service (FVS) file volumes and guest NFS volumes. It
+// queries neither CNS nor vCenter for this RPC, reading instead the same Kubernetes objects the
+// attach path already trusts. FVS file volumes and guest NFS volumes get no genuine detection
+// value: no per-node backend record exists for them, so their published nodes are echoed
+// straight from the guest VolumeAttachment.
 func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesRequest) (
 	*csi.ListVolumesResponse, error) {
 
@@ -3069,6 +3090,7 @@ func (c *controller) buildListVolumesCache(ctx context.Context) (*listVolumesCac
 	}
 	blockCount := countVolumesOfKind(owned, volumeKindBlock)
 	legacyFileCount := countVolumesOfKind(owned, volumeKindLegacyFile)
+	guestNFSCount := countVolumesOfKind(owned, volumeKindGuestNFS)
 
 	vmCount, faultType, err := c.addPublishedNodesFromVMs(ctx, owned)
 	if err != nil {
@@ -3094,9 +3116,12 @@ func (c *controller) buildListVolumesCache(ctx context.Context) (*listVolumesCac
 	}
 
 	// fvsCount is always 0 when the FSS is off, since classifyFileVolumes never reclassifies
-	// anything to volumeKindFVSFile in that case, so this also covers the FSS gate.
-	if fvsCount > 0 {
-		if err := c.addPublishedNodesForFVSFileVolumes(ctx, owned); err != nil {
+	// anything to volumeKindFVSFile in that case, so this also covers the FSS gate. Guest NFS
+	// volumes are listed whether or not the guest-nfs-volume FSS is on: like the rest of the
+	// serving path, ListVolumes must keep reporting volumes that already exist, or
+	// external-attacher would mark their VolumeAttachments detached.
+	if fvsCount > 0 || guestNFSCount > 0 {
+		if err := c.addPublishedNodesFromVolumeAttachments(ctx, owned); err != nil {
 			return nil, csifault.CSIInternalFault, err
 		}
 	}
@@ -3110,9 +3135,9 @@ func (c *controller) buildListVolumesCache(ctx context.Context) (*listVolumesCac
 	// real drop (e.g. a scale-down) and never recover.
 
 	c.listVolumesGeneration++
-	log.Infof("ListVolumes: rebuilt cache generation %d: owned=%d (block=%d fvsFile=%d) vms=%d entries=%d "+
-		"publishedPairs=%d", c.listVolumesGeneration, len(owned), blockCount, fvsCount, vmCount, len(entries),
-		pairCount)
+	log.Infof("ListVolumes: rebuilt cache generation %d: owned=%d (block=%d fvsFile=%d guestNFS=%d) vms=%d "+
+		"entries=%d publishedPairs=%d", c.listVolumesGeneration, len(owned), blockCount, fvsCount, guestNFSCount,
+		vmCount, len(entries), pairCount)
 
 	return &listVolumesCache{
 		generation: c.listVolumesGeneration,
@@ -3166,11 +3191,16 @@ func (c *controller) listOwnedVolumes(ctx context.Context) (
 			// (IsValidVolumeCapabilities), but a statically provisioned PV could still carry
 			// that combination; treat any Block-mode PV as a block volume.
 			isBlockVolumeMode := pv.Spec.VolumeMode != nil && *pv.Spec.VolumeMode == corev1.PersistentVolumeBlock
+			handle := pv.Spec.CSI.VolumeHandle
 			kind := volumeKindBlock
-			if !isBlockVolumeMode && isFileVolumeAccessMode(pv.Spec.AccessModes) {
+			switch {
+			case IsGuestNFSVolumeID(handle):
+				// Never in VirtualMachine.Status.Volumes nor backed by a CnsFileAccessConfig,
+				// whatever its access mode.
+				kind = volumeKindGuestNFS
+			case !isBlockVolumeMode && isFileVolumeAccessMode(pv.Spec.AccessModes):
 				kind = volumeKindLegacyFile
 			}
-			handle := pv.Spec.CSI.VolumeHandle
 			if existing, exists := owned[handle]; exists {
 				if existing.bound || pv.Status.Phase != corev1.VolumeBound {
 					log.Warnf("ListVolumes: volume handle %q owned by more than one guest "+
@@ -3237,11 +3267,11 @@ func (c *controller) addPublishedNodesFromVMs(ctx context.Context, owned map[str
 				continue
 			}
 			if ov.kind != volumeKindBlock {
-				// File volumes are never represented in VirtualMachine.Status.Volumes; a
-				// handle collision here would mean a file volume's supervisor PVC name
-				// coincides with an unrelated block disk entry.
+				// File and guest NFS volumes are never represented in
+				// VirtualMachine.Status.Volumes; a handle collision here would mean such a
+				// volume's handle coincides with an unrelated block disk entry.
 				log.Warnf("ListVolumes: volume handle %q appears in VirtualMachine.Status.Volumes "+
-					"but is classified as a file volume; ignoring this entry", name)
+					"but is not classified as a block volume; ignoring this entry", name)
 				continue
 			}
 			ov.nodes = appendUniqueNode(ov.nodes, vm.Name)
@@ -3287,7 +3317,7 @@ func (c *controller) classifyFileVolumes(ctx context.Context, owned map[string]*
 		for i := range pvcList.Items {
 			pvc := &pvcList.Items[i]
 			ov, ok := owned[pvc.Name]
-			if !ok || ov.kind == volumeKindBlock {
+			if !ok || ov.kind != volumeKindLegacyFile {
 				continue
 			}
 			if common.IsFVSPersistentVolumeClaim(pvc) {
@@ -3340,11 +3370,12 @@ func (c *controller) addPublishedNodesForLegacyFileVolumes(ctx context.Context, 
 	return nil
 }
 
-// addPublishedNodesForFVSFileVolumes lists guest VolumeAttachment objects and, for each owned
-// FVS file volume, copies the node name straight from the matching VolumeAttachment. FVS
-// volumes have no per-node backend record - the export is reachable VPC-wide without a
-// per-VM ACL - so this is a deliberate echo, not an independent check, logged distinctly so
-// it isn't mistaken for real detection coverage.
+// addPublishedNodesFromVolumeAttachments lists guest VolumeAttachment objects and, for each owned
+// FVS file volume or guest NFS volume, copies the node name straight from the matching
+// VolumeAttachment. Neither kind has a per-node backend record - an FVS export is reachable
+// VPC-wide without a per-VM ACL, and a guest NFS volume is mounted straight from its server with
+// a no-op ControllerPublishVolume - so this is a deliberate echo, not an independent check,
+// logged distinctly so it isn't mistaken for real detection coverage.
 //
 // VolumeAttachment.Spec.Source.PersistentVolumeName is the guest PersistentVolume's Name, not
 // the CNS volume handle owned is keyed by, so matching requires a PV-name index over the owned
@@ -3356,26 +3387,27 @@ func (c *controller) addPublishedNodesForLegacyFileVolumes(ctx context.Context, 
 //
 // Uses the guest's own VolumeAttachments directly rather than GetNodesForVolumes, which isn't
 // wired up for the guest flavor today.
-func (c *controller) addPublishedNodesForFVSFileVolumes(ctx context.Context, owned map[string]*ownedVolume) error {
+func (c *controller) addPublishedNodesFromVolumeAttachments(ctx context.Context,
+	owned map[string]*ownedVolume) error {
 	log := logger.GetLogger(ctx)
 	listCtx, cancel := context.WithTimeout(ctx, listVolumesListTimeout)
 	defer cancel()
 
 	vaList, err := c.guestClient.StorageV1().VolumeAttachments().List(listCtx, metav1.ListOptions{})
 	if err != nil {
-		msg := fmt.Sprintf("failed to list guest VolumeAttachments for the FVS file volume echo path: %v", err)
+		msg := fmt.Sprintf("failed to list guest VolumeAttachments for the FVS/guest NFS echo path: %v", err)
 		log.Error(msg)
 		return status.Error(codes.Internal, msg)
 	}
 
-	fvsByPVName := make(map[string]*ownedVolume, len(owned))
+	echoedByPVName := make(map[string]*ownedVolume, len(owned))
 	for _, ov := range owned {
-		if ov.kind == volumeKindFVSFile && ov.pvName != "" {
-			fvsByPVName[ov.pvName] = ov
+		if (ov.kind == volumeKindFVSFile || ov.kind == volumeKindGuestNFS) && ov.pvName != "" {
+			echoedByPVName[ov.pvName] = ov
 		}
 	}
 
-	fvsPublished := 0
+	echoed := 0
 	for i := range vaList.Items {
 		va := &vaList.Items[i]
 		if va.Spec.Attacher != csitypes.Name || va.Spec.Source.PersistentVolumeName == nil {
@@ -3389,16 +3421,16 @@ func (c *controller) addPublishedNodesForFVSFileVolumes(ctx context.Context, own
 		if !va.Status.Attached {
 			continue
 		}
-		ov, ok := fvsByPVName[*va.Spec.Source.PersistentVolumeName]
+		ov, ok := echoedByPVName[*va.Spec.Source.PersistentVolumeName]
 		if !ok {
 			continue
 		}
 		ov.nodes = appendUniqueNode(ov.nodes, va.Spec.NodeName)
-		fvsPublished++
+		echoed++
 	}
-	if fvsPublished > 0 {
-		log.Infof("ListVolumes: reported %d FVS file volume(s) published by echoing their guest "+
-			"VolumeAttachment; this provides no detection value for that subset", fvsPublished)
+	if echoed > 0 {
+		log.Infof("ListVolumes: reported %d FVS file or guest NFS volume attachment(s) as published by "+
+			"echoing their guest VolumeAttachment; this provides no detection value for that subset", echoed)
 	}
 	return nil
 }

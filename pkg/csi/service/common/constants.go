@@ -111,6 +111,12 @@ const (
 	// (fv:<instance-namespace>:<filevolume-name>).
 	FVSVolumeIDPrefix = "fv:"
 
+	// GuestNFSVolumeIDPrefix is the prefix of the volume and snapshot IDs of guest-local NFS
+	// volumes (guestnfs:<server>/<share>/<subdir>). Those volumes live entirely in the guest
+	// cluster: they have no Supervisor PVC, so nothing keyed by the volume handle may be looked up
+	// on, or created in, the Supervisor.
+	GuestNFSVolumeIDPrefix = "guestnfs:"
+
 	// AttributeIsLinkedClone represents if this is a linked clone request
 	AttributeIsLinkedClone = "csi.vsphere.volume/fast-provisioning"
 

@@ -4,6 +4,10 @@
 #
 # The snapshot class uses the same driver as every other volume; which backend takes the snapshot
 # is decided by the source volume, not by the class. The class takes no parameters.
+#
+# Restore (and clone) only with an NFS StorageClass such as nfs-csi: a guest NFS snapshot lives in
+# this guest cluster only, so a PVC on a Supervisor-backed StorageClass that uses it as its
+# dataSource is rejected with InvalidArgument.
 apiVersion: snapshot.storage.k8s.io/v1
 kind: VolumeSnapshotClass
 metadata:

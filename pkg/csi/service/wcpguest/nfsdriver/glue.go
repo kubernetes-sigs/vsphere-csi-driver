@@ -25,6 +25,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/validation"
 	mount "k8s.io/mount-utils"
+
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 )
 
 // This file is NOT part of the vendored upstream csi-driver-nfs source. It replaces the
@@ -50,7 +52,7 @@ const defaultMountPermissions = 0
 // else. It is added when an ID is minted (getVolumeIDFromNfsVol, getSnapshotIDFromNfsSnapshot)
 // and removed when one is decoded (getNfsVolFromID, getNfsSnapFromID); nothing else adds or
 // strips it, so callers pass IDs through unchanged in both directions.
-const VolumeIDPrefix = "guestnfs:"
+const VolumeIDPrefix = common.GuestNFSVolumeIDPrefix
 
 // IsGuestVolumeID reports whether id (a volume or snapshot ID) was minted by this package.
 func IsGuestVolumeID(id string) bool {
