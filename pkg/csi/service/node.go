@@ -59,6 +59,10 @@ func (driver *vsphereCSIDriver) NodeStageVolume(
 	volumeID := req.GetVolumeId()
 	volCap := req.GetVolumeCapability()
 
+	if isGuestNFSVolume(volumeID) {
+		return nodeStageGuestNFSVolume(ctx, req)
+	}
+
 	if volCap == nil {
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
 			"NodeStageVolume failed: volume capability not provided")
@@ -125,6 +129,9 @@ func (driver *vsphereCSIDriver) NodeUnstageVolume(
 	if len(volumeID) == 0 {
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "NodeUnstageVolume Volume ID must be provided")
 	}
+	if isGuestNFSVolume(volumeID) {
+		return nodeUnstageGuestNFSVolume(ctx, req)
+	}
 	if len(stagingTarget) == 0 {
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
 			"NodeUnstageVolume Staging Target Path must be provided")
@@ -187,6 +194,9 @@ func (driver *vsphereCSIDriver) NodePublishVolume(
 	if len(volumeID) == 0 {
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
 			"NodePublishVolume: Volume ID must be provided")
+	}
+	if isGuestNFSVolume(volumeID) {
+		return nodePublishGuestNFSVolume(ctx, req)
 	}
 	params := osutils.NodePublishParams{
 		VolID:  volumeID,
@@ -258,6 +268,9 @@ func (driver *vsphereCSIDriver) NodeUnpublishVolume(
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
 			"NodeUnpublishVolume: Volume ID must be provided")
 	}
+	if isGuestNFSVolume(volID) {
+		return nodeUnpublishGuestNFSVolume(ctx, req)
+	}
 
 	if target == "" {
 		return nil, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
@@ -293,6 +306,9 @@ func (driver *vsphereCSIDriver) NodeGetVolumeStats(
 	if len(volumeID) == 0 {
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
 			"NodeGetVolumeStats: Volume ID must be provided")
+	}
+	if isGuestNFSVolume(volumeID) {
+		return nodeGetGuestNFSVolumeStats(ctx, req)
 	}
 
 	if targetPath == "" {
@@ -540,6 +556,9 @@ func (driver *vsphereCSIDriver) NodeExpandVolume(
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "capacity range must be provided")
 	} else if req.GetCapacityRange().GetRequiredBytes() < 0 || req.GetCapacityRange().GetLimitBytes() < 0 {
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "capacity ranges values cannot be negative")
+	}
+	if isGuestNFSVolume(volumeID) {
+		return nodeExpandGuestNFSVolume(ctx, req)
 	}
 
 	reqVolSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())

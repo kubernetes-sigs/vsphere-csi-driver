@@ -200,9 +200,10 @@ func pvcsiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSy
 		if volume.PersistentVolumeClaim != nil {
 			valid, pv, pvc := IsValidVolume(ctx, volume, pod, metadataSyncer)
 			if valid {
-				// Skip FVS-backed file volumes: CnsVolumeMetadata is not pushed for them.
-				if shouldSkipFVSMetadataPushGuest(pvc, pv) {
-					log.Infof("pvCSI PODUpdatedDeleted: skipping pod entityReference for FVS-backed PVC %q "+
+				// Skip FVS-backed file volumes and guest NFS volumes: CnsVolumeMetadata is not
+				// pushed for them.
+				if shouldSkipGuestMetadataPush(pvc, pv) {
+					log.Infof("pvCSI PODUpdatedDeleted: skipping pod entityReference for FVS-backed or guest NFS PVC %q "+
 						"in namespace %q on pod %q", pvc.Name, pvc.Namespace, pod.Name)
 					continue
 				}
@@ -309,6 +310,11 @@ func snapshotDeletedRemoveAnnotation(ctx context.Context, vs *snapv1.VolumeSnaps
 	}
 	if guestVSC.Status == nil || guestVSC.Status.SnapshotHandle == nil || *guestVSC.Status.SnapshotHandle == "" {
 		log.Debugf("pvCSI SnapshotDeleted: guest VSC %q has no SnapshotHandle; skipping", guestVSCName)
+		return
+	}
+	// Guest-local NFS snapshots have no Supervisor VolumeSnapshot to clean.
+	if common.IsGuestNFSVolumeHandle(*guestVSC.Status.SnapshotHandle) {
+		log.Debugf("pvCSI SnapshotDeleted: guest VSC %q is a guest NFS snapshot; skipping", guestVSCName)
 		return
 	}
 	supervisorVSName := *guestVSC.Status.SnapshotHandle

@@ -3126,8 +3126,8 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 	}
 
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-		if shouldSkipFVSMetadataPushGuest(newPvc, pv) {
-			log.Infof("PVCUpdated: Skipping CnsVolumeMetadata push for FVS-backed PVC %q in namespace %q",
+		if shouldSkipGuestMetadataPush(newPvc, pv) {
+			log.Infof("PVCUpdated: Skipping CnsVolumeMetadata push for FVS-backed or guest NFS PVC %q in namespace %q",
 				newPvc.Name, newPvc.Namespace)
 			return
 		}
@@ -3222,8 +3222,8 @@ func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 		}
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-		if shouldSkipFVSMetadataPushGuest(pvc, pv) {
-			log.Infof("PVCDeleted: Skipping CnsVolumeMetadata delete for FVS-backed PVC %q in namespace %q",
+		if shouldSkipGuestMetadataPush(pvc, pv) {
+			log.Infof("PVCDeleted: Skipping CnsVolumeMetadata delete for FVS-backed or guest NFS PVC %q in namespace %q",
 				pvc.Name, pvc.Namespace)
 			return
 		}
@@ -3355,8 +3355,8 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 		return
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-		if shouldSkipFVSMetadataPushGuest(nil, newPv) {
-			log.Infof("PVUpdated: Skipping CnsVolumeMetadata push for FVS-backed PV %q (storageClass=%q)",
+		if shouldSkipGuestMetadataPush(nil, newPv) {
+			log.Infof("PVUpdated: Skipping CnsVolumeMetadata push for FVS-backed or guest NFS PV %q (storageClass=%q)",
 				newPv.Name, newPv.Spec.StorageClassName)
 			return
 		}
@@ -3406,8 +3406,8 @@ func pvDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 		}
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-		if shouldSkipFVSMetadataPushGuest(nil, pv) {
-			log.Infof("PVDeleted: Skipping CnsVolumeMetadata delete for FVS-backed PV %q (storageClass=%q)",
+		if shouldSkipGuestMetadataPush(nil, pv) {
+			log.Infof("PVDeleted: Skipping CnsVolumeMetadata delete for FVS-backed or guest NFS PV %q (storageClass=%q)",
 				pv.Name, pv.Spec.StorageClassName)
 			return
 		}

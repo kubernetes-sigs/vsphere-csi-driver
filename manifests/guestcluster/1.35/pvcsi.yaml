@@ -285,10 +285,16 @@ spec:
               value: {{ .PVCSINamespace }}
             - name: X_CSI_SERIAL_VOL_ACCESS_TIMEOUT
               value: 3m
+          # Guest NFS volumes (guest-nfs-volume feature state): CreateVolume and DeleteVolume mount the NFS
+          # export inside this container to create or remove a volume's directory. mount(2) needs
+          # CAP_SYS_ADMIN, and a capability only takes effect for a process running as root, so all three
+          # settings below are required together. Nothing else in this container needs them.
           securityContext:
-            runAsNonRoot: true
-            runAsUser: 65532
-            runAsGroup: 65532
+            runAsNonRoot: false
+            runAsUser: 0
+            runAsGroup: 0
+            capabilities:
+              add: ["SYS_ADMIN"]
           resources:
             requests:
               cpu: 10m
@@ -756,6 +762,7 @@ data:
   "vsan-file-volume-service-support": "false"
   "CSI_Backup_API": "false"
   "improved-volume-visibility": "true"
+  "guest-nfs-volume": "false" # guest-local NFS volumes (server StorageClass parameter); no Supervisor dependency
   "supports_exposing_storage_policy_attributes": "false" # same name as supervisor capability; effective only when supervisor capability is also enabled
   "vks-register-volume": "false"
   "VM_PVC_STORAGE_POLICY_MUTABILITY": "false" # paired with the supports_VM_PVC_storage_policy_mutability supervisor capability; effective only when that capability is also enabled

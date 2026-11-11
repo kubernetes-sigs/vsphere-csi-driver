@@ -581,6 +581,20 @@ func SyncVolumeCBTState(
 	}
 }
 
+// IsGuestNFSVolumeHandle returns true if the supplied CSI volume or snapshot handle was minted for a
+// guest-local NFS volume (see GuestNFSVolumeIDPrefix). Such volumes have no Supervisor
+// counterpart, so the pvCSI syncer must not push CnsVolumeMetadata or touch Supervisor objects
+// for them.
+func IsGuestNFSVolumeHandle(handle string) bool {
+	return strings.HasPrefix(handle, GuestNFSVolumeIDPrefix)
+}
+
+// IsGuestNFSPersistentVolume returns true if pv is a guest-local NFS volume provisioned by pvCSI.
+func IsGuestNFSPersistentVolume(pv *corev1.PersistentVolume) bool {
+	return pv != nil && pv.Spec.CSI != nil && pv.Spec.CSI.Driver == VSphereCSIDriverName &&
+		IsGuestNFSVolumeHandle(pv.Spec.CSI.VolumeHandle)
+}
+
 // IsFVSVolumeHandle returns true if the supplied CSI volume handle was minted by
 // the vSAN FileVolumeService (FVS) workflow on the supervisor. FVS volume IDs are
 // formatted as "fv:<instance-namespace>:<filevolume-name>" (see FVSVolumeIDPrefix).

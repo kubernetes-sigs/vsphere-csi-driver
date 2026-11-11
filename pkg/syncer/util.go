@@ -352,6 +352,27 @@ func shouldSkipFVSMetadataPushGuest(pvc *v1.PersistentVolumeClaim, pv *v1.Persis
 	return false
 }
 
+// shouldSkipGuestMetadataPush decides whether the pvCSI syncer must skip a PVC/PV pair
+// entirely: no CnsVolumeMetadata, and no other object created or patched in the Supervisor.
+// It is true for guest-local NFS volumes, which exist only in the guest cluster and have no
+// Supervisor PVC, and for FVS-backed volumes (see shouldSkipFVSMetadataPushGuest).
+func shouldSkipGuestMetadataPush(pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume) bool {
+	return common.IsGuestNFSPersistentVolume(pv) || shouldSkipFVSMetadataPushGuest(pvc, pv)
+}
+
+// excludeGuestNFSPVs returns pvList without the guest-local NFS volumes. The pvCSI full sync
+// resolves each PV's volume handle to a Supervisor PVC, which guest NFS volumes do not have.
+func excludeGuestNFSPVs(pvList []*v1.PersistentVolume) []*v1.PersistentVolume {
+	filtered := make([]*v1.PersistentVolume, 0, len(pvList))
+	for _, pv := range pvList {
+		if common.IsGuestNFSPersistentVolume(pv) {
+			continue
+		}
+		filtered = append(filtered, pv)
+	}
+	return filtered
+}
+
 // IsFileVolume returns true for PVs that have accessMode as RWX or ROM
 // and volumeMode as FileSystem.
 func IsFileVolume(pv *v1.PersistentVolume) bool {

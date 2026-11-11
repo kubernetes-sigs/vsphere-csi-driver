@@ -95,6 +95,18 @@ var (
 	WcpCapabilitiesMap *sync.Map
 )
 
+// pvcsiOnlyFeatures maps pvCSI feature names that have no Supervisor dependency to the reason,
+// so that in the guest cluster flavor the pvCSI FSS alone decides whether they are enabled and
+// neither the Supervisor FSS nor a Supervisor capability is consulted. To exempt another
+// feature, add it here rather than another special case in IsFSSEnabled.
+var pvcsiOnlyFeatures = map[string]string{
+	common.CSIWindowsSupport: "Windows support has no dependency on the supervisor",
+	// Guest ListVolumes reads only Supervisor k8s objects, never CNS, so it doesn't need to be
+	// gated by the supervisor's CNS focused list-volumes FSS.
+	common.ListVolumes:    "guest ListVolumes reads only supervisor k8s objects, never CNS",
+	common.GuestNFSVolume: "guest-local NFS volumes never involve the supervisor",
+}
+
 // FSSConfigMapInfo contains details about the FSS configmap(s) present in
 // all flavors.
 type FSSConfigMapInfo struct {
@@ -1559,15 +1571,10 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 	} else if c.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		isPVCSIFSSEnabled := c.IsPVCSIFSSEnabled(ctx, featureName)
 		if isPVCSIFSSEnabled {
-			// Skip SV FSS check for Windows Support since there is no dependency on supervisor
-			if featureName == common.CSIWindowsSupport {
-				log.Info("CSI Windows Support is set to true in pvcsi fss configmap. Skipping SV FSS check")
-				return true
-			}
-			// Guest ListVolumes reads only Supervisor k8s objects, never CNS, so it doesn't
-			// need to be gated by the supervisor's CNS focused list-volumes FSS.
-			if featureName == common.ListVolumes {
-				log.Info("list-volumes is set to true in pvcsi fss configmap. Skipping SV FSS check")
+			// Some pvCSI features have no Supervisor dependency, so the pvCSI FSS alone decides.
+			if reason, ok := pvcsiOnlyFeatures[featureName]; ok {
+				log.Infof("%s is set to true in pvcsi fss configmap. Skipping SV FSS check: %s",
+					featureName, reason)
 				return true
 			}
 

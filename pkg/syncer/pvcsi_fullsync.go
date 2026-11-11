@@ -311,6 +311,12 @@ func createCnsVolumeMetadataList(ctx context.Context, metadataSyncer *metadataSy
 
 	// Create cnsvolumemetadata objects for PV and PVC entity types.
 	for _, pv := range pvList {
+		// Guest-local NFS volumes exist only in the guest cluster: no CnsVolumeMetadata is
+		// created for them (nor for the pods that use them, which are derived from pvcToVolumeName).
+		if common.IsGuestNFSPersistentVolume(pv) {
+			log.Debugf("FullSync: skipping guest NFS PV %q for CnsVolumeMetadata sync", pv.Name)
+			continue
+		}
 		// Skip PVs that are backed by the new vSAN FileVolumeService on the supervisor.
 		// For these PVs, the supervisor does not push CnsVolumeMetadata to CNS, so there
 		// is no need to reconcile guest CnsVolumeMetadata for them either. Detection is
@@ -404,6 +410,9 @@ func AddNodeAffinityRulesOnPV(ctx context.Context, metadataSyncer *metadataSyncI
 		log.Errorf("FullSync: Failed to get PVs from guest cluster. Err: %v", err)
 		return
 	}
+	// Guest-local NFS volumes have no Supervisor PVC.
+	pvList = excludeGuestNFSPVs(pvList)
+
 	// Get the supervisor namespace in which the guest cluster is deployed.
 	supervisorNamespace, err := cnsconfigGetSupervisorNamespace(ctx)
 	if err != nil {
@@ -563,6 +572,9 @@ func setGuestClusterDetailsOnSupervisorPVC(ctx context.Context, metadataSyncer *
 		log.Errorf("FullSync: Failed to get PVs from guest cluster. Err: %v", err)
 		return err
 	}
+
+	// Guest-local NFS volumes have no Supervisor PVC.
+	pvList = excludeGuestNFSPVs(pvList)
 
 	// Create controller-runtime client for supervisor cluster once, outside the loop
 	supervisorRestConfig := k8s.GetRestClientConfigForSupervisor(ctx,
@@ -778,6 +790,10 @@ func processVolumeSnapshotContents(ctx context.Context, vscItems []snapv1.Volume
 	log := logger.GetLogger(ctx)
 	for _, vsc := range vscItems {
 		if !isReadyVolumeSnapshotContent(&vsc) {
+			continue
+		}
+		// Guest-local NFS snapshots have no Supervisor VolumeSnapshot.
+		if common.IsGuestNFSVolumeHandle(*vsc.Status.SnapshotHandle) {
 			continue
 		}
 		supervisorVS, err := supervisorSnapshotterClient.SnapshotV1().VolumeSnapshots(supervisorNamespace).
