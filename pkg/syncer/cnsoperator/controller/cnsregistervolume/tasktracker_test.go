@@ -402,3 +402,52 @@ func reconcileUntilSettled(ctx context.Context, r *ReconcileCnsRegisterVolume,
 	}
 	return result, err
 }
+
+// The listview can lose a completion for good. The watcher must not wait on it
+// forever: on expiry it publishes Unknown, which makes the reconciler read the
+// task directly, and frees the subscription.
+func TestTrackerBoundsTheWaitForAResult(t *testing.T) {
+	lv := newFakeListView()
+	events := make(chan event.GenericEvent, 10)
+	tracker := newCnsTaskTracker(lv, nil, events, 40)
+	tracker.watchTimeout = 10 * time.Millisecond
+
+	require.NoError(t, tracker.watch(context.Background(), crKey("cr-1"), taskRef("task-1"), "vol-1"))
+	// No result is ever delivered.
+	waitFor(t, func() bool { _, ok := tracker.outcome("task-1"); return ok }, "an outcome after the wait expired")
+	out, _ := tracker.outcome("task-1")
+	assert.Equal(t, volumes.CreateVolumeTaskUnknown, out.state, "an expired wait concludes nothing about the task")
+	assert.Len(t, events, 1, "the CR is woken to resolve the task")
+	waitFor(t, func() bool { return !tracker.isWatching("task-1") }, "the subscription to be removed")
+	assert.Equal(t, 1, tracker.inFlight(), "the task may still be running, so its slot is kept")
+}
+
+// When removing a subscription fails, the listview removes it later by task
+// reference, which would take a replacement subscription with it. The task must
+// therefore not be subscribed to again; it is read directly until the CR is done.
+func TestTrackerDoesNotResubscribeAfterFailedRemoval(t *testing.T) {
+	lv := newFakeListView()
+	lv.removeErr = errors.New("listview not ready")
+	tracker := newCnsTaskTracker(lv, nil, make(chan event.GenericEvent, 10), 40)
+	ctx := context.Background()
+
+	require.NoError(t, tracker.watch(ctx, crKey("cr-1"), taskRef("task-1"), "vol-1"))
+	lv.deliver(t, "task-1", volumes.TaskResult{TaskInfo: nil, Err: errors.New("session lost")})
+	waitFor(t, func() bool {
+		lv.mu.Lock()
+		defer lv.mu.Unlock()
+		return len(lv.marked) == 1
+	}, "the task to be marked for deferred removal")
+
+	tracker.forgetResult("task-1") // the reconciler consumes the Unknown outcome
+	assert.True(t, tracker.isRetiring("task-1"), "the task stays on direct reads")
+	require.NoError(t, tracker.watch(ctx, crKey("cr-1"), taskRef("task-1"), "vol-1"))
+	lv.mu.Lock()
+	addCalls := lv.addCalls
+	lv.mu.Unlock()
+	assert.Equal(t, 1, addCalls, "no replacement subscription may be created")
+
+	tracker.forget(crKey("cr-1"), "task-1") // the task has been resolved
+	assert.False(t, tracker.isRetiring("task-1"))
+	assert.False(t, tracker.isWatching("task-1"))
+}

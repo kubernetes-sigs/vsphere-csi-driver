@@ -4730,9 +4730,10 @@ func TestCleanupCNSVolume_DiskURLPath(t *testing.T) {
 		},
 	}
 
-	err := r.cleanupCNSVolume(ctx, instance, "vol-disk-url")
+	skipped, err := r.cleanupCNSVolume(ctx, instance, "vol-disk-url")
 
 	assert.NoError(t, err)
+	assert.False(t, skipped)
 	assert.Equal(t, "vol-disk-url", calledVolumeID)
 	assert.True(t, calledUnregDisk, "DiskURLPath cleanup must call UnregisterVolume with unregDisk=true")
 }
@@ -4760,9 +4761,10 @@ func TestCleanupCNSVolume_VolumeID(t *testing.T) {
 	)
 	defer patches.Reset()
 
-	err := r.cleanupCNSVolume(ctx, instance, "existing-fcd-id")
+	skipped, err := r.cleanupCNSVolume(ctx, instance, "existing-fcd-id")
 
 	assert.NoError(t, err)
+	assert.False(t, skipped)
 	assert.Equal(t, "existing-fcd-id", deletedVolumeID)
 	assert.False(t, deleteDisk, "VolumeID cleanup must call DeleteVolumeUtil with deleteDisk=false")
 }

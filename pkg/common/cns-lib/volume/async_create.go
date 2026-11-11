@@ -62,8 +62,9 @@ const (
 	// The volume was not created and the task reference is spent.
 	CreateVolumeTaskFailed CreateVolumeTaskState = "Failed"
 	// CreateVolumeTaskUnknown means the task's state could not be determined:
-	// the vCenter session is down, the property read failed, or the task object
-	// is gone from vCenter.
+	// the vCenter session is down, the property read failed, the task object
+	// is gone from vCenter, or the task succeeded but the created volume's
+	// details could not be read back.
 	//
 	// This is NOT a failure and must never be treated as one. The task may well
 	// be running on CNS right now. A caller that maps Unknown to Failed and
@@ -192,7 +193,10 @@ func GetCreateVolumeTaskResult(ctx context.Context, virtualCenter *cnsvsphere.Vi
 	volInfo, faultType, err := getCnsVolumeInfoFromTaskResult(ctx, virtualCenter, volumeName,
 		volumeOperationRes.VolumeId, taskResult)
 	if err != nil {
-		return CreateVolumeTaskFailed, nil, faultType, err
+		// CNS has already created the volume; only reading its datastore from
+		// vCenter failed. Failed would tell the caller no volume exists, and a
+		// deletion would then finalize without cleaning it up.
+		return CreateVolumeTaskUnknown, nil, faultType, err
 	}
 	return CreateVolumeTaskSucceeded, volInfo, "", nil
 }
@@ -278,7 +282,8 @@ func DecodeCreateVolumeTaskResult(ctx context.Context, virtualCenter *cnsvsphere
 	volInfo, faultType, err := getCnsVolumeInfoFromTaskResult(ctx, virtualCenter, volumeName,
 		volumeOperationRes.VolumeId, taskResult)
 	if err != nil {
-		return CreateVolumeTaskFailed, nil, faultType, err
+		// The volume exists; see GetCreateVolumeTaskResult.
+		return CreateVolumeTaskUnknown, nil, faultType, err
 	}
 	return CreateVolumeTaskSucceeded, volInfo, "", nil
 }

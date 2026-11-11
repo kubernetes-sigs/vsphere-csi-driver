@@ -18,6 +18,7 @@ package cnsregistervolume
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -31,6 +32,13 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
+
+// cnsTaskWatchTimeout bounds how long a watcher waits for the listview to push
+// a task's result. The listview drops an update it cannot decode, including
+// the removal of a task object, so a push can be lost for good. On expiry the
+// watcher publishes an Unknown outcome, which makes the reconciler read the
+// task directly and subscribe again if it is still running.
+const cnsTaskWatchTimeout = volumes.VolumeOperationTimeoutInSeconds * time.Second
 
 // cnsTaskTracker watches in-flight CNS CreateVolume tasks on behalf of the
 // reconciler.
@@ -72,7 +80,10 @@ type cnsTaskTracker struct {
 	watching map[string]bool
 	// retiring marks watched tasks whose result has been published while the
 	// listview subscription is still being removed. Such a task is read
-	// directly rather than subscribed to again.
+	// directly rather than subscribed to again. If the removal fails, the
+	// listview removes the subscription later by task reference, which would
+	// also remove a replacement; the task therefore stays retiring until the
+	// CR is done with it.
 	retiring map[string]bool
 	// submittedAt is when each watched task was dispatched, so the
 	// CreateVolume latency metric can still span submit to completion now that
@@ -82,11 +93,17 @@ type cnsTaskTracker struct {
 	// for. Keyed by CR rather than by task so that a CR which loses its task
 	// reference cannot leak a slot forever.
 	slots map[apitypes.NamespacedName]string
+	// seeded records that slots has been rebuilt from the tasks persisted on
+	// CRs. slots starts empty in a new process while those tasks are still
+	// running on CNS, so nothing new may be admitted before this is done.
+	seeded bool
 	// maxInFlight caps concurrent CNS tasks. The 40 reconciler workers are
 	// today an implicit ceiling on how many CreateVolume calls vCenter sees at
 	// once; removing the blocking wait removes that ceiling, so it has to be
 	// replaced explicitly or a burst would hit CNS far harder than it does now.
 	maxInFlight int
+	// watchTimeout is cnsTaskWatchTimeout; a field so tests can shorten it.
+	watchTimeout time.Duration
 
 	listView volumes.ListViewIf
 	vc       *cnsvsphere.VirtualCenter
@@ -107,15 +124,16 @@ type cnsTaskOutcome struct {
 func newCnsTaskTracker(listView volumes.ListViewIf, vc *cnsvsphere.VirtualCenter,
 	events chan event.GenericEvent, maxInFlight int) *cnsTaskTracker {
 	return &cnsTaskTracker{
-		results:     make(map[string]*cnsTaskOutcome),
-		watching:    make(map[string]bool),
-		retiring:    make(map[string]bool),
-		submittedAt: make(map[string]time.Time),
-		slots:       make(map[apitypes.NamespacedName]string),
-		maxInFlight: maxInFlight,
-		listView:    listView,
-		vc:          vc,
-		events:      events,
+		results:      make(map[string]*cnsTaskOutcome),
+		watching:     make(map[string]bool),
+		retiring:     make(map[string]bool),
+		submittedAt:  make(map[string]time.Time),
+		slots:        make(map[apitypes.NamespacedName]string),
+		maxInFlight:  maxInFlight,
+		watchTimeout: cnsTaskWatchTimeout,
+		listView:     listView,
+		vc:           vc,
+		events:       events,
 	}
 }
 
@@ -134,6 +152,33 @@ func (t *cnsTaskTracker) tryAcquireSlot(cr apitypes.NamespacedName) bool {
 	}
 	t.slots[cr] = ""
 	return true
+}
+
+// isSeeded reports whether the slots of tasks submitted by an earlier process
+// have been accounted for.
+func (t *cnsTaskTracker) isSeeded() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.seeded
+}
+
+// seed accounts for the CRs that already hold a running task, once. These
+// slots are taken regardless of the cap: the tasks are in flight on CNS whether
+// or not they fit, and the cap then holds back new submissions until they
+// drain. A slot is seeded without its task ID, so it cannot be mistaken for a
+// submission whose reference still has to be persisted; watch fills it in.
+func (t *cnsTaskTracker) seed(holders []apitypes.NamespacedName) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.seeded {
+		return
+	}
+	for _, cr := range holders {
+		if _, held := t.slots[cr]; !held {
+			t.slots[cr] = ""
+		}
+	}
+	t.seeded = true
 }
 
 // releaseSlot returns a CR's slot to the pool. Safe to call when none is held.
@@ -171,9 +216,15 @@ func (t *cnsTaskTracker) watch(ctx context.Context, cr apitypes.NamespacedName,
 		return nil
 	}
 	t.watching[taskMoRef.Value] = true
-	t.submittedAt[taskMoRef.Value] = time.Now()
+	// A task watched again after its previous watch expired keeps the time it
+	// was first dispatched.
+	_, resumed := t.submittedAt[taskMoRef.Value]
+	if !resumed {
+		t.submittedAt[taskMoRef.Value] = time.Now()
+	}
 	t.slots[cr] = taskMoRef.Value
 	vc := t.vc
+	watchTimeout := t.watchTimeout
 	t.mu.Unlock()
 
 	// Capacity 1 so that the listview's non-blocking send always lands.
@@ -181,14 +232,16 @@ func (t *cnsTaskTracker) watch(ctx context.Context, cr apitypes.NamespacedName,
 	if err := t.listView.AddTask(ctx, taskMoRef, ch); err != nil {
 		t.mu.Lock()
 		delete(t.watching, taskMoRef.Value)
-		delete(t.submittedAt, taskMoRef.Value)
+		if !resumed {
+			delete(t.submittedAt, taskMoRef.Value)
+		}
 		t.mu.Unlock()
 		// The caller distinguishes "task is gone from vCenter" from "listview
 		// is unavailable"; both arrive here as an error.
 		return err
 	}
 
-	go t.awaitResult(cr, taskMoRef, volumeName, vc, ch)
+	go t.awaitResult(cr, taskMoRef, volumeName, vc, ch, watchTimeout)
 	log.Infof("Watching CNS CreateVolume task %q for CnsRegisterVolume %s/%s",
 		taskMoRef.Value, cr.Namespace, cr.Name)
 	return nil
@@ -201,10 +254,22 @@ func (t *cnsTaskTracker) watch(ctx context.Context, cr apitypes.NamespacedName,
 // ensureInit may replace t.vc concurrently.
 func (t *cnsTaskTracker) awaitResult(cr apitypes.NamespacedName,
 	taskMoRef vim25types.ManagedObjectReference, volumeName string,
-	vc *cnsvsphere.VirtualCenter, ch chan volumes.TaskResult) {
+	vc *cnsvsphere.VirtualCenter, ch chan volumes.TaskResult, watchTimeout time.Duration) {
 	ctx, log := logger.GetNewContextWithLogger()
 
-	result := <-ch
+	var result volumes.TaskResult
+	expired := false
+	timer := time.NewTimer(watchTimeout)
+	select {
+	case result = <-ch:
+		timer.Stop()
+	case <-timer.C:
+		// Decoded as Unknown: nothing is concluded about the task, the
+		// reconciler reads it directly.
+		expired = true
+		result = volumes.TaskResult{Err: fmt.Errorf("no result for CNS task %q from the listview within %s",
+			taskMoRef.Value, watchTimeout)}
+	}
 
 	// Decoding may read datastore properties from vCenter, so it gets the same
 	// bounded operation timeout as the synchronous path.
@@ -222,7 +287,12 @@ func (t *cnsTaskTracker) awaitResult(cr apitypes.NamespacedName,
 	t.mu.Lock()
 	t.retiring[taskMoRef.Value] = true
 	submittedAt, timed := t.submittedAt[taskMoRef.Value]
-	delete(t.submittedAt, taskMoRef.Value)
+	if expired {
+		// The task has not completed; keep its start time for the next watch.
+		timed = false
+	} else {
+		delete(t.submittedAt, taskMoRef.Value)
+	}
 	// A CR whose slot was released while the task ran (it was deleted, or a
 	// completed checkpoint was observed) will never consume the result.
 	if t.slots[cr] == taskMoRef.Value {
@@ -231,16 +301,23 @@ func (t *cnsTaskTracker) awaitResult(cr apitypes.NamespacedName,
 	t.mu.Unlock()
 	t.wake(cr)
 
-	if removeErr := t.listView.RemoveTask(ctx, taskMoRef); removeErr != nil {
+	removeErr := t.listView.RemoveTask(ctx, taskMoRef)
+	if removeErr != nil {
 		log.Errorf("failed to remove task %q from listview: %v", taskMoRef.Value, removeErr)
 		if markErr := t.listView.MarkTaskForDeletion(ctx, taskMoRef); markErr != nil {
 			log.Errorf("failed to mark task %q for deletion: %v", taskMoRef.Value, markErr)
 		}
 	}
-	t.mu.Lock()
-	delete(t.watching, taskMoRef.Value)
-	delete(t.retiring, taskMoRef.Value)
-	t.mu.Unlock()
+	if removeErr == nil {
+		t.mu.Lock()
+		delete(t.watching, taskMoRef.Value)
+		delete(t.retiring, taskMoRef.Value)
+		t.mu.Unlock()
+	}
+	// Otherwise the subscription is removed later, by task reference, at a
+	// time this tracker cannot observe. A replacement subscription could be
+	// removed with it, so the task stays retiring -- read directly -- until
+	// forget or releaseCR drops it.
 
 	// Manager.CreateVolume records this histogram around its blocking call.
 	// That call no longer exists on this path, so record the equivalent span
@@ -304,7 +381,21 @@ func (t *cnsTaskTracker) releaseCR(cr apitypes.NamespacedName) {
 	if taskID, held := t.slots[cr]; held {
 		delete(t.results, taskID)
 		delete(t.slots, cr)
+		t.dropTaskLocked(taskID)
 	}
+}
+
+// dropTaskLocked clears what is kept for a task after its watcher has
+// published: the flags of a subscription whose removal failed, and the start
+// time of a watch that expired. A task still being waited on is left alone.
+// t.mu must be held.
+func (t *cnsTaskTracker) dropTaskLocked(taskID string) {
+	if taskID == "" || (t.watching[taskID] && !t.retiring[taskID]) {
+		return
+	}
+	delete(t.watching, taskID)
+	delete(t.retiring, taskID)
+	delete(t.submittedAt, taskID)
 }
 
 // forget drops a consumed result and releases the CR's slot. Called once the
@@ -314,6 +405,7 @@ func (t *cnsTaskTracker) forget(cr apitypes.NamespacedName, taskID string) {
 	defer t.mu.Unlock()
 	delete(t.results, taskID)
 	delete(t.slots, cr)
+	t.dropTaskLocked(taskID)
 }
 
 // forgetResult drops a consumed outcome but keeps the CR's capacity slot.

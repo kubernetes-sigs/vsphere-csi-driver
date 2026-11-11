@@ -246,7 +246,7 @@ The reasons are the diagnostic payload: they are what used to be invisible.
 | | False | `CleanupPending` | A terminal check failed but deleting the CNS volume did not succeed, so the outcome is retried until the volume is gone. |
 | `PvcBound` | True | `Bound` | The PVC is bound. |
 | | False | `ConfiguringK8sResources` | Creating the PV and PVC and applying topology and volumeMode fixes. |
-| | False | `WaitingForBind` | PV and PVC exist; one `Get` every 2s until the PVC binds. While waiting, a pass reads only the PVC and writes no status; the full pipeline resumes once it binds or if it is missing. |
+| | False | `WaitingForBind` | PV and PVC exist; one `Get` every 2s until the PVC binds. While waiting, a pass reads only the PVC and its PV and writes no status; the full pipeline resumes once the PVC binds, or if the PVC or the PV is missing. |
 | `VMDeleteProtectionConfigured` | False | `ClearingKeepAfterDeleteVm` | Initial configuration attempt after binding. |
 | | False | `ClearKeepAfterDeleteVmFailed` | A lookup or VSLM call failed; retry after 5s. |
 | | False | `ClearKeepAfterDeleteVmTimedOut` | The attempt exceeded its deadline; retry after 5s. |
@@ -263,12 +263,17 @@ paths that already returned without requeuing before this change — all of them
 accessibility checks. Everything else retries, including `CnsTaskFailed`, every `SpecValidated`
 failure, and `StoragePolicyMissing`.
 
-Two consequences of these checks running after registration:
+Three consequences of these checks running after registration:
 
 - **A terminal failure undoes the registration.** The CNS volume is deleted by `cleanupCNSVolume`,
   so `CnsVolumeRegistered` stops being true in fact. It is republished as `False` with reason
   `VolumeCleanedUp` in the same patch as the `VolumeAccessible` failure, rather than being left
   claiming a volume that no longer exists.
+- **A volume owned by another registration is not deleted.** `cleanupCNSVolume` reports that it
+  skipped a volume carrying the restore stamp of another `CnsRegisterVolume`. The failure stays
+  terminal, but `CnsVolumeRegistered` is then published as `False` with reason
+  `VolumeOwnedByOtherRegistration` instead of `VolumeCleanedUp`, and this CR's `cnsVolumeID`
+  checkpoint and restore reservation are released.
 - **Cleanup failure defers the verdict.** If `cleanupCNSVolume` itself fails the pass requeues
   instead of returning terminally, so the terminal reason is only published once the volume is
   actually gone. Until then the reason is `CleanupPending`.
@@ -572,9 +577,9 @@ flowchart LR
 
 | Map | Key | Written by | Purpose |
 |---|---|---|---|
-| `slots` | CRV | `tryAcquireSlot`, `watch`, submit, `releaseSlot`, `forget`, `releaseCR` | Capacity accounting, see 3.5. Also holds a submitted task ID whose `cnsTaskID` write failed, so the next pass persists it instead of submitting again. |
-| `watching` | task ID | `watch`, `awaitResult` | At most one subscription and goroutine per task. Cleared only after the subscription is removed. |
-| `retiring` | task ID | `awaitResult` | The result is published but removal is still running. A pass that needs the task again reads it directly instead of subscribing. |
+| `slots` | CRV | `seed`, `tryAcquireSlot`, `watch`, submit, `releaseSlot`, `forget`, `releaseCR` | Capacity accounting, see 3.5. Also holds a submitted task ID whose `cnsTaskID` write failed, so the next pass persists it instead of submitting again. Before the first submission of a process, `seed` takes a slot for every CRV that already records a `cnsTaskID` (one uncached list), so tasks from before a restart count against the cap before anything new is admitted. |
+| `watching` | task ID | `watch`, `awaitResult` | At most one subscription and goroutine per task. Cleared only after the subscription is removed. A watcher waits at most `cnsTaskWatchTimeout` (300s) for a push, then publishes `Unknown` so the task is read directly. |
+| `retiring` | task ID | `awaitResult`, `forget`, `releaseCR` | The result is published but removal is still running. A pass that needs the task again reads it directly instead of subscribing. If removal fails, the listview removes the subscription later by task reference, so the task stays retiring until the CRV is done with it. |
 | `results` | task ID | `awaitResult`; consumed by `forget` or `forgetResult` | Decoded terminal outcome waiting for the CRV's reconcile. A lookup here costs no vCenter call. |
 | `submittedAt` | task ID | `watch`, `awaitResult` | Start of the submit-to-completion latency span. |
 

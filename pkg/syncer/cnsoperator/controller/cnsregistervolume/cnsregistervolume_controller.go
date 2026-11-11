@@ -269,6 +269,19 @@ type ReconcileCnsRegisterVolume struct {
 	// taskEvents carries wake-ups from the tracker back into the controller's
 	// work queue; it is registered as a source.Channel watch in add().
 	taskEvents chan event.GenericEvent
+	// terminalFailures records, per CR, the UID and generation for which a
+	// terminal accessibility failure was published. A requeue scheduled before
+	// that outcome -- the task safety requeue -- is still delivered after it,
+	// and without this would register and clean up the same volume again.
+	// It is deliberately not persisted: a restarted syncer evaluates such a CR
+	// once more, as it did before conditions existed.
+	terminalFailures sync.Map
+}
+
+// terminalFailure identifies the object state a terminal failure was decided for.
+type terminalFailure struct {
+	uid        apitypes.UID
+	generation int64
 }
 
 // instanceKey is the work-queue identity of a CnsRegisterVolume.
@@ -297,6 +310,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			if r.taskTracker != nil {
 				r.taskTracker.releaseCR(request.NamespacedName)
 			}
+			r.terminalFailures.Delete(request.NamespacedName)
 			return reconcile.Result{}, nil
 		}
 		log.Errorf("Error reading the CnsRegisterVolume with name: %q on namespace: %q. Err: %+v",
@@ -340,6 +354,17 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{}, nil
 	}
 
+	// A terminal accessibility failure already published for this generation
+	// stands. This absorbs requeues that were scheduled before it.
+	if failed, ok := r.terminalFailures.Load(request.NamespacedName); ok {
+		if failed == (terminalFailure{uid: instance.UID, generation: instance.Generation}) {
+			log.Infof("CnsRegisterVolume %s/%s failed terminally for generation %d; not retrying",
+				instance.Namespace, instance.Name, instance.Generation)
+			return reconcile.Result{}, nil
+		}
+		r.terminalFailures.Delete(request.NamespacedName)
+	}
+
 	// A previously submitted task must settle even if admission prerequisites
 	// have since changed. The policy checks below still gate PV/PVC creation.
 	if instance.Status.CnsTaskID == "" && instance.Status.CnsVolumeID == "" && r.taskTracker != nil {
@@ -374,9 +399,10 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	}
 
 	// A CR whose PV and PVC were created by an earlier pass is only waiting for
-	// the bind. Check that with one Get rather than replaying CNS queries and
-	// validation every pvcBindPollInterval. The full pipeline resumes once the
-	// PVC is bound, or if it has gone missing and must be recreated.
+	// the bind. Check that with a Get of each rather than replaying CNS queries
+	// and validation every pvcBindPollInterval. The full pipeline resumes once
+	// the PVC is bound, or if the PVC or the PV has gone missing and must be
+	// recreated: a Pending PVC whose PV was deleted can never bind.
 	if instance.Status.CnsTaskID == "" && instance.Status.CnsVolumeID != "" &&
 		conditions.GetReason(instance, cnsregistervolumev1alpha1.ConditionPvcBound) ==
 			cnsregistervolumev1alpha1.ReasonWaitingForBind {
@@ -387,8 +413,19 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 		if err == nil && pvc.Status.Phase != v1.ClaimBound {
-			log.Debugf("PVC %s is not bound yet; will re-check", instance.Spec.PvcName)
-			return reconcile.Result{RequeueAfter: pvcBindPollInterval}, nil
+			pvName := staticPvNamePrefix + instance.Status.CnsVolumeID
+			pv, pvErr := r.k8sclient.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
+			if pvErr != nil && !apierrors.IsNotFound(pvErr) {
+				log.Errorf("failed to check PV %s while waiting for PVC %s to bind: %v",
+					pvName, instance.Spec.PvcName, pvErr)
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
+			if pvErr == nil && pv.DeletionTimestamp == nil {
+				log.Debugf("PVC %s is not bound yet; will re-check", instance.Spec.PvcName)
+				return reconcile.Result{RequeueAfter: pvcBindPollInterval}, nil
+			}
+			log.Infof("PV %s is missing or being deleted while PVC %s waits to bind; "+
+				"resuming the registration pipeline", pvName, instance.Spec.PvcName)
 		}
 	}
 
@@ -468,12 +505,14 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	// CNS volume, PV or PVC is created, so that a broken restore fails visibly on this instance and
 	// passes on a later retry once the CnsDeletedVolumeInfo exists. Once an earlier attempt stamped the
 	// PV or the CnsVolumeInfo, the restore is underway and the check is skipped: the
-	// CnsDeletedVolumeInfo may be gone by then, and the handover copes without it.
+	// CnsDeletedVolumeInfo may be gone by then, and the handover copes without it. The same holds once
+	// the CNS result of an admitted restore is recorded: the task ID is cleared in that write, before
+	// the PV exists to carry the stamp.
 	if isRestore && restoreStamped {
 		log.Infof("CnsRegisterVolume %s/%s already stamped volume %q; skipping the restore precheck",
 			instance.Namespace, instance.Name, instance.Spec.VolumeID)
 	}
-	if isRestore && !restoreStamped && instance.Status.CnsTaskID == "" {
+	if isRestore && !restoreStamped && instance.Status.CnsTaskID == "" && instance.Status.CnsVolumeID == "" {
 		err = r.volumeInfoService.PrecheckRestore(ctx, instance.Spec.VolumeID, instance.Namespace,
 			string(instance.UID))
 		if err != nil {
@@ -757,7 +796,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			falseCondition(cnsregistervolumev1alpha1.ConditionVolumeAccessible,
 				cnsregistervolumev1alpha1.ReasonStoragePolicyMissing,
 				"The registered volume has no storage policy associated with it"))
-		if err = r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
+		if _, err = r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
 			log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, err)
 		}
 		return reconcile.Result{RequeueAfter: timeout}, nil
@@ -939,7 +978,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				instance.Spec.PvcName, *pvc.Spec.StorageClassName, storageClassName)
 			log.Error(msg)
 			setInstanceError(ctx, r, instance, msg)
-			if delErr := r.cleanupCNSVolume(ctx, instance, volumeID); delErr != nil {
+			if _, delErr := r.cleanupCNSVolume(ctx, instance, volumeID); delErr != nil {
 				log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, delErr)
 			}
 			return reconcile.Result{RequeueAfter: timeout}, nil
@@ -948,7 +987,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				instance.Spec.PvcName, storageClassName)
 			log.Error(msg)
 			setInstanceError(ctx, r, instance, msg)
-			if delErr := r.cleanupCNSVolume(ctx, instance, volumeID); delErr != nil {
+			if _, delErr := r.cleanupCNSVolume(ctx, instance, volumeID); delErr != nil {
 				log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, delErr)
 			}
 			return reconcile.Result{RequeueAfter: timeout}, nil
@@ -965,7 +1004,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				msg := fmt.Sprintf("PVC topology validation failed: %v", err)
 				log.Error(msg)
 				setInstanceError(ctx, r, instance, msg)
-				if delErr := r.cleanupCNSVolume(ctx, instance, volumeID); delErr != nil {
+				if _, delErr := r.cleanupCNSVolume(ctx, instance, volumeID); delErr != nil {
 					log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, delErr)
 				}
 				return reconcile.Result{RequeueAfter: timeout}, nil
@@ -1081,8 +1120,12 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				instance.Spec.PvcName, instance.Namespace)
 			log.Errorf(msg)
 			setInstanceError(ctx, r, instance, msg)
-			if err = r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
+			skipped, err := r.cleanupCNSVolume(ctx, instance, volumeID)
+			if err != nil {
 				log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, err)
+			} else if skipped {
+				// The volume, and therefore its PV, belongs to another registration.
+				log.Infof("CNS volume %s is owned by another registration; leaving PV %s in place", volumeID, pvName)
 			} else {
 				// Delete PV created above.
 				err = k8sclient.CoreV1().PersistentVolumes().Delete(ctx, pvName, *metav1.NewDeleteOptions(0))
@@ -1775,11 +1818,16 @@ func setInstanceError(ctx context.Context, r *ReconcileCnsRegisterVolume,
 // reported as CleanupPending. Once the volume is gone, CnsVolumeRegistered is
 // republished as False, because the registration has been undone rather than
 // left half-made.
+//
+// A volume owned by another registration is not deleted. The outcome is still
+// terminal for this CR, but CnsVolumeRegistered then says the volume was left
+// in place instead of claiming a deletion that did not happen.
 func (r *ReconcileCnsRegisterVolume) failVolumeNotAccessible(ctx context.Context,
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, volumeID, reason, errMsg,
 	message string, timeout time.Duration) reconcile.Result {
 	log := logger.GetLogger(ctx)
-	if err := r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
+	skipped, err := r.cleanupCNSVolume(ctx, instance, volumeID)
+	if err != nil {
 		log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, err)
 		setInstanceError(ctx, r, instance, errMsg,
 			falseCondition(cnsregistervolumev1alpha1.ConditionVolumeAccessible,
@@ -1787,16 +1835,24 @@ func (r *ReconcileCnsRegisterVolume) failVolumeNotAccessible(ctx context.Context
 				"Waiting for the CNS volume created by this registration to be deleted"))
 		return reconcile.Result{RequeueAfter: timeout}
 	}
+	registeredReason := cnsregistervolumev1alpha1.ReasonVolumeCleanedUp
+	registeredMessage := "The CNS volume was deleted because the registered volume is not usable from this cluster"
+	if skipped {
+		log.Infof("CNS volume %s is owned by another registration; it was not deleted", volumeID)
+		registeredReason = cnsregistervolumev1alpha1.ReasonVolumeOwnedByOtherRegistration
+		registeredMessage = "The CNS volume belongs to another registration and was left in place"
+	}
 	setInstanceError(ctx, r, instance, errMsg,
 		falseCondition(cnsregistervolumev1alpha1.ConditionVolumeAccessible, reason, message),
-		falseCondition(cnsregistervolumev1alpha1.ConditionCnsVolumeRegistered,
-			cnsregistervolumev1alpha1.ReasonVolumeCleanedUp,
-			"The CNS volume was deleted because the registered volume is not usable from this cluster"),
+		falseCondition(cnsregistervolumev1alpha1.ConditionCnsVolumeRegistered, registeredReason, registeredMessage),
 		// Ready is set explicitly here rather than mirrored. CnsVolumeRegistered
 		// is an earlier step, so mirroring would surface VolumeCleanedUp -- the
 		// consequence -- where the operator needs the cause.
 		falseCondition(cnsregistervolumev1alpha1.ConditionReady, reason, message))
-	// permanent failure and not requeue.
+	// Permanent failure: no requeue, and requeues already scheduled are
+	// absorbed at the top of Reconcile until the spec changes.
+	r.terminalFailures.Store(instanceKey(instance),
+		terminalFailure{uid: instance.UID, generation: instance.Generation})
 	return reconcile.Result{}
 }
 
@@ -2215,7 +2271,9 @@ func (r *ReconcileCnsRegisterVolume) reconcileDelete(ctx context.Context,
 	}
 
 	if volumeID != "" {
-		err := r.cleanupCNSVolume(ctx, instance, volumeID)
+		// A volume owned by another registration is left alone. Nothing of this
+		// instance remains either way, so the finalizer can be removed.
+		_, err := r.cleanupCNSVolume(ctx, instance, volumeID)
 		if err != nil {
 			log.With("error", err).Error("Failed to cleanup CNS volume")
 			return reconcile.Result{RequeueAfter: timeout}, nil
@@ -2422,35 +2480,40 @@ func (r *ReconcileCnsRegisterVolume) untagCNSVolume(ctx context.Context, volumeI
 // For DiskURLPath registrations (legacy VMDK promoted to FCD), it unregisters the
 // FCD to convert the disk back to a legacy VMDK. For VolumeID registrations (existing
 // FCD), it only untags the CNS record, preserving the underlying FCD.
+//
+// skipped is true when the restore stamp of another registration owns the
+// volume. Nothing is removed from CNS then, so a caller must not report the
+// volume as deleted, nor delete the PV of that registration. Either way this
+// instance no longer holds the volume once the call returns without an error:
+// its cnsVolumeID checkpoint and its restore reservation have been released.
 func (r *ReconcileCnsRegisterVolume) cleanupCNSVolume(
 	ctx context.Context,
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
 	volumeID string,
-) error {
+) (skipped bool, err error) {
 	if isSnapServiceLocalProtectionEnabled && r.volumeInfoService != nil {
-		owner, err := r.restoreOwner(ctx, volumeID)
+		owner, ownerErr := r.restoreOwner(ctx, volumeID)
+		if ownerErr != nil {
+			return false, ownerErr
+		}
+		skipped = owner != "" && owner != string(instance.UID)
+	}
+	if !skipped {
+		if instance.Spec.DiskURLPath != "" {
+			err = r.unregisterFCD(ctx, volumeID)
+		} else {
+			err = r.untagCNSVolume(ctx, volumeID)
+		}
 		if err != nil {
-			return err
+			return false, err
 		}
-		if owner != "" && owner != string(instance.UID) {
-			return nil
-		}
-	}
-	var err error
-	if instance.Spec.DiskURLPath != "" {
-		err = r.unregisterFCD(ctx, volumeID)
-	} else {
-		err = r.untagCNSVolume(ctx, volumeID)
-	}
-	if err != nil {
-		return err
 	}
 	if instance.Status.CnsVolumeID != "" {
-		if err := r.persistCnsExecution(ctx, instance, "", ""); err != nil {
-			return err
+		if err = r.persistCnsExecution(ctx, instance, "", ""); err != nil {
+			return skipped, err
 		}
 	}
-	return r.releaseRestoreReservation(ctx, instance)
+	return skipped, r.releaseRestoreReservation(ctx, instance)
 }
 
 // unregisterFCD de-registers a volume as FCD, converting it back to a legacy disk.

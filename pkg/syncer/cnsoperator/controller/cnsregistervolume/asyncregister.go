@@ -26,6 +26,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	clientset "k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -37,9 +38,10 @@ import (
 
 const (
 	// cnsTaskSafetyRequeue bounds how long a CR can sit in CnsRegistering if
-	// its completion event is lost. Completion normally arrives as a push from
+	// its wake-up event is lost. Completion normally arrives as a push from
 	// the listview, so this is a backstop, not the mechanism; it is deliberately
-	// long enough that it does not become a poll.
+	// long enough that it does not become a poll. A push the listview itself
+	// never delivers is bounded by cnsTaskWatchTimeout instead.
 	cnsTaskSafetyRequeue = 10 * time.Second
 	// cnsSlotRetryInterval is how long a CR waits before trying again for an
 	// in-flight CNS slot.
@@ -116,6 +118,16 @@ func (r *ReconcileCnsRegisterVolume) submitCreateVolume(ctx context.Context,
 	log := logger.GetLogger(ctx)
 	cr := instanceKey(instance)
 
+	// After a restart the tracker is empty while tasks submitted by the
+	// previous process are still running. Account for them before admitting
+	// anything new, or new CRs could fill the cap on top of them.
+	if err := r.restoreTaskAccounting(ctx); err != nil {
+		msg := fmt.Sprintf("failed to account for CNS tasks already in flight: %v", err)
+		log.Error(msg)
+		setInstanceError(ctx, r, instance, msg)
+		return nil, &reconcile.Result{RequeueAfter: timeout}, nil
+	}
+
 	// The 40 reconciler workers used to be an implicit ceiling on concurrent
 	// CreateVolume calls. Now that the workers are released, that ceiling has
 	// to be explicit or a burst would hit CNS far harder than it does today.
@@ -172,6 +184,30 @@ func (r *ReconcileCnsRegisterVolume) submitCreateVolume(ctx context.Context,
 	return nil, &reconcile.Result{RequeueAfter: cnsTaskSafetyRequeue}, nil
 }
 
+// restoreTaskAccounting rebuilds, once per process, the capacity slots held by
+// tasks that an earlier process submitted and recorded on their CRs. It reads
+// the API server rather than the cache so that a task recorded just before the
+// restart is not missed. An error leaves the tracker unseeded and is retried by
+// the next submission.
+func (r *ReconcileCnsRegisterVolume) restoreTaskAccounting(ctx context.Context) error {
+	if r.taskTracker.isSeeded() {
+		return nil
+	}
+	list := &cnsregistervolumev1alpha1.CnsRegisterVolumeList{}
+	if err := r.executionReader().List(ctx, list); err != nil {
+		return err
+	}
+	var holders []apitypes.NamespacedName
+	for i := range list.Items {
+		if list.Items[i].Status.CnsTaskID != "" {
+			holders = append(holders, instanceKey(&list.Items[i]))
+		}
+	}
+	r.taskTracker.seed(holders)
+	logger.GetLogger(ctx).Infof("Accounted for %d CNS CreateVolume task(s) already in flight", len(holders))
+	return nil
+}
+
 // pollCreateVolume reports on a task submitted by an earlier reconcile. In the
 // normal case this is a map lookup against a result the listview already
 // pushed, so it costs no vCenter call.
@@ -185,8 +221,10 @@ func (r *ReconcileCnsRegisterVolume) pollCreateVolume(ctx context.Context,
 	taskMoRef := vim25types.ManagedObjectReference{Type: "Task", Value: taskID}
 
 	// A CR resuming after a syncer restart holds a task ID but has no
-	// subscription, because the listview is in-process and starts empty. Keep
-	// the slot it is implicitly occupying accounted for.
+	// subscription, because the listview is in-process and starts empty. Its
+	// slot is normally accounted for by restoreTaskAccounting before anything
+	// new is admitted; this covers a CR that reaches here first. The task is
+	// monitored whether or not a slot is free, since it is already running.
 	r.taskTracker.tryAcquireSlot(cr)
 
 	outcome, done := r.taskTracker.outcome(taskID)
@@ -449,7 +487,7 @@ func (r *ReconcileCnsRegisterVolume) resolveInFlightTaskForDelete(ctx context.Co
 		}
 		// Existing PVs go through the normal bound/ownership checks first.
 		if pv == nil {
-			if err := r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
+			if _, err := r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
 				return &reconcile.Result{RequeueAfter: timeout}
 			}
 		}

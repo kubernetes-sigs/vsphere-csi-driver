@@ -159,6 +159,10 @@ const (
 	// deleted by a terminal accessibility failure, so the registration has
 	// been undone.
 	ReasonVolumeCleanedUp = "VolumeCleanedUp"
+	// ReasonVolumeOwnedByOtherRegistration means a terminal accessibility
+	// failure found the CNS volume owned by the restore of another
+	// CnsRegisterVolume, so it was left in place rather than deleted.
+	ReasonVolumeOwnedByOtherRegistration = "VolumeOwnedByOtherRegistration"
 
 	// ReasonAccessible is set on ConditionVolumeAccessible when the registered
 	// volume is usable from this cluster.

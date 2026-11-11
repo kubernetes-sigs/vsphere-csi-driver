@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -30,10 +31,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -42,6 +46,7 @@ import (
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/conditions"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 )
 
 // newAsyncTestReconciler builds a reconciler wired for the async CNS path with
@@ -647,7 +652,8 @@ func TestRetiringSubscriptionIsNotReplaced(t *testing.T) {
 
 // A checkpoint write can commit while its response is lost, leaving the slot
 // and result in memory. Observing the checkpoint must release both. The CR is
-// waiting for its PVC to bind, which must cost one PVC read and nothing else.
+// waiting for its PVC to bind, which must cost one read each of the PVC and
+// its PV and nothing else.
 func TestCompletedCheckpointReleasesSlotAndWaitsForBind(t *testing.T) {
 	ctx := context.Background()
 	cr := newCondTestInstance(cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{CnsVolumeID: "vol-1"})
@@ -663,7 +669,7 @@ func TestCompletedCheckpointReleasesSlotAndWaitsForBind(t *testing.T) {
 	r.k8sclient = k8sfake.NewClientset(&corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pvc", Namespace: cr.Namespace},
 		Status:     corev1.PersistentVolumeClaimStatus{Phase: corev1.ClaimPending},
-	})
+	}, &corev1.PersistentVolume{ObjectMeta: metav1.ObjectMeta{Name: staticPvNamePrefix + "vol-1"}})
 	before := getCondTestInstance(t, r.client, cr).ResourceVersion
 
 	// volumeManager and configInfo are nil: replaying the pipeline would fail.
@@ -714,4 +720,153 @@ func TestStatusPatchDoesNotMaskConcurrentWrites(t *testing.T) {
 	require.NoError(t, r.client.Update(ctx, other))
 	cr.Spec.VolumeMode = corev1.PersistentVolumeBlock
 	require.True(t, apierrors.IsConflict(updateCnsRegisterVolume(ctx, r.client, cr)))
+}
+
+// A Pending PVC whose PV has been deleted can never bind, so the bind-only fast
+// path must give way to the pipeline that recreates the PV.
+func TestBindFastPathResumesPipelineWhenPVIsGone(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name string
+		pv   *corev1.PersistentVolume
+	}{
+		{name: "PV deleted"},
+		{name: "PV terminating", pv: &corev1.PersistentVolume{ObjectMeta: metav1.ObjectMeta{
+			Name: staticPvNamePrefix + "vol-1", DeletionTimestamp: &metav1.Time{Time: time.Now()},
+			Finalizers: []string{"kubernetes.io/pv-protection"}}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cr := newCondTestInstance(cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{CnsVolumeID: "vol-1"})
+			cr.Spec.PvcName = "test-pvc"
+			applyConditions(cr, falseCondition(cnsregistervolumev1alpha1.ConditionPvcBound,
+				cnsregistervolumev1alpha1.ReasonWaitingForBind, "Waiting for the PVC to be bound"))
+			r, _, _ := newAsyncTestReconciler(t, cr, 1)
+			objs := []runtime.Object{&corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-pvc", Namespace: cr.Namespace},
+				Status:     corev1.PersistentVolumeClaimStatus{Phase: corev1.ClaimPending},
+			}}
+			if tc.pv != nil {
+				objs = append(objs, tc.pv)
+			}
+			r.k8sclient = k8sfake.NewClientset(objs...)
+
+			// The pipeline cannot get far without a vCenter; that it ran at all
+			// is what the backoff requeue, rather than the bind poll, shows.
+			result, err := r.Reconcile(ctx, reconcileRequestFor(cr))
+			require.NoError(t, err)
+			require.Equal(t, time.Second, result.RequeueAfter)
+		})
+	}
+}
+
+// The safety requeue scheduled when a task is submitted is still delivered
+// after a terminal accessibility failure has cleaned the volume up. It must not
+// register the volume again; a spec change is reconciled afresh.
+func TestTerminalAccessibilityFailureAbsorbsPendingRequeue(t *testing.T) {
+	ctx := context.Background()
+	cr := newCondTestInstance(cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{CnsVolumeID: "vol-1"})
+	cr.Generation = 1
+	r, _, _ := newAsyncTestReconciler(t, cr, 40)
+	patches := gomonkey.ApplyFunc(common.DeleteVolumeUtil,
+		func(_ context.Context, _ volumes.Manager, _ string, _ bool) (string, error) {
+			return "", nil
+		})
+	defer patches.Reset()
+
+	result := r.failVolumeNotAccessible(ctx, cr, "vol-1",
+		cnsregistervolumev1alpha1.ReasonDatastoreNotAccessibleToCluster, "not accessible", "not accessible",
+		time.Second)
+	require.Zero(t, result)
+	require.Empty(t, getCondTestInstance(t, r.client, cr).Status.CnsVolumeID, "cleanup clears the checkpoint")
+
+	// The requeue scheduled before the failure arrives.
+	result, err := r.Reconcile(ctx, reconcileRequestFor(cr))
+	require.NoError(t, err)
+	require.Zero(t, result, "a terminal failure must not be re-evaluated for the same generation")
+	require.Equal(t, 0, r.taskTracker.inFlight(), "no CNS task may be submitted")
+
+	// A spec change is a new request. The fake client does not advance
+	// metadata.generation, so the failure is re-recorded against an older one.
+	r.terminalFailures.Store(instanceKey(cr), terminalFailure{uid: cr.UID, generation: cr.Generation - 1})
+	_, err = r.Reconcile(ctx, reconcileRequestFor(cr))
+	require.NoError(t, err)
+	_, held := r.terminalFailures.Load(instanceKey(cr))
+	require.False(t, held, "a failure decided for an older generation does not stand")
+	require.Contains(t, getCondTestInstance(t, r.client, cr).Status.Error, "AccessMode cannot be empty",
+		"the registration pipeline must run again, here as far as spec validation")
+}
+
+// A restarted syncer starts with an empty tracker while tasks recorded on CRs
+// are still running on CNS. They must count against the cap before a new CR is
+// admitted, and must still be monitored afterwards.
+func TestRestartAccountsForRunningTasksBeforeAdmittingNew(t *testing.T) {
+	ctx := context.Background()
+	fresh := newCondTestInstance(cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{})
+	r, lv, _ := newAsyncTestReconciler(t, fresh, 1)
+	resumed := newCondTestInstance(cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{})
+	resumed.Name, resumed.UID = "resumed", "resumed-uid"
+	require.NoError(t, r.client.Create(ctx, resumed))
+	resumed.Status.CnsTaskID = "task-before-restart"
+	require.NoError(t, r.client.Status().Update(ctx, resumed))
+
+	orig := submitCreateVolumeTaskFn
+	defer func() { submitCreateVolumeTaskFn = orig }()
+	submitCreateVolumeTaskFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
+		_ *cnstypes.CnsVolumeCreateSpec) (vim25types.ManagedObjectReference, string, error) {
+		t.Error("a new task must not be submitted while the cap is held by a task from before the restart")
+		return taskRef("unexpected"), "", nil
+	}
+
+	// The new CR is reconciled first, before the resumed one has been seen.
+	_, retry, err := r.submitOrPollCreateVolume(ctx, fresh, nil, asyncTestSpec(), time.Second)
+	require.NoError(t, err)
+	require.NotNil(t, retry)
+	require.Equal(t, cnsSlotRetryInterval, retry.RequeueAfter)
+	require.Equal(t, cnsregistervolumev1alpha1.ReasonWaitingForTaskSlot,
+		condOf(fresh, cnsregistervolumev1alpha1.ConditionCnsVolumeRegistered).Reason)
+	require.Equal(t, 1, r.taskTracker.inFlight())
+
+	// The resumed task is still picked up and watched, within the cap.
+	_, retry, err = r.pollCreateVolume(ctx, resumed, nil, asyncTestSpec(), time.Second)
+	require.NoError(t, err)
+	require.NotNil(t, retry)
+	require.True(t, r.taskTracker.isWatching("task-before-restart"))
+	require.Equal(t, 1, lv.addCalls)
+	require.Equal(t, 1, r.taskTracker.inFlight())
+}
+
+// If the running tasks cannot be read, nothing new is admitted, and the read is
+// retried by the next submission.
+func TestRestartAccountingFailureBlocksAdmission(t *testing.T) {
+	ctx := context.Background()
+	cr := newCondTestInstance(cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{})
+	r, _, _ := newAsyncTestReconciler(t, cr, 40)
+	failing := true
+	r.apiReader = interceptor.NewClient(r.client.(client.WithWatch), interceptor.Funcs{
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			if failing {
+				return errors.New("unavailable")
+			}
+			return c.List(ctx, list, opts...)
+		}})
+	orig := submitCreateVolumeTaskFn
+	defer func() { submitCreateVolumeTaskFn = orig }()
+	submitted := 0
+	submitCreateVolumeTaskFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
+		_ *cnstypes.CnsVolumeCreateSpec) (vim25types.ManagedObjectReference, string, error) {
+		submitted++
+		return taskRef("task-1"), "", nil
+	}
+
+	_, retry, err := r.submitOrPollCreateVolume(ctx, cr, nil, asyncTestSpec(), time.Second)
+	require.NoError(t, err)
+	require.NotNil(t, retry)
+	require.Zero(t, submitted)
+	require.Equal(t, 0, r.taskTracker.inFlight())
+
+	failing = false
+	_, retry, err = r.submitOrPollCreateVolume(ctx, cr, nil, asyncTestSpec(), time.Second)
+	require.NoError(t, err)
+	require.NotNil(t, retry)
+	require.Equal(t, 1, submitted)
 }

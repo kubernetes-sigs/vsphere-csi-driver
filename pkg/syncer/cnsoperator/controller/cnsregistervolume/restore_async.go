@@ -18,8 +18,10 @@ package cnsregistervolume
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	api "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
@@ -86,16 +88,35 @@ func (r *ReconcileCnsRegisterVolume) reserveRestore(ctx context.Context,
 // persistCnsExecution atomically replaces the task with its successful result.
 // A conflict is retried by a fresh reconcile, never by replaying a stale patch.
 // Conditions remain best-effort diagnostics and cannot overwrite these fields.
+//
+// The patch is built explicitly rather than diffed. The CRD requires
+// status.registered, and a diff omits it while it is unchanged, so the API
+// server would reject this write on a CR that has no status yet -- which is the
+// case when the best-effort condition writes before submission have failed.
 func (r *ReconcileCnsRegisterVolume) persistCnsExecution(ctx context.Context,
 	instance *api.CnsRegisterVolume, taskID, volumeID string) error {
-	original := instance.DeepCopy()
-	instance.Status.CnsTaskID, instance.Status.CnsVolumeID = taskID, volumeID
-	if err := r.client.Status().Patch(ctx, instance,
-		client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
-		instance.Status = original.Status
+	// A null removes the key, so a cleared field is not stored as "".
+	value := func(s string) interface{} {
+		if s == "" {
+			return nil
+		}
+		return s
+	}
+	patch, err := json.Marshal(map[string]interface{}{
+		// The resourceVersion makes the write conditional on the object read.
+		"metadata": map[string]interface{}{"resourceVersion": instance.ResourceVersion},
+		"status": map[string]interface{}{
+			"registered":  instance.Status.Registered,
+			"cnsTaskID":   value(taskID),
+			"cnsVolumeID": value(volumeID),
+		},
+	})
+	if err != nil {
 		return err
 	}
-	return nil
+	// On success the response is decoded into instance, which then carries the
+	// stored execution fields; on failure instance is left as it was.
+	return r.client.Status().Patch(ctx, instance, client.RawPatch(apitypes.MergePatchType, patch))
 }
 
 func (r *ReconcileCnsRegisterVolume) reconcileRestoreMetadata(ctx context.Context,

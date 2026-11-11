@@ -5,10 +5,12 @@ package cnsregistervolume
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/require"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/vim25/soap"
@@ -25,6 +27,7 @@ import (
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	vsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo"
 	infoapi "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
 )
@@ -264,4 +267,125 @@ func TestAsyncRestoreExecutionPatchRejectsStaleWriter(t *testing.T) {
 	got := &api.CnsRegisterVolume{}
 	require.NoError(t, c.Get(ctx, instanceKey(cr), got))
 	require.Equal(t, "task-first", got.Status.CnsTaskID)
+}
+
+// A volume stamped by another registration is not deleted, so a terminal
+// accessibility failure must not report it as cleaned up. This CR no longer
+// holds the volume either way: its checkpoint and reservation are released.
+func TestAsyncRestoreAccessibilityFailureLeavesVolumeOfOtherOwner(t *testing.T) {
+	withSnapServiceLocalProtection(t, true)
+	ctx := context.Background()
+	cr := testRestoreInstance("true")
+	cr.Labels = map[string]string{labelRestoreVolumeID: testRestoreVolumeID}
+	cr.Status.CnsVolumeID = testRestoreVolumeID
+	r, _, _ := newAsyncTestReconciler(t, cr, 40)
+	r.volumeInfoService = &fakeRestoreVolumeInfoService{}
+	_, err := r.k8sclient.CoreV1().PersistentVolumes().Create(ctx,
+		testStampedPV("other-uid", false), metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	// No volume manager: an attempted CNS cleanup would panic.
+	result := r.failVolumeNotAccessible(ctx, cr, testRestoreVolumeID,
+		api.ReasonDatastoreNotAccessibleToCluster, "not accessible", "not accessible", time.Second)
+	require.Zero(t, result, "the accessibility failure stays terminal")
+
+	got := &api.CnsRegisterVolume{}
+	require.NoError(t, r.client.Get(ctx, instanceKey(cr), got))
+	registered := condOf(got, api.ConditionCnsVolumeRegistered)
+	require.NotNil(t, registered)
+	require.Equal(t, metav1.ConditionFalse, registered.Status)
+	require.Equal(t, api.ReasonVolumeOwnedByOtherRegistration, registered.Reason,
+		"a volume that was not deleted must not be reported as cleaned up")
+	require.Equal(t, api.ReasonDatastoreNotAccessibleToCluster, condOf(got, api.ConditionVolumeAccessible).Reason)
+	require.Equal(t, api.ReasonDatastoreNotAccessibleToCluster, condOf(got, api.ConditionReady).Reason)
+	require.Empty(t, got.Status.CnsVolumeID)
+	require.NotContains(t, got.Labels, labelRestoreVolumeID)
+	_, err = r.k8sclient.CoreV1().PersistentVolumes().Get(ctx, testRestorePVName, metav1.GetOptions{})
+	require.NoError(t, err, "the PV of the owning registration must be left in place")
+}
+
+// Cleaning up a volume this registration owns reports that it was not skipped.
+func TestAsyncRestoreCleanupReportsSkipOnlyForOtherOwner(t *testing.T) {
+	withSnapServiceLocalProtection(t, true)
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name, stamp string
+		wantSkipped bool
+	}{
+		{name: "own stamp", stamp: string(testRestoreUID)},
+		{name: "no stamp"},
+		{name: "stamp of another registration", stamp: "other-uid", wantSkipped: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cr := testRestoreInstance("true")
+			r, _, _ := newAsyncTestReconciler(t, cr, 40)
+			r.volumeInfoService = &fakeRestoreVolumeInfoService{restoredBy: tc.stamp}
+			untagged := false
+			patches := gomonkey.ApplyFunc(common.DeleteVolumeUtil,
+				func(_ context.Context, _ volumes.Manager, _ string, _ bool) (string, error) {
+					untagged = true
+					return "", nil
+				})
+			defer patches.Reset()
+
+			skipped, err := r.cleanupCNSVolume(ctx, cr, testRestoreVolumeID)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantSkipped, skipped)
+			require.Equal(t, !tc.wantSkipped, untagged)
+		})
+	}
+}
+
+// The CRD requires status.registered. The execution patch must carry it even
+// though it is unchanged, or the write is rejected on a CR without a status.
+func TestAsyncExecutionPatchAlwaysCarriesRegistered(t *testing.T) {
+	ctx := context.Background()
+	cr := testRestoreInstance("true")
+	var body []byte
+	c := interceptor.NewClient(
+		fake.NewClientBuilder().WithScheme(condTestScheme()).WithObjects(cr).WithStatusSubresource(cr).Build(),
+		interceptor.Funcs{SubResourcePatch: func(ctx context.Context, c client.Client, sub string,
+			obj client.Object, p client.Patch, opts ...client.SubResourcePatchOption) error {
+			var err error
+			if body, err = p.Data(obj); err != nil {
+				return err
+			}
+			return c.SubResource(sub).Patch(ctx, obj, p, opts...)
+		}})
+	r := &ReconcileCnsRegisterVolume{client: c}
+	require.NoError(t, c.Get(ctx, instanceKey(cr), cr))
+
+	require.NoError(t, r.persistCnsExecution(ctx, cr, "task-1", ""))
+	var sent struct {
+		Status map[string]interface{} `json:"status"`
+	}
+	require.NoError(t, json.Unmarshal(body, &sent))
+	require.Equal(t, false, sent.Status["registered"])
+	require.Equal(t, "task-1", sent.Status["cnsTaskID"])
+	require.Equal(t, "task-1", cr.Status.CnsTaskID, "the caller's object carries the stored result")
+
+	// Replacing the task with its result clears the task in the same write.
+	require.NoError(t, r.persistCnsExecution(ctx, cr, "", "vol-1"))
+	got := &api.CnsRegisterVolume{}
+	require.NoError(t, c.Get(ctx, instanceKey(cr), got))
+	require.Empty(t, got.Status.CnsTaskID)
+	require.Equal(t, "vol-1", got.Status.CnsVolumeID)
+	require.Empty(t, cr.Status.CnsTaskID)
+	require.Equal(t, "vol-1", cr.Status.CnsVolumeID)
+}
+
+// The CNS result of an admitted restore is recorded before the PV exists to
+// carry the restore stamp. The CnsDeletedVolumeInfo may be gone by then, so the
+// admission precheck must not run again.
+func TestAsyncRestoreSkipsPrecheckOncePersistedResultExists(t *testing.T) {
+	withSnapServiceLocalProtection(t, true)
+	cr := testRestoreInstance("true")
+	cr.Status.CnsVolumeID = testRestoreVolumeID
+	service := &fakeRestoreVolumeInfoService{precheckErr: errors.New("CnsDeletedVolumeInfo not found")}
+	r := newRestoreReconcileHarness(t, cr, service)
+
+	_, got := reconcileAndGetStatus(t, r, cr)
+	require.Empty(t, service.prechecks)
+	require.Equal(t, "Unable to connect to VC for volume registration", got.Status.Error,
+		"the registration must continue past the precheck")
 }
