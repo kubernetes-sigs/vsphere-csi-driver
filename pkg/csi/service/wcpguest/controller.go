@@ -296,6 +296,12 @@ func (c *controller) Init(config *commonconfig.Config, version string) error {
 		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
 			common.LinkedCloneSupport, config.GC.Port, config.GC.Endpoint)
 	}
+	// Same for pod volume spreading: it needs the shared-disks capability, which the supervisor
+	// can turn on after this container has started.
+	if podVolumeSpreadNeedsLateEnablement(ctx) {
+		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
+			common.SharedDiskFss, config.GC.Port, config.GC.Endpoint)
+	}
 	vsanFileVolumeServicePVCSIFSS := commonco.ContainerOrchestratorUtility.IsPVCSIFSSEnabled(
 		ctx, common.VsanFileVolumeServiceSupportFSS)
 	vsanFileServiceEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(
@@ -1230,7 +1236,22 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 	timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
 	timeout := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
 	backoff := vmPatchRetryBackoff
-	for {
+
+	// With the pod-volume-spread FSS on, a volume of a pod that asks for spread
+	// placement is added to the VM spec on a chosen SCSI bus instead of through
+	// the default path below. spread is nil for every other volume, and always
+	// when the FSS is off.
+	spread, faultType, err := c.resolvePodVolumeSpread(ctx, req)
+	if err != nil {
+		return nil, faultType, err
+	}
+	if spread != nil {
+		virtualMachine, faultType, err = c.addSpreadVolumeToVMSpec(ctx, req, vmKey, spread, timeout)
+		if err != nil {
+			return nil, faultType, err
+		}
+	}
+	for spread == nil {
 		virtualMachine, _, err = utils.GetVirtualMachine(
 			ctx, vmKey, c.vmOperatorClient)
 		if err != nil {

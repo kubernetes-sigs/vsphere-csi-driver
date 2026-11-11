@@ -160,6 +160,10 @@ func (g *CSIGuestMutationWebhook) Handle(ctx context.Context, req admission.Requ
 				return g.mutateNewPVC(ctx, req)
 			}
 		}
+	} else if req.Kind.Kind == "Pod" {
+		if req.Operation == admissionv1.Create && featureIsPodVolumeSpreadFSSEnabled {
+			return admitPodVolumeSpread(ctx, req)
+		}
 	}
 	return
 }

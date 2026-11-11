@@ -65,6 +65,12 @@ var (
 	featureIsLinkedCloneSupportEnabled     bool
 	featureIsVACPolicyMutabilityEnabled    bool
 	featureIsVsanFileVolumeServiceEnabled  bool
+	// featureIsPodVolumeSpreadFSSEnabled is the pod-volume-spread pvCSI FSS alone. When it is
+	// off, the pod placement label is ignored.
+	featureIsPodVolumeSpreadFSSEnabled bool
+	// featureIsPodVolumeSpreadSupported is true when the pvCSI FSS is on and the supervisor
+	// has the capability paired with it.
+	featureIsPodVolumeSpreadSupported bool
 )
 
 // initWorkloadFSSFlag sets the given flag from the current state of the given Workload (Supervisor)
@@ -193,17 +199,21 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 				common.VMPVCStoragePolicyMutabilityFSS)
 		}
 		featureIsVACPolicyMutabilityEnabled = vacPolicyMutabilityPVCSIFSS && vacPolicyMutabilityCapability
+		featureIsPodVolumeSpreadFSSEnabled, featureIsPodVolumeSpreadSupported =
+			podVolumeSpreadFeatureState(ctx, containerOrchestratorUtility)
 		// Start the late enablement watcher for a capability only if the PVCSI internal FSS is
 		// enabled, but the current supervisor capability is disabled. Both capabilities below are
 		// registered in common.WCPFeatureStatesSupportsLateEnablement, so the supervisor can turn
 		// them on after this container has already started.
-		lateEnablementCapabilities := make([]string, 0, 2)
+		lateEnablementCapabilities := make([]string, 0, 3)
 		if linkedClonePVCSIFSS && !linkedCloneCapability {
 			lateEnablementCapabilities = append(lateEnablementCapabilities, common.LinkedCloneSupport)
 		}
 		if vacPolicyMutabilityPVCSIFSS && !vacPolicyMutabilityCapability {
 			lateEnablementCapabilities = append(lateEnablementCapabilities, common.VMPVCStoragePolicyMutability)
 		}
+		lateEnablementCapabilities = appendPodVolumeSpreadLateEnablement(lateEnablementCapabilities,
+			featureIsPodVolumeSpreadFSSEnabled, featureIsPodVolumeSpreadSupported)
 		if len(lateEnablementCapabilities) > 0 {
 			gcConfig, configErr := cnsconfig.GetConfig(ctx)
 			if configErr != nil {
