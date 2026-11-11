@@ -1995,11 +1995,12 @@ func setInstanceCnsTaskID(ctx context.Context, r *ReconcileCnsRegisterVolume,
 func setInstanceSuccess(ctx context.Context, r *ReconcileCnsRegisterVolume,
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, pvcName string, pvcUID apitypes.UID, msg string) error {
 	log := logger.GetLogger(ctx)
-	setInstanceOwnerRef(instance, pvcName, pvcUID)
-	// Update the metadata (ownerReferences) first
-	err := updateCnsRegisterVolume(ctx, r.client, instance)
-	if err != nil {
-		return err
+	// Update the metadata (ownerReferences) first, when there is anything to
+	// write: a CR another controller already owns is left untouched.
+	if setInstanceOwnerRef(instance, pvcName, pvcUID) {
+		if err := updateCnsRegisterVolume(ctx, r.client, instance); err != nil {
+			return err
+		}
 	}
 	// Fetch the latest version of the instance after updating metadata
 	// to avoid conflict when updating status
@@ -2007,7 +2008,7 @@ func setInstanceSuccess(ctx context.Context, r *ReconcileCnsRegisterVolume,
 		Name:      instance.Name,
 		Namespace: instance.Namespace,
 	}
-	err = r.client.Get(ctx, namespacedName, instance)
+	err := r.client.Get(ctx, namespacedName, instance)
 	if err != nil {
 		log.Errorf("Failed to fetch latest CnsRegisterVolume instance after metadata update. err: %v", err)
 		return err
@@ -2029,22 +2030,47 @@ func setInstanceSuccess(ctx context.Context, r *ReconcileCnsRegisterVolume,
 	return nil
 }
 
-// setInstanceOwnerRef sets instance ownerRef to PVC instance that it created.
+// setInstanceOwnerRef makes the registered PVC the controller owner of the
+// instance, so the CR is garbage collected along with the PVC -- but only when
+// nothing else already controls the CR. It reports whether the owner
+// references changed, so the caller can skip a metadata update that would
+// write nothing.
+//
+// Owner references set by another controller are never removed or replaced.
+// VM Operator creates one CnsRegisterVolume per disk with the VirtualMachine as
+// its controller owner, so that the CR is deleted along with the VM. This used
+// to overwrite the whole list, which silently moved the CR from the VM to the
+// PVC once registration finished. A CR that already has a controller owner is
+// now left exactly as it is; only a CR with no controller owner gets the PVC,
+// which is what such CRs have always got.
+//
+// The PVC is deliberately not added as a second, non-controller owner next to
+// an existing controller. Garbage collection deletes an object only once all of
+// its owners are gone, so that would stop the CR from being deleted with the VM.
 func setInstanceOwnerRef(instance *cnsregistervolumev1alpha1.CnsRegisterVolume, pvcName string,
-	pvcUID apitypes.UID) {
+	pvcUID apitypes.UID) bool {
+	if metav1.GetControllerOf(instance) != nil {
+		return false
+	}
+	for _, ref := range instance.OwnerReferences {
+		if ref.UID == pvcUID {
+			// Already owned by this PVC.
+			return false
+		}
+	}
 	bController := true
 	bOwnerDeletion := true
 	kind := reflect.TypeOf(v1.PersistentVolumeClaim{}).Name()
-	instance.OwnerReferences = []metav1.OwnerReference{
-		{
-			APIVersion:         "v1",
-			Controller:         &bController,
-			BlockOwnerDeletion: &bOwnerDeletion,
-			Kind:               kind,
-			Name:               pvcName,
-			UID:                pvcUID,
-		},
-	}
+	// Append rather than assign, so any non-controller owners are kept.
+	instance.OwnerReferences = append(instance.OwnerReferences, metav1.OwnerReference{
+		APIVersion:         "v1",
+		Controller:         &bController,
+		BlockOwnerDeletion: &bOwnerDeletion,
+		Kind:               kind,
+		Name:               pvcName,
+		UID:                pvcUID,
+	})
+	return true
 }
 
 // recordEvent records the event, sets the backOffDuration for the instance
@@ -2185,7 +2211,8 @@ func (r *ReconcileCnsRegisterVolume) reconcileDelete(ctx context.Context,
 	log := logger.GetLogger(ctx).With("name", instance.Name).With("namespace", instance.Namespace)
 	log.Info("Handling deletion of CnsRegisterVolume instance")
 
-	// If already registered successfully, the PVC owns the lifecycle via ownerReference.
+	// If already registered successfully, the CR's lifecycle belongs to its owner:
+	// the VirtualMachine when VM Operator created it, otherwise the PVC it registered.
 	// We can safely remove the finalizer and let Kubernetes garbage collection handle it.
 	if instance.Status.Registered {
 		log.Info("Instance already registered. Removing finalizer")
