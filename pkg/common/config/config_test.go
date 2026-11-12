@@ -201,6 +201,71 @@ func TestValidateConfigWithValidUsername1(t *testing.T) {
 	}
 }
 
+func TestValidateConfigWithSessionManager(t *testing.T) {
+	vcConfigValidUsername := map[string]*VirtualCenterConfig{
+		"1.1.1.1": {
+			VCenterPort:         "443",
+			Datacenters:         "dc1",
+			InsecureFlag:        true,
+			VCSessionManagerURL: "http://xxx.yyy.com/tld",
+		},
+	}
+	cfg := &Config{
+		VirtualCenter: vcConfigValidUsername,
+	}
+
+	err := validateConfig(ctx, cfg)
+	if err != nil {
+		t.Errorf("Unexpected error, as valid session manager was used. Config given - %+v", *cfg)
+	}
+}
+
+func TestValidateConfigWithSessionManagerAndToken(t *testing.T) {
+	vcConfigValidUsername := map[string]*VirtualCenterConfig{
+		"1.1.1.1": {
+			VCenterPort:           "443",
+			Datacenters:           "dc1",
+			InsecureFlag:          true,
+			VCSessionManagerURL:   "http://xxx.yyy.com/tld",
+			VCSessionManagerToken: "a-secret-token",
+		},
+	}
+	cfg := &Config{
+		VirtualCenter: vcConfigValidUsername,
+	}
+
+	err := validateConfig(ctx, cfg)
+	if err != nil {
+		t.Errorf("Unexpected error, as a valid session manager with a token was used. Config given - %+v", *cfg)
+	}
+}
+
+// TestValidateConfigWithSessionManagerTokenButNoURL confirms that
+// VCSessionManagerToken alone does not bypass the username/password
+// requirement -- only VCSessionManagerURL does. Per the docs, when the URL is
+// unset CSI falls back to the Pod service account token rather than using
+// VCSessionManagerToken at all, so a token with no URL configured has nowhere
+// to be sent and must not silently pass validation.
+func TestValidateConfigWithSessionManagerTokenButNoURL(t *testing.T) {
+	vcConfigTokenOnly := map[string]*VirtualCenterConfig{
+		"1.1.1.1": {
+			VCenterPort:           "443",
+			Datacenters:           "dc1",
+			InsecureFlag:          true,
+			VCSessionManagerToken: "a-secret-token",
+		},
+	}
+	cfg := &Config{
+		VirtualCenter: vcConfigTokenOnly,
+	}
+
+	err := validateConfig(ctx, cfg)
+	if err == nil {
+		t.Errorf("Expected error: a session manager token with no URL and no username/password "+
+			"should not validate. Config given - %+v", *cfg)
+	}
+}
+
 func TestValidateConfigWithValidUsername2(t *testing.T) {
 	vcConfigValidUsername := map[string]*VirtualCenterConfig{
 		"1.1.1.1": {
