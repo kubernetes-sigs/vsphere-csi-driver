@@ -1,5 +1,9 @@
 # Preserve CNS task state when ListView monitoring fails
 
+The ListView recreation this design relies on was not actually performed when
+the wait context was cancelled. See
+[recovery-after-cancelled-wait.md](recovery-after-cancelled-wait.md).
+
 ## Problem
 
 A CSI operation can be canceled while checking the vCenter session. The driver
