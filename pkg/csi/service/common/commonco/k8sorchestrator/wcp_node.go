@@ -130,9 +130,25 @@ func (c *K8sOrchestrator) createCSINode(obj interface{}) {
 			os.Exit(1)
 		}
 	} else {
-		// If CSINode object is present, re-create CSINode object if zone topology key is not present on it
+		driverIdx := slices.IndexFunc(csinode.Spec.Drivers, func(d storagev1.CSINodeDriver) bool {
+			return d.Name == common.VSphereCSIDriverName
+		})
+		if driverIdx < 0 {
+			// The CSINode object exists but carries no entry for the vSphere CSI driver. kubelet creates
+			// the CSINode when the node registers and only adds a driver entry once that node plugin
+			// registers itself, so a missing entry means the CSI node daemonset is not running here. This
+			// is the case on an annotated control plane node. Do not add the entry: it would advertise the
+			// driver to the scheduler and to the attacher on a node where nothing can format or mount a
+			// volume, leaving pods scheduled there stuck in NodeStageVolume.
+			log.Warnf("createCSINode: CSINode object for node %q has no entry for driver %q. Skipping, as "+
+				"the CSI node daemonset does not appear to be running on this node.",
+				node.Name, common.VSphereCSIDriverName)
+			return
+		}
+		// If CSINode object is present, re-create CSINode object if zone topology key is not present on it.
+		// Topology keys of an existing driver entry are immutable, hence the delete and re-create.
 		if isWorkloadDomainIsolationEnabled {
-			if !slices.Contains(csinode.Spec.Drivers[0].TopologyKeys, corev1.LabelTopologyZone) {
+			if !slices.Contains(csinode.Spec.Drivers[driverIdx].TopologyKeys, corev1.LabelTopologyZone) {
 				log.Infof("topology key: %q not present on CSINodes object for node: %q. Re-creating CSINodes object.",
 					corev1.LabelTopologyZone, node.Name)
 				err = c.k8sClient.StorageV1().CSINodes().Delete(ctx, csiNodeSpec.Name, metav1.DeleteOptions{})
