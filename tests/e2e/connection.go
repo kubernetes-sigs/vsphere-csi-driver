@@ -87,6 +87,12 @@ func connect(ctx context.Context, vs *vSphere, forceRefresh ...bool) {
 	}
 	framework.Logf("Creating new client session after attempting to logout from existing session")
 	vs.Client = newClient(ctx, vs)
+	// CnsClient (and any other client derived from the old session) holds a
+	// stale session cookie at this point. Drop it so connectCns() rebuilds it
+	// against the freshly-created vs.Client below, otherwise every CNS call
+	// keeps failing with ServerFaultCode: NotAuthenticated for the rest of
+	// the process once the original vCenter session has expired.
+	vs.CnsClient = nil
 }
 
 // newClient creates a new client for vSphere connection.
