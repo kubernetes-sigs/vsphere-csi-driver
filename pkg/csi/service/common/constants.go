@@ -701,6 +701,19 @@ const (
 	// FSS or capability for it.
 	GuestNFSVolume = "guest-nfs-volume"
 
+	// PodVolumeSpreadFSS is the pvCSI FSS that gates spreading an opted-in pod's block
+	// volumes evenly across the node VM's SCSI controllers in guest clusters. It is
+	// paired with the SharedDiskFss supervisor capability (see
+	// WCPFeatureStateAssociatedWithPVCSI): that capability is what makes vm-operator
+	// honor a controller bus chosen by pvCSI and pass the placement on to CNS.
+	PodVolumeSpreadFSS = "pod-volume-spread"
+	// PodVolumePlacementLabel is the pod label DevOps set to choose how the pod's block
+	// volumes are placed on the node VM's storage controllers.
+	PodVolumePlacementLabel = "csi.vsphere.vmware.com/volume-placement"
+	// PodVolumePlacementSpread is the PodVolumePlacementLabel value that asks for the
+	// pod's block volumes to be spread evenly across the node VM's SCSI controllers.
+	PodVolumePlacementSpread = "spread"
+
 	// VMPVCStoragePolicyMutability is the WCP capability for the DevOps storage-policy
 	// change feature on VMs and PVCs. When enabled on the supervisor, the CSI driver
 	// will advertise the CSI MODIFY_VOLUME capability and accept ControllerModifyVolume
@@ -830,4 +843,5 @@ var WCPFeatureStateAssociatedWithPVCSI = map[string]string{
 	VMPVCStoragePolicyMutabilityFSS:         VMPVCStoragePolicyMutability,
 	HostLocalStorageSupportFSS:              HostLocalStorageSupport,
 	SupportsExposingStoragePolicyAttributes: SupportsExposingStoragePolicyAttributes,
+	PodVolumeSpreadFSS:                      SharedDiskFss,
 }
