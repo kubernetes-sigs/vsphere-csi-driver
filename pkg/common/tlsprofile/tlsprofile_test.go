@@ -74,7 +74,8 @@ func TestServerCurvePreferences(t *testing.T) {
 		tls.CurveP256, tls.CurveP384, tls.CurveP521,
 	}, ServerCurvePreferences(ProfileNIST2024))
 	assert.Equal(t, ServerCurvePreferences(ProfileNIST2024), ServerCurvePreferences(ProfileNIST2024TLS13Only))
-	assert.Equal(t, []tls.CurveID{tls.SecP384r1MLKEM1024, tls.MLKEM1024, tls.CurveP384}, ServerCurvePreferences(ProfileCNSA10))
+	assert.Equal(t, []tls.CurveID{tls.SecP384r1MLKEM1024, tls.MLKEM1024, tls.CurveP384},
+		ServerCurvePreferences(ProfileCNSA10))
 	assert.Equal(t, ServerCurvePreferences(DefaultProfile), ServerCurvePreferences("unknown"))
 }
 
