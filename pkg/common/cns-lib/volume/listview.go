@@ -496,10 +496,14 @@ func (l *ListViewImpl) listenToTaskUpdates() {
 		}
 		l.isReady = true
 		log.Infof("listview ready state is %v", l.isReady)
+		// Capture this generation's wait context while mu is held. The field is
+		// replaced whenever the view is recreated, and the check after the wait
+		// has to look at the context this particular call was given.
+		waitCtx := l.waitForUpdatesContext
 		l.mu.Unlock()
 		l.viewMu.Unlock()
 		setupCancel()
-		err := property.WaitForUpdatesEx(l.waitForUpdatesContext, pc, filter, func(updates []types.ObjectUpdate) bool {
+		waitErr := property.WaitForUpdatesEx(waitCtx, pc, filter, func(updates []types.ObjectUpdate) bool {
 			log.Debugf("Got %d property collector update(s)", len(updates))
 			for _, update := range updates {
 				for _, prop := range update.ChangeSet {
@@ -521,15 +525,15 @@ func (l *ListViewImpl) listenToTaskUpdates() {
 		_ = pc.Destroy(destroyCtx)
 		destroyCancel()
 
-		// if property collector returns any errors,
+		// if the wait ended for any reason that invalidates this generation,
 		// we want to immediately return a fault for all the pending tasks in the map
 		// note: this is not a task error but an error from the vc
-		if err != nil {
-			log.Errorf("WaitForUpdates returned err: %v for vc: %+v", err,
+		if err := waitExitError(waitCtx, waitErr); err != nil {
+			log.Errorf("listening for task updates stopped with err: %v for vc: %+v", err,
 				l.virtualCenter.Config.Host)
 			recreateView = true
-			if err := l.viewMu.Lock(l.ctx); err != nil {
-				log.Errorf("failed to acquire listview lock after collector failure: %v", err)
+			if lockErr := l.viewMu.Lock(l.ctx); lockErr != nil {
+				log.Errorf("failed to acquire listview lock after collector failure: %v", lockErr)
 				return
 			}
 			log.Info("waiting for lock before setting listview ready state to false")
@@ -549,6 +553,40 @@ func (l *ListViewImpl) listenToTaskUpdates() {
 			return
 		}
 	}
+}
+
+// waitExitError reports why a WaitForUpdatesEx call ended, or nil when it
+// ended cleanly and the ListView generation it ran on is still usable.
+//
+// Two unrelated events bring the wait down. The property collector can fail,
+// which arrives as a non-nil error. Or another path -- AddTask, RemoveTask, or
+// a session check -- can call SetListViewNotReady because its own vCenter call
+// had an ambiguous outcome; that cancels waitForUpdatesContext, and cancelling
+// it is precisely how those paths ask for a new ListView generation.
+//
+// govmomi reports the second case as a clean stop. property.WaitForUpdatesEx
+// turns a cancelled context into a CancelWaitForUpdates call and returns that
+// call's result, which is nil when it succeeds. So the error alone cannot tell
+// a requested teardown from a healthy exit, and the wait context has to be
+// inspected as well.
+//
+// Reading only the error left recreateView false, so the next iteration reused
+// the already-cancelled context. That iteration did eventually reach the
+// rebuild, because WaitForUpdatesEx calls CreateFilter before it waits and
+// that round trip fails on a cancelled context -- but a cycle late, and by
+// accident rather than because the request was understood. In between it
+// republished isReady=true at the top of the pass, so AddTask could admit a
+// task into a generation that was about to be destroyed, and the pending tasks
+// that should have been failed when the view was invalidated were not told
+// until the following pass.
+func waitExitError(waitCtx context.Context, err error) error {
+	if err != nil {
+		return err
+	}
+	if ctxErr := waitCtx.Err(); ctxErr != nil {
+		return fmt.Errorf("task monitoring was stopped to rebuild the listview: %w", ctxErr)
+	}
+	return nil
 }
 
 // reportErrorOnAllPendingTasks returns failure to all pending tasks in the map in case of vc failure

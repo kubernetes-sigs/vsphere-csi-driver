@@ -2,6 +2,7 @@ package volume
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -536,4 +537,87 @@ func TestTaskWaitLockSerializesConcurrentMonitors(t *testing.T) {
 	releaseFirst()
 	releaseSecond := <-acquired
 	releaseSecond()
+}
+
+// failingListViewTransport answers the session check and then fails
+// ModifyListView, which is what an interrupted or rejected ListView.Add looks
+// like to AddTask.
+type failingListViewTransport struct{ modifyErr error }
+
+func (f *failingListViewTransport) RoundTrip(_ context.Context, req, res soap.HasFault) error {
+	switch req := req.(type) {
+	case *methods.RetrievePropertiesExBody:
+		out := res.(*methods.RetrievePropertiesExBody)
+		out.Res = &types.RetrievePropertiesExResponse{Returnval: &types.RetrieveResult{Objects: []types.ObjectContent{{
+			Obj:     req.Req.SpecSet[0].ObjectSet[0].Obj,
+			PropSet: []types.DynamicProperty{{Name: "currentSession", Val: &types.UserSession{Key: "session"}}},
+		}}}}
+		return nil
+	case *methods.ModifyListViewBody:
+		return f.modifyErr
+	default:
+		return fmt.Errorf("unexpected request %T", req)
+	}
+}
+
+func newListViewOnTransport(t *testing.T, transport soap.RoundTripper) (*ListViewImpl, context.Context) {
+	t.Helper()
+	sessionRef := types.ManagedObjectReference{Type: "SessionManager", Value: "session"}
+	collectorRef := types.ManagedObjectReference{Type: "PropertyCollector", Value: "collector"}
+	client := &vim25.Client{RoundTripper: transport, ServiceContent: types.ServiceContent{
+		SessionManager: &sessionRef, PropertyCollector: collectorRef,
+	}}
+	waitCtx, waitCancel := context.WithCancel(context.Background())
+	t.Cleanup(waitCancel)
+	l := &ListViewImpl{isReady: true, taskMap: NewTaskMap(),
+		virtualCenter: newTestVirtualCenter(client), client: client,
+		listView:              view.NewListView(client, types.ManagedObjectReference{Type: "ListView", Value: "view"}),
+		waitForUpdatesContext: waitCtx, waitForUpdatesCancelFunc: waitCancel}
+	return l, waitCtx
+}
+
+// A healthy wait, and the deliberate stop the unit tests use, must leave the
+// current ListView generation in place.
+func TestCleanWaitExitKeepsCurrentListView(t *testing.T) {
+	require.NoError(t, waitExitError(context.Background(), nil))
+}
+
+// A property collector failure is reported unchanged, so callers keep seeing
+// the vCenter error that actually broke the wait.
+func TestCollectorFailureWaitExitKeepsOriginalError(t *testing.T) {
+	collectorErr := errors.New("ServerFaultCode: NotAuthenticated")
+	require.ErrorIs(t, waitExitError(context.Background(), collectorErr), collectorErr)
+}
+
+// SetListViewNotReady asks for a new generation by cancelling the wait context.
+// govmomi turns that cancellation into a clean (nil) return from
+// WaitForUpdatesEx, so the listen loop has to recognise it from the context
+// alone -- otherwise it reuses the cancelled context forever.
+func TestNotReadyCancellationRequestsViewRecreation(t *testing.T) {
+	waitCtx, waitCancel := context.WithCancel(context.Background())
+	defer waitCancel()
+	l := &ListViewImpl{isReady: true, waitForUpdatesContext: waitCtx, waitForUpdatesCancelFunc: waitCancel}
+
+	l.SetListViewNotReady(logger.NewContextWithLogger(context.Background()))
+
+	require.False(t, l.IsListViewReady())
+	err := waitExitError(waitCtx, nil)
+	require.Error(t, err, "a cancelled wait context must force the listview to be rebuilt")
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+// The end-to-end shape of the production incident: one ListView.Add fails, so
+// AddTask invalidates the view, and the listen loop must rebuild it rather than
+// treat the resulting clean wait exit as healthy.
+func TestInterruptedAddRequestsViewRecreation(t *testing.T) {
+	l, waitCtx := newListViewOnTransport(t, &failingListViewTransport{
+		modifyErr: context.DeadlineExceeded,
+	})
+
+	ctx := logger.NewContextWithLogger(context.Background())
+	err := l.AddTask(ctx, types.ManagedObjectReference{Type: "Task", Value: "task-187"}, make(chan TaskResult, 1))
+
+	require.ErrorIs(t, err, ErrListViewTaskAddition)
+	require.False(t, l.IsListViewReady())
+	require.ErrorIs(t, waitExitError(waitCtx, nil), context.Canceled)
 }
