@@ -70,6 +70,10 @@ type Config struct {
 		User string `gcfg:"user"`
 		// vCenter password in clear text.
 		Password string `gcfg:"password"`
+		// VSphereServiceAccount is the name of the VSphereServiceAccount whose Secret carries the
+		// vCenter credentials. It is only honored on Supervisor with the vsphere-csi-runtime-config
+		// FSS enabled; user and password must then be left empty.
+		VSphereServiceAccount string `gcfg:"vsphere-service-account"`
 		// vCenter port.
 		VCenterPort string `gcfg:"port"`
 		// Specifies whether to verify the server's certificate chain. Set to true to
@@ -183,6 +187,10 @@ type VirtualCenterConfig struct {
 	Datacenters string `gcfg:"datacenters"`
 	// TargetvSANFileShareClusters represents file service enabled vSAN clusters on which file volumes can be created.
 	TargetvSANFileShareClusters string `gcfg:"targetvSANFileShareClusters"`
+	// SDDCName is the name of the SDDC custom resource that describes this vCenter. It selects this
+	// vCenter's credentials Secret and its keys in the file volume ConfigMap when
+	// Global.VSphereServiceAccount is set.
+	SDDCName string `gcfg:"sddc-name"`
 	// MigrationDataStore specifies datastore which is set as default datastore in legacy cloud-config
 	// and hence should be used as default datastore.
 	MigrationDataStoreURL string `gcfg:"migration-datastore-url"`
