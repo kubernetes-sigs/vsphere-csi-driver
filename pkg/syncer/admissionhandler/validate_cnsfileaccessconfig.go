@@ -24,11 +24,13 @@ import (
 
 	admissionv1 "k8s.io/api/admission/v1"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/cache"
+	ccV1beta2 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 
@@ -45,6 +47,10 @@ const (
 	vsphereClusterResource       = "vsphereclusters"
 	vsphereClusterDefaultVersion = "v1beta2"
 )
+
+// pvcsiServiceAccountSuffixes are the supported suffixes of guest cluster PvCSI service accounts.
+// "-pvcsi-sae" must be listed before "-pvcsi" so that the longer suffix is matched first.
+var pvcsiServiceAccountSuffixes = []string{"-pvcsi-sae", "-pvcsi"}
 
 // vsphereClusterCache bundles the informer store, sync-state func, and discovered API
 // version for VSphereCluster so they can be threaded through the validation call chain
@@ -296,24 +302,32 @@ func validatePvCSIServiceAccount(ctx context.Context, username string, k8sClient
 	log.Debugf("Extracted namespace=%s, serviceAccountName=%s", namespace, serviceAccountName)
 
 	// For any namespace, check if service account follows guest cluster PvCSI pattern
-	// Guest cluster PvCSI service accounts follow the pattern: {cluster-name}-pvcsi
-	if !strings.HasSuffix(serviceAccountName, "-pvcsi") {
+	// Guest cluster PvCSI service accounts follow one of the patterns:
+	// {vsphere-cluster-name}-pvcsi or {cluster-name}-pvcsi-sae
+	matchedSuffix := ""
+	for _, suffix := range pvcsiServiceAccountSuffixes {
+		if strings.HasSuffix(serviceAccountName, suffix) {
+			matchedSuffix = suffix
+			break
+		}
+	}
+	if matchedSuffix == "" {
 		log.Warnf("Service account: %s doesn't match any PvCSI patterns, returning false", serviceAccountName)
 		return false, nil
 	}
 
-	log.Debugf("Service account ends with -pvcsi, validating as guest cluster PvCSI account")
-	return validateProviderServiceAccount(ctx, namespace, serviceAccountName, k8sClient, vscc)
+	log.Debugf("Service account ends with %s, validating as guest cluster PvCSI account", matchedSuffix)
+	return validateProviderServiceAccount(ctx, namespace, serviceAccountName, matchedSuffix, k8sClient, vscc)
 }
 
 // validateProviderServiceAccount validates the service account name matches an existing
-// VSphereCluster
-func validateProviderServiceAccount(ctx context.Context, namespace, serviceAccountName string,
+// VSphereCluster, either by VSphereCluster name or by its cluster.x-k8s.io/cluster-name label.
+func validateProviderServiceAccount(ctx context.Context, namespace, serviceAccountName, suffix string,
 	k8sClient client.Client, vscc vsphereClusterCache) (bool, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Validating provider service account '%s' in namespace '%s'", serviceAccountName, namespace)
 
-	clusterName := strings.TrimSuffix(serviceAccountName, "-pvcsi")
+	clusterName := strings.TrimSuffix(serviceAccountName, suffix)
 	if clusterName == "" {
 		log.Warnf("Empty vsphere cluster name extracted from service account '%s'", serviceAccountName)
 		return false, nil
@@ -328,8 +342,16 @@ func validateProviderServiceAccount(ctx context.Context, namespace, serviceAccou
 		return false, fmt.Errorf("failed to check VSphereCluster resource: %w", err)
 	}
 	if !found {
-		log.Warnf("VSphereCluster with name '%s' not found in namespace '%s', service account '%s' is not valid",
-			clusterName, namespace, serviceAccountName)
+		// VSphereCluster names may carry a generated suffix (e.g. {cluster-name}-xxxxx) which is
+		// not part of the service account name. Look it up by its owning cluster's name label.
+		found, err = validateVSphereClusterResourceByClusterLabel(ctx, clusterName, namespace, k8sClient, vscc)
+		if err != nil {
+			return false, fmt.Errorf("failed to check VSphereCluster resource by cluster label: %w", err)
+		}
+	}
+	if !found {
+		log.Warnf("VSphereCluster with name or cluster label '%s' not found in namespace '%s', "+
+			"service account '%s' is not valid", clusterName, namespace, serviceAccountName)
 		return false, nil
 	}
 	log.Debugf("Found VSphereCluster '%s' in namespace '%s', service account '%s' is valid",
@@ -382,4 +404,52 @@ func validateVSphereClusterResource(ctx context.Context, clusterName, namespace 
 
 	log.Debugf("Found VSphereCluster '%s/%s' via API call", namespace, clusterName)
 	return true, nil
+}
+
+// validateVSphereClusterResourceByClusterLabel checks if a VSphereCluster resource with the
+// cluster.x-k8s.io/cluster-name label set to clusterName exists in the given namespace.
+// Like validateVSphereClusterResource, it uses the informer's local store when synced and
+// falls back to a direct API call otherwise.
+func validateVSphereClusterResourceByClusterLabel(ctx context.Context, clusterName, namespace string,
+	k8sClient client.Client, vscc vsphereClusterCache) (bool, error) {
+	log := logger.GetLogger(ctx)
+
+	if vscc.store != nil && vscc.hasSynced != nil && vscc.hasSynced() {
+		for _, obj := range vscc.store.List() {
+			vsphereCluster, err := meta.Accessor(obj)
+			if err != nil {
+				continue
+			}
+			if vsphereCluster.GetNamespace() == namespace &&
+				vsphereCluster.GetLabels()[ccV1beta2.ClusterNameLabel] == clusterName {
+				log.Debugf("Found VSphereCluster '%s/%s' with cluster label '%s' in store",
+					namespace, vsphereCluster.GetName(), clusterName)
+				return true, nil
+			}
+		}
+		log.Debugf("VSphereCluster with cluster label '%s' not found in store for namespace '%s'",
+			clusterName, namespace)
+		return false, nil
+	}
+
+	// Informer not yet synced — fall back to direct API call.
+	log.Warnf("VSphereCluster informer not synced, falling back to API call for cluster label '%s' in '%s'",
+		clusterName, namespace)
+	vsphereClusterList := &unstructured.UnstructuredList{}
+	vsphereClusterList.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   vsphereClusterGroup,
+		Version: vscc.version,
+		Kind:    "VSphereClusterList",
+	})
+
+	err := k8sClient.List(ctx, vsphereClusterList, client.InNamespace(namespace),
+		client.MatchingLabels{ccV1beta2.ClusterNameLabel: clusterName})
+	if err != nil {
+		return false, fmt.Errorf("failed to list VSphereClusters with cluster label '%s' in '%s': %w",
+			clusterName, namespace, err)
+	}
+
+	log.Debugf("Found %d VSphereCluster(s) with cluster label '%s' in '%s' via API call",
+		len(vsphereClusterList.Items), clusterName, namespace)
+	return len(vsphereClusterList.Items) > 0, nil
 }
