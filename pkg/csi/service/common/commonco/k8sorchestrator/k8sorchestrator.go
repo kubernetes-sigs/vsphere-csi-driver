@@ -312,6 +312,7 @@ type K8sOrchestrator struct {
 	volumeIDToPvcMap     *volumeIDToPvcMap
 	pvcToVolumeIDMap     *pvcToVolumeIDMap
 	nodeIDToNameMap      *nodeIDToNameMap
+	hostInventory        *hostInventory
 	volumeNameToNodesMap *volumeNameToNodesMap // used when ListVolume FSS is enabled
 	volumeIDToNameMap    *volumeIDToNameMap    // used when ListVolume FSS is enabled
 	k8sClient            clientset.Interface
@@ -320,6 +321,9 @@ type K8sOrchestrator struct {
 	// this map contains UID of PVC with status Pending.
 	// When PVC's status turn to Bound, it is deleted from the map
 	pvcUIDCache sync.Map // key: PVC UID (string), value: namespaced name (string)
+	// podVMV2AtStartup latches the supports_podvm_v2 capability when the orchestrator
+	// initializes. See IsPodVMV2EnabledAtStartup.
+	podVMV2AtStartup bool
 }
 
 // K8sGuestInitParams lists the set of parameters required to run the init for
@@ -444,6 +448,13 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 			log.Errorf("Failed to fetch the capabilities CR. Error: %v", err)
 			os.Exit(1)
 		}
+		// Latch supports_podvm_v2 once. Every PodVM v2 decision taken for the lifetime of
+		// this process must agree on a single value, and IsFSSEnabled re-reads the
+		// capabilities CR for a capability that supports late enablement, so two
+		// consecutive reads can legitimately disagree.
+		k8sOrchestratorInstance.podVMV2AtStartup = k8sOrchestratorInstance.IsFSSEnabled(ctx, common.PodVMV2Support)
+		log.Infof("PodVM v2 capability %q at startup: %t", common.PodVMV2Support,
+			k8sOrchestratorInstance.podVMV2AtStartup)
 	}
 
 	if (controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload) &&
@@ -1335,6 +1346,16 @@ func (c *K8sOrchestrator) HandleLateEnablementOfCapability(ctx context.Context,
 	}
 }
 
+// IsPodVMV2EnabledAtStartup returns the supports_podvm_v2 capability value latched when the
+// orchestrator initialized. Callers must prefer it over IsFSSEnabled for anything decided once
+// per process: the host-ownership inventory, CSINode registration and the late-enablement restart
+// watchers all have to agree. IsFSSEnabled re-reads the capabilities CR whenever a
+// late-enablement capability reads false, so two calls can return different values and leave the
+// process half-converted with no watcher to restart it.
+func (c *K8sOrchestrator) IsPodVMV2EnabledAtStartup(ctx context.Context) bool {
+	return c.podVMV2AtStartup
+}
+
 // IsDPOServiceInstalled reports whether the Data Protection Operator service is installed by checking if the
 // CBTConfig CRD is present on the API server. Only meaningful on workload (WCP) clusters.
 func (c *K8sOrchestrator) IsDPOServiceInstalled(ctx context.Context) (bool, error) {
@@ -2044,6 +2065,8 @@ func initNodeIDToNameMap(ctx context.Context) error {
 		nameToID: make(map[string]string),
 	}
 
+	k8sOrchestratorInstance.hostInventory = k8sOrchestratorInstance.newHostInventory(ctx)
+
 	// Set up kubernetes resource listener to listen events on Node
 	err := k8sOrchestratorInstance.informerManager.AddNodeListener(
 		ctx,
@@ -2126,9 +2149,46 @@ func nodeRemove(obj interface{}) {
 	k8sOrchestratorInstance.nodeIDToNameMap.remove(nodeMoID)
 }
 
-// GetNodeIDtoNameMap returns a map containing the nodeID to node name
-func (c *K8sOrchestrator) GetNodeIDtoNameMap(ctx context.Context) map[string]string {
-	return c.nodeIDToNameMap.items
+// newHostInventory returns the PodVM v2 Node/NodeMapping inventory, or nil when
+// the capability is disabled so that the legacy dedicated-Node informer map is
+// used unchanged. The decision is made once at startup: if the capability is
+// enabled later, HandleLateEnablementOfCapability restarts the controller and
+// syncer containers. The NodeMapping client is resolved lazily because it may
+// not be available during orchestrator initialization.
+func (c *K8sOrchestrator) newHostInventory(ctx context.Context) *hostInventory {
+	if !c.IsFSSEnabled(ctx, common.PodVMV2Support) {
+		return nil
+	}
+	return &hostInventory{
+		client:       c.k8sClient,
+		nodeMappings: listNodeMappings,
+	}
+}
+
+// usesHostInventory reports whether host ownership comes from the PodVM v2
+// Node/NodeMapping inventory instead of the legacy dedicated-Node informer map.
+func (c *K8sOrchestrator) usesHostInventory() bool {
+	return c.hostInventory != nil
+}
+
+// GetNodeIDtoNameMap returns the ESXi host MoID to owning Node name map. An error means
+// ownership could not be resolved and the map is incomplete: callers such as ListVolumes must
+// fail rather than report a partial view, which a consumer would read as volumes having been
+// detached. The legacy path never errors.
+func (c *K8sOrchestrator) GetNodeIDtoNameMap(ctx context.Context) (map[string]string, error) {
+	if c.usesHostInventory() {
+		return c.hostInventory.snapshot(ctx)
+	}
+	result := make(map[string]string)
+	if c.nodeIDToNameMap == nil {
+		return result, nil
+	}
+	c.nodeIDToNameMap.RLock()
+	defer c.nodeIDToNameMap.RUnlock()
+	for host, node := range c.nodeIDToNameMap.items {
+		result[host] = node
+	}
+	return result, nil
 }
 
 // GetNodeNameToHostMoIDMap returns a race-free copy of the node name to ESXi host MoID map,
@@ -2136,6 +2196,12 @@ func (c *K8sOrchestrator) GetNodeIDtoNameMap(ctx context.Context) map[string]str
 // candidate hosts from the hostnames in the accessibility requirement without rebuilding the
 // reverse map on every CreateVolume call.
 func (c *K8sOrchestrator) GetNodeNameToHostMoIDMap(ctx context.Context) map[string]string {
+	if c.nodeIDToNameMap == nil {
+		return make(map[string]string)
+	}
+	// Built from the vmware-system-esxi-node-moid annotation, which only a dedicated ESXi
+	// Node carries, so a VirtualNode never appears here whatever the capability state. Its
+	// callers place host-local disks on one physical host, which a VirtualNode cannot name.
 	return c.nodeIDToNameMap.getNameToIDCopy()
 }
 
