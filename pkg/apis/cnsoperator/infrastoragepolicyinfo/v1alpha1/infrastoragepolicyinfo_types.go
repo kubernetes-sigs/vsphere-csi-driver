@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -63,6 +64,21 @@ type Topology struct {
 	AccessibleZones []string `json:"accessibleZones"`
 }
 
+// ZoneCapacity describes the approximate storage capacity of a storage policy within one zone.
+// It sums the datastores compatible with the policy that are accessible and not in maintenance
+// mode. A datastore shared by several zones is counted in each of them.
+type ZoneCapacity struct {
+	// Zone is the name of the zone.
+	// +kubebuilder:validation:MinLength=1
+	Zone string `json:"zone"`
+
+	// Capacity is the total capacity of the usable datastores compatible with the policy in this zone.
+	Capacity resource.Quantity `json:"capacity"`
+
+	// FreeSpace is the free space of the usable datastores compatible with the policy in this zone.
+	FreeSpace resource.Quantity `json:"freeSpace"`
+}
+
 // ClusterStoragePolicyInfoReference identifies the cluster-scoped ClusterStoragePolicyInfo
 // that carries the non-topology attributes (encryption, performance, volume capabilities)
 // for the same storage policy.
@@ -94,6 +110,20 @@ type InfraStoragePolicyInfoStatus struct {
 	// VolumeCapabilities describes the supported volume capabilities.
 	// +optional
 	VolumeCapabilities *VolumeCapabilities `json:"volumeCapabilities,omitempty"`
+
+	// ZoneCapacity lists the approximate capacity and free space of the policy in each zone. Zones
+	// with no usable compatible datastores are omitted. The values are meant for planning and display,
+	// not as a provisioning guarantee; see CapacityObservedTime for their age.
+	// +optional
+	// +listType=map
+	// +listMapKey=zone
+	ZoneCapacity []ZoneCapacity `json:"zoneCapacity,omitempty"`
+
+	// CapacityObservedTime is when the datastore sizes behind ZoneCapacity were last read from vCenter.
+	// If vCenter cannot be reached, the previous ZoneCapacity is kept and this time is left unchanged,
+	// so it shows how stale the data is.
+	// +optional
+	CapacityObservedTime *metav1.Time `json:"capacityObservedTime,omitempty"`
 
 	// Error describes a failure condition when observing or reconciling this resource.
 	// +optional
