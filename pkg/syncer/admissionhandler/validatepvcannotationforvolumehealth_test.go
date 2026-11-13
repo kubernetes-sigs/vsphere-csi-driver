@@ -285,3 +285,24 @@ func getPVCHealthAnnotationTest(t *testing.T) *pvcHealthAnnotationAdmissionTest 
 	return pvcHealthAnnotationAdmissionTestInstance
 
 }
+
+func TestValidateCSIServiceAccount(t *testing.T) {
+	tests := []struct {
+		username string
+		expected bool
+	}{
+		{"system:serviceaccount:vmware-system-csi:vsphere-csi-controller", true},
+		{"system:serviceaccount:vmware-system-csi:vsphere-csi-node", true},
+		{"system:serviceaccount:vmware-system-csi-evil:my-sa", false},
+		{"system:serviceaccount:vmware-system-csi", false},
+		{"system:serviceaccount:other-ns:system:serviceaccount:vmware-system-csi:sa", false},
+		{"prefix-system:serviceaccount:vmware-system-csi:sa", false},
+		{nonCSIServiceAccountExample, false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		if got := validateCSIServiceAccount(tt.username); got != tt.expected {
+			t.Errorf("validateCSIServiceAccount(%q) = %v, want %v", tt.username, got, tt.expected)
+		}
+	}
+}
