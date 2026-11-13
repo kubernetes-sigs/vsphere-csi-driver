@@ -18,6 +18,7 @@ package syncer
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -35,7 +36,8 @@ import (
 
 // A reservation callback can read an uninitialized SPU and reach the API server after the Used
 // reconciler. Its initialization patch must omit Used entirely; retaining a stale value or writing
-// zero would overwrite valid usage. Exercise the same initializer and patch path as CVOR Add.
+// zero would overwrite valid usage. The stale patch is rejected on resourceVersion and re-applied
+// to the latest copy. Exercise the same initializer and update path as CVOR Add.
 func TestSnapshotReservationInitializationPreservesConcurrentUsed(t *testing.T) {
 	initialUsed := resource.MustParse("1Gi")
 	for _, tc := range []struct {
@@ -64,20 +66,29 @@ func TestSnapshotReservationInitializationPreservesConcurrentUsed(t *testing.T) 
 						require.Equal(t, "status", sub)
 						data, err := patch.Data(obj)
 						require.NoError(t, err)
-						require.JSONEq(t, `{"status":{"quotaUsage":{"reserved":"10Gi"}}}`, string(data))
-						// Simulate the Used worker committing after CVOR Add's read but before its patch.
-						err = cl.Status().Patch(ctx, obj.DeepCopyObject().(client.Object),
-							client.RawPatch(apitypes.MergePatchType, []byte(`{"status":{"quotaUsage":{"used":"2Gi"}}}`)))
-						require.NoError(t, err)
+						var body map[string]interface{}
+						require.NoError(t, json.Unmarshal(data, &body))
+						delete(body, "metadata")
+						require.Equal(t, map[string]interface{}{"status": map[string]interface{}{
+							"quotaUsage": map[string]interface{}{"reserved": "10Gi"}}}, body)
+						if patches == 1 {
+							// Simulate the Used worker committing after CVOR Add's read but before its patch.
+							err = cl.Status().Patch(ctx, obj.DeepCopyObject().(client.Object),
+								client.RawPatch(apitypes.MergePatchType, []byte(`{"status":{"quotaUsage":{"used":"2Gi"}}}`)))
+							require.NoError(t, err)
+						}
 						return cl.Status().Patch(ctx, obj, patch, opts...)
 					},
 				}).Build()
 			oldSPU := &storagepolicyv1alpha3.StoragePolicyUsage{}
 			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(spu), oldSPU))
-			patched := oldSPU.DeepCopy()
-			initializeStoragePolicyUsageReservation(patched, resource.MustParse("10Gi"), true)
-			require.NoError(t, PatchStoragePolicyUsage(ctx, c, oldSPU, patched))
-			require.Equal(t, 1, patches)
+			require.NoError(t, UpdateStoragePolicyUsage(ctx, c, oldSPU,
+				func(patched *storagepolicyv1alpha3.StoragePolicyUsage) bool {
+					initializeStoragePolicyUsageReservation(patched, resource.MustParse("10Gi"), true)
+					return true
+				}))
+			// The first patch is rejected on resourceVersion; the retry is based on the latest copy.
+			require.Equal(t, 2, patches)
 			got := &storagepolicyv1alpha3.StoragePolicyUsage{}
 			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(spu), got))
 			require.Equal(t, "2Gi", got.Status.ResourceTypeLevelQuotaUsage.Used.String())
