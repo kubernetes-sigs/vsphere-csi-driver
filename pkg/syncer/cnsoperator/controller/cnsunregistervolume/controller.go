@@ -382,7 +382,7 @@ var unregisterVolume = _unregisterVolume
 //	| false      | false     | false       | Mark success (no-op)                          |
 //	+------------+-----------+-------------+-----------------------------------------------+
 func _unregisterVolume(ctx context.Context, volMgr volumes.Manager, request reconcile.Request,
-	params params) (string, error) {
+	params params) (faultType string, err error) {
 	log := logger.GetLogger(ctx).With("name", request.NamespacedName)
 
 	k8sClient, err := newK8sClient(ctx)
@@ -440,26 +440,36 @@ func _unregisterVolume(ctx context.Context, volMgr volumes.Manager, request reco
 		}
 	}
 
+	if params.pvcName != "" {
+		// Remove the PVC finalizer on success or NotFound, so it isn't orphaned
+		// when a retry finds the volume already gone (UBMCNS-2659).
+		defer func() {
+			if err != nil && faultType != fault.VimFaultNotFound {
+				return
+			}
+
+			rmErr := removeFinalizerFromPVC(ctx, k8sClient, params.pvcName, params.namespace,
+				cnsoptypes.CNSUnregisterProtectionFinalizer)
+			if rmErr != nil {
+				if !apierrors.IsNotFound(rmErr) {
+					log.Error("failed to remove finalizer from associated PVC with error ", rmErr)
+					faultType = ""
+					err = fmt.Errorf("failed to remove finalizer from associated PVC %s/%s",
+						params.namespace, params.pvcName)
+					return
+				}
+
+				log.Info("associated PVC not found. Continuing with volume unregistration")
+			}
+		}()
+	}
+
 	if params.volumeID != "" {
 		unregDisk := !params.retainFCD // If retainFCD is false, unregister the FCD too.
-		faultType, err := volMgr.UnregisterVolume(ctx, params.volumeID, unregDisk)
+		faultType, err = volMgr.UnregisterVolume(ctx, params.volumeID, unregDisk)
 		if err != nil {
 			log.Error("failed to unregister CNS volume with error ", err)
 			return faultType, fmt.Errorf("failed to unregister associated volume %s", params.volumeID)
-		}
-	}
-
-	if params.pvcName != "" {
-		err = removeFinalizerFromPVC(ctx, k8sClient, params.pvcName, params.namespace,
-			cnsoptypes.CNSUnregisterProtectionFinalizer)
-		if err != nil {
-			if !apierrors.IsNotFound(err) {
-				log.Error("failed to remove finalizer from associated PVC with error ", err)
-				return "", fmt.Errorf("failed to remove finalizer from associated PVC %s/%s",
-					params.namespace, params.pvcName)
-			}
-
-			log.Info("associated PVC not found. Continuing with volume unregistration")
 		}
 	}
 

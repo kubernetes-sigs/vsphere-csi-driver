@@ -29,10 +29,15 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 	restclient "k8s.io/client-go/rest"
+	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -350,5 +355,102 @@ func TestGetRestClientConfigForSupervisor(t *testing.T) {
 	})
 	t.Run("InvalidCA", func(t *testing.T) {
 		assert.Nil(t, getRestClientConfigForSupervisor(ctx, "h", "1", tokenFile, filepath.Join(dir, "none")))
+	})
+}
+
+func TestAddFinalizerOnPVC(t *testing.T) {
+	ctx := context.Background()
+	ns, name, finalizer, other :=
+		"mock-namespace", "mock-pvc", "cns.vmware.com/unregister-protection", "example.com/other"
+
+	t.Run("WhenPVCNameIsEmpty", func(t *testing.T) {
+		c := k8sfake.NewSimpleClientset()
+
+		err := AddFinalizerOnPVC(ctx, c, "", ns, finalizer)
+
+		assert.Error(t, err)
+		assert.Empty(t, c.Actions(), "Expected no API calls")
+	})
+
+	t.Run("WhenCreatingPatchFails", func(t *testing.T) {
+		t.Skip("unreachable: json.Marshal cannot fail for a map of strings")
+	})
+
+	t.Run("WhenPatchingPVCFails", func(t *testing.T) {
+		c := k8sfake.NewSimpleClientset(&v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Finalizers: []string{}},
+		})
+		c.PrependReactor("patch", "persistentvolumeclaims",
+			func(k8stesting.Action) (bool, runtime.Object, error) {
+				return true, nil, errors.New("internal server error")
+			})
+
+		err := AddFinalizerOnPVC(ctx, c, name, ns, finalizer)
+
+		assert.EqualError(t, err, "internal server error")
+	})
+
+	t.Run("WhenSuccessful", func(t *testing.T) {
+		c := k8sfake.NewSimpleClientset(&v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Finalizers: []string{other}},
+		})
+
+		err := AddFinalizerOnPVC(ctx, c, name, ns, finalizer)
+
+		assert.NoError(t, err)
+		pvc, err := c.CoreV1().PersistentVolumeClaims(ns).Get(ctx, name, metav1.GetOptions{})
+		assert.NoError(t, err)
+		assert.ElementsMatch(t, []string{other, finalizer}, pvc.Finalizers)
+		patch, ok := c.Actions()[0].(k8stesting.PatchAction)
+		assert.True(t, ok, "Expected a patch, not an update")
+		assert.Equal(t, apitypes.StrategicMergePatchType, patch.GetPatchType())
+	})
+}
+
+func TestRemoveFinalizerFromPVC(t *testing.T) {
+	ctx := context.Background()
+	ns, name, finalizer, other := "mock-namespace", "mock-pvc", "cns.vmware.com/unregister-protection", "example.com/other"
+
+	t.Run("WhenPVCNameIsEmpty", func(t *testing.T) {
+		c := k8sfake.NewSimpleClientset()
+
+		err := RemoveFinalizerFromPVC(ctx, c, "", ns, finalizer)
+
+		assert.Error(t, err)
+		assert.Empty(t, c.Actions(), "Expected no API calls")
+	})
+
+	t.Run("WhenCreatingPatchFails", func(t *testing.T) {
+		t.Skip("unreachable: json.Marshal cannot fail for a map of strings")
+	})
+
+	t.Run("WhenPatchingPVCFails", func(t *testing.T) {
+		c := k8sfake.NewSimpleClientset(&v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Finalizers: []string{finalizer}},
+		})
+		c.PrependReactor("patch", "persistentvolumeclaims",
+			func(k8stesting.Action) (bool, runtime.Object, error) {
+				return true, nil, errors.New("internal server error")
+			})
+
+		err := RemoveFinalizerFromPVC(ctx, c, name, ns, finalizer)
+
+		assert.EqualError(t, err, "internal server error")
+	})
+
+	t.Run("WhenSuccessful", func(t *testing.T) {
+		c := k8sfake.NewSimpleClientset(&v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Finalizers: []string{other, finalizer}},
+		})
+
+		err := RemoveFinalizerFromPVC(ctx, c, name, ns, finalizer)
+
+		assert.NoError(t, err)
+		pvc, err := c.CoreV1().PersistentVolumeClaims(ns).Get(ctx, name, metav1.GetOptions{})
+		assert.NoError(t, err)
+		assert.Equal(t, []string{other}, pvc.Finalizers)
+		patch, ok := c.Actions()[0].(k8stesting.PatchAction)
+		assert.True(t, ok, "Expected a patch, not an update")
+		assert.Equal(t, apitypes.StrategicMergePatchType, patch.GetPatchType())
 	})
 }

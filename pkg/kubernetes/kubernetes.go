@@ -871,20 +871,14 @@ func AddFinalizerOnPVC(ctx context.Context, k8sClient clientset.Interface, pvcNa
 		return logger.LogNewErrorf(log, "PVC name is empty")
 	}
 
-	pvc, err := k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Get(ctx, pvcName, metav1.GetOptions{})
+	// Strategic merge patch: appends only the below finalizer, no update conflicts.
+	patch, err := finalizerPatch("finalizers", finalizer)
 	if err != nil {
-		log.Errorf("Failed to get PVC. Error: %s", err.Error())
 		return err
 	}
 
-	// If the finalizer is already present, no action is needed
-	if !controllerutil.AddFinalizer(pvc, finalizer) {
-		log.Info("Finalizer already present on PVC. No action needed.")
-		return nil
-	}
-
-	// Update the PVC with the new finalizer
-	_, err = k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Update(ctx, pvc, metav1.UpdateOptions{})
+	_, err = k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Patch(ctx, pvcName,
+		apitypes.StrategicMergePatchType, patch, metav1.PatchOptions{})
 	if err != nil {
 		log.Errorf("Failed to add finalizer on PVC. Error: %s", err.Error())
 		return err
@@ -905,20 +899,14 @@ func RemoveFinalizerFromPVC(ctx context.Context, k8sClient clientset.Interface, 
 		return logger.LogNewErrorf(log, "PVC name is empty")
 	}
 
-	pvc, err := k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Get(ctx, pvcName, metav1.GetOptions{})
+	// Strategic merge patch: removes only this finalizer, no update conflicts.
+	patch, err := finalizerPatch("$deleteFromPrimitiveList/finalizers", finalizer)
 	if err != nil {
-		log.Errorf("Failed to get PVC. Error: %s", err.Error())
 		return err
 	}
 
-	// If the finalizer is not present, no action is needed
-	if !controllerutil.RemoveFinalizer(pvc, finalizer) {
-		log.Info("Finalizer not present on PVC. No action needed.")
-		return nil
-	}
-
-	// Update the PVC to remove the finalizer
-	_, err = k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Update(ctx, pvc, metav1.UpdateOptions{})
+	_, err = k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Patch(ctx, pvcName,
+		apitypes.StrategicMergePatchType, patch, metav1.PatchOptions{})
 	if err != nil {
 		log.Errorf("Failed to remove finalizer from PVC. Error: %s", err.Error())
 		return err
@@ -1075,4 +1063,12 @@ func getPreferredVersionFromDiscovery(
 	}
 
 	return "", fmt.Errorf("group %q resource %q not found in discovery", group, resource)
+}
+
+// finalizerPatch builds a strategic merge patch for one finalizer. key is
+// "finalizers" to add or "$deleteFromPrimitiveList/finalizers" to remove.
+func finalizerPatch(key, finalizer string) ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"metadata": map[string]any{key: []string{finalizer}},
+	})
 }

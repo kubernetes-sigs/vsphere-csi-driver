@@ -204,7 +204,7 @@ func (m MockManager) BatchAttachVolumes(ctx context.Context, vm *cnsvsphere.Virt
 
 func (m MockManager) UnregisterVolume(ctx context.Context, volumeID string, unregisterDisk bool) (string, error) {
 	if m.failRequest {
-		return "", m.err
+		return m.faultType, m.err
 	}
 
 	return "", nil
