@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/tlsprofile"
 )
 
 // TestNewSessionManagerTransportHonoursProxyEnv guards against a bare
@@ -29,4 +31,14 @@ func TestNewSessionManagerTransportHonoursProxyEnv(t *testing.T) {
 		reflect.ValueOf(http.ProxyFromEnvironment).Pointer(),
 		reflect.ValueOf(transport.Proxy).Pointer(),
 		"Proxy should be http.ProxyFromEnvironment")
+}
+
+// TestNewSessionManagerTransportAdvertisesFullGroupList verifies the session
+// manager client offers the complete set of key exchange groups required for
+// post-quantum TLS, not just the group it precomputes a key_share for.
+func TestNewSessionManagerTransportAdvertisesFullGroupList(t *testing.T) {
+	transport := newSessionManagerTransport(SharedTokenOptions{})
+
+	require.NotNil(t, transport.TLSClientConfig)
+	assert.Equal(t, tlsprofile.ClientCurvePreferences(), transport.TLSClientConfig.CurvePreferences)
 }

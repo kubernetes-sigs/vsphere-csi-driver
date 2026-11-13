@@ -49,6 +49,7 @@ import (
 	"github.com/vmware/govmomi/vslm"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/tlsprofile"
 	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 
@@ -252,6 +253,9 @@ func (vc *VirtualCenter) NewClient(ctx context.Context, useragent string) (*govm
 		soapClient.SetThumbprint(url.Host, vc.Config.Thumbprint)
 		log.Debugf("using thumbprint %s for url %s ", vc.Config.Thumbprint, url.Host)
 	}
+
+	// Advertise the full (post-quantum) key exchange group list to vCenter.
+	tlsprofile.ApplyClient(soapClient.DefaultTransport().TLSClientConfig)
 
 	soapClient.Timeout = 0 * time.Minute
 	log.Debugf("Setting vCenter soap client timeout to %v", soapClient.Timeout)
