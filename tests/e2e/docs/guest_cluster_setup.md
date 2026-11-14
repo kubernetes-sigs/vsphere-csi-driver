@@ -137,3 +137,24 @@ To run the Disk Size test (located at /tests/e2e/vsphere_volume_disksize.go
     export GINKGO_FOCUS="Volume\sDisk\sSize"
 
 Note that specify spaces using “\s”.
+
+### Running the guest NFS RWX volume test
+
+`gc_nfs_rwx_basic.go` tests RWX volumes that pvCSI serves from an NFS export (a StorageClass with `server` and
+`share` parameters). It checks nothing in vCenter, CNS or the Supervisor, so `E2E_TEST_CONF_FILE` and
+`SUPERVISOR_CLUSTER_KUBE_CONFIG` are not needed. Before running it:
+
+- Set `"guest-nfs-volume": "true"` in the `internal-feature-states.csi.vsphere.vmware.com` ConfigMap in the pvCSI
+  namespace (`vmware-system-csi`, or `CSI_NAMESPACE` if set). The test fails if it is not enabled.
+- Export the share to all VKS cluster nodes, control plane nodes included (the pvCSI controller runs there and
+  mounts the export to create and delete volume directories). Use `no_root_squash`, or permissions that let root
+  in the controller and in the test pods create and write files.
+
+Set these and run:
+
+    export KUBECONFIG=/path/to/guest-cluster-kube-config-file
+    export CLUSTER_FLAVOR="GUEST_CLUSTER"
+    export VC_IP1=""    # read by the suite at startup; this test does not use it
+    export NFS_SERVER_IP="<nfs-server-ip-or-hostname>"
+    export NFS_SERVER_SHARE="/<exported-path>"
+    export GINKGO_FOCUS="guest-nfs-rwx"
