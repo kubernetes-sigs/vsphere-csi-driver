@@ -115,6 +115,12 @@ func (c *StoragePolicyInfoCache) InvalidateDatastore(dsID string) []string {
 	policies := c.DsToPolicy[dsID]
 	delete(c.DsToHosts, dsID)
 	delete(c.DsToPolicy, dsID)
+	// A deleted datastore must not keep contributing to per-zone policy views.
+	for _, zones := range c.PolicyZoneDatastores {
+		for _, dsSet := range zones {
+			delete(dsSet, dsID)
+		}
+	}
 	if len(policies) == 0 {
 		return nil
 	}
@@ -246,6 +252,29 @@ func (c *StoragePolicyInfoCache) SetDatastoresForPolicyZones(policyName string, 
 		zones[zone] = set
 	}
 	c.PolicyZoneDatastores[policyName] = zones
+}
+
+// GetPolicyZoneDatastores returns a deep copy of the zone -> compatible datastore set
+// and whether policyName has an entry at all. found=false means the policy has not been
+// reconciled since the process started (the cache is in-memory only).
+// found=true with an empty map means it was reconciled and has no compatible datastores in any zone.
+func (c *StoragePolicyInfoCache) GetPolicyZoneDatastores(policyName string) (
+	zoneDatastores map[string]map[string]struct{}, found bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	zones, ok := c.PolicyZoneDatastores[policyName]
+	if !ok {
+		return nil, false
+	}
+	cp := make(map[string]map[string]struct{}, len(zones))
+	for zone, dsSet := range zones {
+		set := make(map[string]struct{}, len(dsSet))
+		for id := range dsSet {
+			set[id] = struct{}{}
+		}
+		cp[zone] = set
+	}
+	return cp, true
 }
 
 // PoliciesForZone returns policy names compatible with at least one datastore

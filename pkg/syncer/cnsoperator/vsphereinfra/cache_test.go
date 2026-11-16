@@ -508,3 +508,41 @@ func TestHostSetsEqual(t *testing.T) {
 		})
 	}
 }
+
+func TestInvalidateDatastore_RemovesFromPolicyZoneDatastores(t *testing.T) {
+	c := newTestCache()
+	c.SetDatastoresForPolicyZones("policy-1", map[string][]string{"zone-a": {"ds-1", "ds-2"}, "zone-b": {"ds-1"}})
+
+	c.InvalidateDatastore("ds-1")
+
+	got, found := c.GetPolicyZoneDatastores("policy-1")
+	assert.True(t, found)
+	assert.Equal(t, map[string]map[string]struct{}{
+		"zone-a": {"ds-2": {}},
+		"zone-b": {},
+	}, got)
+}
+
+func TestGetPolicyZoneDatastores_DistinguishesMissingFromEmpty(t *testing.T) {
+	c := newTestCache()
+
+	_, found := c.GetPolicyZoneDatastores("never-reconciled")
+	assert.False(t, found, "policy with no cache entry must report found=false")
+
+	c.SetDatastoresForPolicyZones("no-datastores", map[string][]string{})
+	got, found := c.GetPolicyZoneDatastores("no-datastores")
+	assert.True(t, found, "reconciled policy with zero datastores must report found=true")
+	assert.Empty(t, got)
+}
+
+func TestGetPolicyZoneDatastores_ReturnsCopy(t *testing.T) {
+	c := newTestCache()
+	c.SetDatastoresForPolicyZones("policy-1", map[string][]string{"zone-a": {"ds-1"}})
+
+	got, _ := c.GetPolicyZoneDatastores("policy-1")
+	got["zone-a"]["ds-2"] = struct{}{}
+	delete(got, "zone-a")
+
+	again, _ := c.GetPolicyZoneDatastores("policy-1")
+	assert.Equal(t, map[string]map[string]struct{}{"zone-a": {"ds-1": {}}}, again)
+}
