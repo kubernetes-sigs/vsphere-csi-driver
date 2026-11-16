@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/conditions"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 
@@ -2545,11 +2546,21 @@ func (r *ReconcileCnsRegisterVolume) cleanupCNSVolume(
 
 // unregisterFCD de-registers a volume as FCD, converting it back to a legacy disk.
 // This is used when the volume was originally registered from a DiskURLPath.
+//
+// A vim.fault.NotFound from CNS means the FCD no longer exists, e.g. because
+// DeleteVolume already removed it when the PVC/PV were reclaimed. Retrying cannot
+// change that, so it is treated as already unregistered. Returning the error
+// instead would requeue the CR forever and keep its finalizer in place.
 func (r *ReconcileCnsRegisterVolume) unregisterFCD(ctx context.Context, volumeID string) error {
 	log := logger.GetLogger(ctx)
 
 	log.With("volumeID", volumeID).Info("Unregistering FCD (unregDisk=true)")
-	if _, err := r.volumeManager.UnregisterVolume(ctx, volumeID, true); err != nil {
+	if faultType, err := r.volumeManager.UnregisterVolume(ctx, volumeID, true); err != nil {
+		if faultType == fault.VimFaultNotFound {
+			log.With("volumeID", volumeID).With("fault", faultType).With("error", err).
+				Warn("FCD not found, treating it as already unregistered")
+			return nil
+		}
 		log.With("volumeID", volumeID).With("error", err).Error("Failed to unregister FCD")
 		return err
 	}
