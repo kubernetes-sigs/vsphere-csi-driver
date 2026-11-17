@@ -204,6 +204,9 @@ Rules:
   host listed by two VirtualNodes gets no owner.
   CSI never reuses an earlier snapshot and never falls back to a masqueraded host annotation on a
   VirtualNode.
+- **A withheld host is always logged.** Every host that ends up with no owner is reported once per
+  snapshot with the reason and the consequence, because the volumes attached on it drop out of
+  ListVolumes and a consumer reads that as a detach.
 - **A Node owns its hosts until it is deleted.** `deletionTimestamp` is not a hand-off: a
   terminating Node of either kind still exists and the VolumeAttachments on its hosts still name
   it, so its hosts stay resolved until the object is gone. For the same reason an overlap resolves
@@ -528,8 +531,10 @@ sequenceDiagram
   remain schedulable to either kind of Node in that zone, so a v1 pod recreated as a v2 pod can reuse
   its PVC. No PV mutation or migration is needed.
 - **Multiple clusters in a zone.** Each vSphere cluster has its own VirtualNode and NodeMapping. If
-  two VirtualNodes list the same host, CSI publishes no owner for that host. Zonal volume
-  accessibility remains the namespace's active cluster, unchanged.
+  two VirtualNodes list the same host, CSI publishes no owner for that host and logs it: a withheld
+  host drops its volumes from ListVolumes, so it must never disappear silently. This per-host check
+  is also the only guard on the single-vCenter MoID assumption, since NodeMapping carries no vCenter
+  identity. Zonal volume accessibility remains the namespace's active cluster, unchanged.
 - **Feature enabled with zero upgraded hosts** behaves exactly like T0. Everything resolves to ESXi
   Nodes.
 
@@ -541,8 +546,8 @@ sequenceDiagram
 | VirtualNode without NodeMapping | Registered as a CSINode, owns no hosts. |
 | NodeMapping not Ready, wrong owner UID or deleting | Hosts withheld. |
 | Host listed by a VirtualNode and held by a dedicated Node | The dedicated Node stays the owner. The conflict is logged (section 7.4). |
-| Host listed by two VirtualNodes | No owner for that host. |
-| Unknown `node-type` value | Not registered. If it carries a host MoID, that host is reserved and has no owner. |
+| Host listed by two VirtualNodes | No owner for that host, logged with both claimants. |
+| Unknown `node-type` value | Not registered. If it carries a host MoID, that host is reserved and has no owner, logged with the unsupported value. |
 | Node list or NodeMapping list error | The lookup fails and ListVolumes fails with it. No stale cache is used and no partial map is published. |
 
 ## 9. Dependencies and open items

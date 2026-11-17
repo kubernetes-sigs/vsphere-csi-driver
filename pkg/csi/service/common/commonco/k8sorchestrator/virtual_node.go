@@ -113,14 +113,14 @@ func (h *hostInventory) snapshot(ctx context.Context) (map[string]string, error)
 		log.Errorf("Cannot list Nodes for physical host ownership: %v", err)
 		return nil, fmt.Errorf("cannot list Nodes for physical host ownership: %w", err)
 	}
-	conflicts := make(map[string]bool)
+	conflicts := make(map[string]string)
 	reserved := make(map[string]string)
 	add := func(host, node string) {
 		if host == "" {
 			return
 		}
 		if previous, exists := owners[host]; exists && previous != node {
-			conflicts[host] = true
+			conflicts[host] = fmt.Sprintf("claimed by Nodes %q and %q", previous, node)
 		}
 		owners[host] = node
 	}
@@ -145,7 +145,8 @@ func (h *hostInventory) snapshot(ctx context.Context) (map[string]string, error)
 		} else {
 			// An unsupported node type is never read as an ESXi host Node, and
 			// nothing else can be said to own the host it names either.
-			conflicts[host] = true
+			conflicts[host] = fmt.Sprintf("held by Node %q, whose node type %q is not a supported ESXi host Node",
+				node.Name, node.Annotations[podvmv2.NodeTypeAnnotation])
 		}
 	}
 	if len(virtualNodes) > 0 {
@@ -153,7 +154,12 @@ func (h *hostInventory) snapshot(ctx context.Context) (map[string]string, error)
 			return nil, err
 		}
 	}
-	for host := range conflicts {
+	for host, reason := range conflicts {
+		// Say why once per host. Withholding one drops every volume attached on
+		// it from ListVolumes, which a consumer reads as those volumes having
+		// been detached, so this must never happen silently.
+		log.Errorf("Host %q has no resolvable owning Node and is withheld from the inventory: %s. "+
+			"Volumes attached on it are omitted from ListVolumes", host, reason)
 		delete(owners, host)
 	}
 	return owners, nil
@@ -170,7 +176,7 @@ func (h *hostInventory) snapshot(ctx context.Context) (map[string]string, error)
 // would be a plausible-looking view of a mixed cluster in which every VirtualNode has silently
 // lost its volumes, which is worse than no answer at all.
 func (h *hostInventory) addVirtualNodeHosts(ctx context.Context, virtualNodes []*corev1.Node,
-	reserved map[string]string, conflicts map[string]bool, add func(host, node string)) error {
+	reserved, conflicts map[string]string, add func(host, node string)) error {
 	log := logger.GetLogger(ctx)
 	mappings, err := h.nodeMappings(ctx)
 	if err != nil {
@@ -205,9 +211,9 @@ func (h *hostInventory) addVirtualNodeHosts(ctx context.Context, virtualNodes []
 			// Node, so an overlap means the mapping and live Node state
 			// disagree: producer lag, a reverse transition or a bug.
 			if holder, held := reserved[host]; held {
-				if conflicts[host] {
-					log.Errorf("Host %q is published by VirtualNode %q but is also held by Node %q and has "+
-						"no resolvable owner; publishing no owner for it", host, node.Name, holder)
+				if _, unresolvable := conflicts[host]; unresolvable {
+					log.Errorf("Host %q is published by VirtualNode %q and is also held by Node %q",
+						host, node.Name, holder)
 				} else {
 					log.Errorf("Host %q is published by VirtualNode %q but is still held by dedicated Node %q; "+
 						"keeping the dedicated Node as its owner", host, node.Name, holder)
