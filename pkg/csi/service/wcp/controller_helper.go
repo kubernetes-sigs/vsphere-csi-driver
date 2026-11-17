@@ -727,7 +727,14 @@ func getVolumeIDToVMMap(ctx context.Context, volumeIDs []string, vmMoidToHostMoi
 		response.Entries = append(response.Entries, entry)
 	}
 
-	hostNames := commonco.ContainerOrchestratorUtility.GetNodeIDtoNameMap(ctx)
+	// Fail rather than answer from a partial ownership view. A host missing from the map
+	// drops every volume attached on it from the response, and a consumer reading
+	// published_node_ids cannot tell that apart from those volumes having been detached.
+	hostNames, err := commonco.ContainerOrchestratorUtility.GetNodeIDtoNameMap(ctx)
+	if err != nil {
+		log.Errorf("failed to resolve host ownership for ListVolumes: %v", err)
+		return nil, fmt.Errorf("failed to resolve host ownership for ListVolumes: %w", err)
+	}
 	if len(hostNames) == 0 {
 		log.Errorf("no hostnames found in the NodeIDtoName map")
 		return nil, fmt.Errorf("no hostnames found in the NodeIDtoName map")

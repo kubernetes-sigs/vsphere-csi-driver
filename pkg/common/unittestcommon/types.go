@@ -55,6 +55,9 @@ type FakeK8SOrchestrator struct {
 	// NodeNameToHostMoID is the node name -> ESXi host MoID map returned by
 	// GetNodeNameToHostMoIDMap in tests. Nil returns an empty map.
 	NodeNameToHostMoID map[string]string
+	// NodeIDtoNameMapErr is the error returned by GetNodeIDtoNameMap in tests, so callers
+	// can exercise the fail-closed path taken when host ownership cannot be resolved.
+	NodeIDtoNameMapErr error
 	// dpoServiceInstalled / dpoServiceInstalledErr control IsDPOServiceInstalled's return value.
 	// dpoServiceInstalled defaults to true (see GetFakeContainerOrchestratorInterface) to
 	// preserve historical behavior for callers that don't configure it; use

@@ -276,6 +276,16 @@ func getPVtoBackingDiskObjectIdIntervalInMin(ctx context.Context) int {
 	return pvtoBackingDiskObjectIdIntervalInMin
 }
 
+// csiNodeRegistrationRequired reports whether the syncer must watch Nodes to create CSINodes.
+// PodVM v2 needs the same watcher as PodVMOnStretchedSupervisor: a VirtualNode has no spherelet
+// to register it, so without this no VirtualNode CSINode is ever created and no PodVM v2 volume
+// can be published. One call covers both capabilities; calling InitializeCSINodes twice would
+// install duplicate Node handlers.
+func csiNodeRegistrationRequired(ctx context.Context, podVMOnStretchedSupervisor bool,
+	co commonco.COCommonInterface) bool {
+	return podVMOnStretchedSupervisor || co.IsPodVMV2EnabledAtStartup(ctx)
+}
+
 // InitMetadataSyncer initializes the Metadata Sync Informer.
 func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 	configInfo *cnsconfig.ConfigurationInfo) error {
@@ -326,7 +336,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		}
 		IsPodVMOnStretchSupervisorFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.PodVMOnStretchedSupervisor)
-		if IsPodVMOnStretchSupervisorFSSEnabled {
+		if csiNodeRegistrationRequired(ctx, IsPodVMOnStretchSupervisorFSSEnabled,
+			commonco.ContainerOrchestratorUtility) {
 			// Start watching on nodes to create CSINodes, if not already present.
 			err = commonco.ContainerOrchestratorUtility.InitializeCSINodes(ctx)
 			if err != nil {
@@ -412,6 +423,14 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.HostLocalStorageSupport) {
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, clusterFlavor,
 				common.HostLocalStorageSupport, "", "")
+		}
+		// PodVMV2Support selects, at startup, the VirtualNode host-ownership inventory and the
+		// CSINode topology keys for VirtualNodes. Restart the syncer when it flips to enabled.
+		// Keyed on the latched startup value so this decision cannot disagree with the one the
+		// orchestrator already made; see IsPodVMV2EnabledAtStartup.
+		if !commonco.ContainerOrchestratorUtility.IsPodVMV2EnabledAtStartup(ctx) {
+			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, clusterFlavor,
+				common.PodVMV2Support, "", "")
 		}
 		if !isSharedDiskEnabled {
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,

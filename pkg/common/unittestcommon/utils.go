@@ -532,13 +532,21 @@ func (c *FakeK8SOrchestrator) GetNodesForVolumes(ctx context.Context, volumeID [
 }
 
 // GetNodeIDtoNameMap returns a map containing the nodeID to node name
-func (c *FakeK8SOrchestrator) GetNodeIDtoNameMap(ctx context.Context) map[string]string {
-	nodeIDToNamesMap := make(map[string]string)
-	return nodeIDToNamesMap
+func (c *FakeK8SOrchestrator) GetNodeIDtoNameMap(ctx context.Context) (map[string]string, error) {
+	result := make(map[string]string)
+	for node, host := range c.NodeNameToHostMoID {
+		result[host] = node
+	}
+	return result, c.NodeIDtoNameMapErr
 }
 
 // GetNodeNameToHostMoIDMap returns the configured node name to ESXi host MoID map,
 // or an empty map when unset.
+// IsPodVMV2EnabledAtStartup returns the latched PodVM v2 capability value.
+func (c *FakeK8SOrchestrator) IsPodVMV2EnabledAtStartup(ctx context.Context) bool {
+	return c.IsFSSEnabled(ctx, common.PodVMV2Support)
+}
+
 func (c *FakeK8SOrchestrator) GetNodeNameToHostMoIDMap(ctx context.Context) map[string]string {
 	if c.NodeNameToHostMoID == nil {
 		return map[string]string{}
