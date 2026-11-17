@@ -27,6 +27,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/dynamic"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
 	clienttesting "k8s.io/client-go/testing"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -119,9 +121,11 @@ func TestVirtualNodeInventoryNodeMappingHandoff(t *testing.T) {
 	check(map[string]string{"host-1": "compute-a", "host-2": "esx-2", "host-3": "esx-3"})
 
 	// A mapping that claims a host still held by a dedicated Node means the two
-	// producers disagree. Publish no owner for it rather than picking one.
+	// producers disagree. The dedicated Node is the live owner until it is deleted,
+	// so it keeps host-2 and the VirtualNode's claim is only logged. Publishing no
+	// owner would drop every volume on host-2 from ListVolumes.
 	mappings = []podvmv2.NodeMapping{nodeMapping(virtual, "host-1", "host-2")}
-	check(map[string]string{"host-1": "compute-a", "host-3": "esx-3"})
+	check(map[string]string{"host-1": "compute-a", "host-2": "esx-2", "host-3": "esx-3"})
 
 	for i := 2; i <= 3; i++ {
 		require.NoError(t, client.CoreV1().Nodes().Delete(ctx, fmt.Sprintf("esx-%d", i), metav1.DeleteOptions{}))
@@ -167,6 +171,7 @@ func TestVirtualNodeInventoryRejectsUntrustworthyMapping(t *testing.T) {
 			// Only a failed lookup is an error. An untrustworthy or absent mapping
 			// leaves the VirtualNode owning nothing, which is a valid answer.
 			wantErr := false
+			want := map[string]string{}
 
 			switch scenario {
 			case "no mapping":
@@ -183,8 +188,11 @@ func TestVirtualNodeInventoryRejectsUntrustworthyMapping(t *testing.T) {
 			case "missing zone":
 				delete(node.Labels, corev1.LabelTopologyZone)
 			case "deleting node":
+				// A deleting VirtualNode has not gone away. It still owns its
+				// hosts, whose VolumeAttachments still name it.
 				now := metav1.Now()
 				node.DeletionTimestamp = &now
+				want = map[string]string{"host-1": "compute-a"}
 			case "unknown node type":
 				node.Annotations[podvmv2.NodeTypeAnnotation] = "entity-group"
 			case "node list fails":
@@ -223,7 +231,7 @@ func TestVirtualNodeInventoryRejectsUntrustworthyMapping(t *testing.T) {
 				// A VirtualNode CSI cannot trust simply owns no hosts, which is a normal
 				// state and not a failure.
 				require.NoError(t, err)
-				require.Empty(t, owners)
+				require.Equal(t, want, owners)
 			}
 		})
 	}
@@ -237,6 +245,7 @@ func TestDedicatedNodesReserveHostsDuringHandoff(t *testing.T) {
 			objects := []runtime.Object{node, virtual}
 			switch scenario {
 			case "deleting":
+				// Terminating, but not gone: still the owner of host-1.
 				now := metav1.Now()
 				node.DeletionTimestamp = &now
 			case "unknown type":
@@ -254,7 +263,7 @@ func TestDedicatedNodesReserveHostsDuringHandoff(t *testing.T) {
 				},
 			}
 			want := map[string]string{"host-2": "compute-a"}
-			if scenario == "dedicated" {
+			if scenario == "dedicated" || scenario == "deleting" {
 				want["host-1"] = node.Name
 			}
 			owners, err := h.snapshot(context.Background())
@@ -266,7 +275,9 @@ func TestDedicatedNodesReserveHostsDuringHandoff(t *testing.T) {
 
 // TestNodeMappingContradictsDedicatedNode covers the producers disagreeing.
 // status.hosts is scoped to hosts without a dedicated Node, so an overlap means
-// producer lag, a reverse transition or a bug. Neither claimant wins.
+// producer lag, a reverse transition or a bug. The dedicated Node exists and its
+// host's VolumeAttachments still name it, so it keeps the host and CSI only logs
+// the disagreement. Publishing no owner would read as a detach to ListVolumes.
 func TestNodeMappingContradictsDedicatedNode(t *testing.T) {
 	dedicated := inventoryNode("esx-1", "host-1", false)
 	virtual := inventoryNode("compute-a", "", true)
@@ -279,5 +290,46 @@ func TestNodeMappingContradictsDedicatedNode(t *testing.T) {
 	}
 	owners, err := h.snapshot(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, map[string]string{"host-2": "compute-a"}, owners)
+	require.Equal(t, map[string]string{"host-1": "esx-1", "host-2": "compute-a"}, owners)
+}
+
+// TestSharedDynamicClientRetriesAfterFailure pins down that a client that could
+// not be built at first use is retried. Caching the error would fail every later
+// ownership snapshot, and so every later ListVolumes, until the container
+// restarts.
+func TestSharedDynamicClientRetriesAfterFailure(t *testing.T) {
+	previous := newDynamicClient
+	t.Cleanup(func() {
+		dynamicClientMu.Lock()
+		defer dynamicClientMu.Unlock()
+		newDynamicClient = previous
+		dynamicClient = nil
+	})
+	dynamicClientMu.Lock()
+	dynamicClient = nil
+	dynamicClientMu.Unlock()
+
+	built := 0
+	ready := false
+	newDynamicClient = func() (dynamic.Interface, error) {
+		built++
+		if !ready {
+			return nil, fmt.Errorf("service account token not projected yet")
+		}
+		return dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()), nil
+	}
+
+	client, err := sharedDynamicClient()
+	require.Error(t, err)
+	require.Nil(t, client)
+
+	ready = true
+	client, err = sharedDynamicClient()
+	require.NoError(t, err, "a failed build must not be cached")
+	require.NotNil(t, client)
+
+	again, err := sharedDynamicClient()
+	require.NoError(t, err)
+	require.Same(t, client, again, "a successful client is reused")
+	require.Equal(t, 2, built, "the client is built once after the retry succeeds")
 }

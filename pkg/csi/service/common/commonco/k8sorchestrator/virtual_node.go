@@ -37,6 +37,10 @@ import (
 // ownership comes from the platform's NodeMapping resource, which publishes
 // the hosts a VirtualNode represents rather than raw vCenter cluster membership.
 //
+// A Node of either kind owns its hosts until the object is deleted. A
+// terminating Node has not gone away: it still exists and the VolumeAttachments
+// on its hosts still name it, so withholding its hosts would read as a detach.
+//
 // Host identity is a bare MoID, unique within one vCenter but not across
 // vCenters, and NodeMapping does not name its vCenter. That is unambiguous
 // because a Supervisor is backed by a single vCenter: GetVirtualCenterConfig
@@ -53,23 +57,39 @@ type hostInventory struct {
 }
 
 var (
-	dynamicClientOnce sync.Once
-	dynamicClient     dynamic.Interface
-	dynamicClientErr  error
-)
-
-// sharedDynamicClient builds the client once: an ownership snapshot runs on
-// every ListVolumes, and rebuilding a client per call is pure overhead.
-func sharedDynamicClient() (dynamic.Interface, error) {
-	dynamicClientOnce.Do(func() {
+	dynamicClientMu sync.Mutex
+	dynamicClient   dynamic.Interface
+	// newDynamicClient builds the NodeMapping client. It is a variable so tests
+	// can exercise sharedDynamicClient without an API server.
+	newDynamicClient = func() (dynamic.Interface, error) {
 		cfg, err := config.GetConfig()
 		if err != nil {
-			dynamicClientErr = err
-			return
+			return nil, err
 		}
-		dynamicClient, dynamicClientErr = dynamic.NewForConfig(cfg)
-	})
-	return dynamicClient, dynamicClientErr
+		return dynamic.NewForConfig(cfg)
+	}
+)
+
+// sharedDynamicClient builds the client once and reuses it: an ownership
+// snapshot runs on every ListVolumes, and rebuilding a client per call is pure
+// overhead.
+//
+// Only a successful client is cached. A failure is returned without being
+// remembered, so a config or client build that fails at first use, such as a
+// service account token not yet projected into the container, does not disable
+// every later snapshot until the container restarts.
+func sharedDynamicClient() (dynamic.Interface, error) {
+	dynamicClientMu.Lock()
+	defer dynamicClientMu.Unlock()
+	if dynamicClient != nil {
+		return dynamicClient, nil
+	}
+	client, err := newDynamicClient()
+	if err != nil {
+		return nil, err
+	}
+	dynamicClient = client
+	return dynamicClient, nil
 }
 
 func listNodeMappings(ctx context.Context) ([]podvmv2.NodeMapping, error) {
@@ -94,7 +114,7 @@ func (h *hostInventory) snapshot(ctx context.Context) (map[string]string, error)
 		return nil, fmt.Errorf("cannot list Nodes for physical host ownership: %w", err)
 	}
 	conflicts := make(map[string]bool)
-	reserved := make(map[string]bool)
+	reserved := make(map[string]string)
 	add := func(host, node string) {
 		if host == "" {
 			return
@@ -108,9 +128,9 @@ func (h *hostInventory) snapshot(ctx context.Context) (map[string]string, error)
 	for i := range nodes.Items {
 		node := &nodes.Items[i]
 		if podvmv2.IsVirtualNode(node) {
-			// A deleting VirtualNode is not published. Zone must be defined
-			// before its hosts can carry usable topology.
-			if node.DeletionTimestamp == nil && node.Labels[corev1.LabelTopologyZone] != "" {
+			// A deleting VirtualNode still owns its hosts until it is gone.
+			// Zone must be defined before its hosts can carry usable topology.
+			if node.Labels[corev1.LabelTopologyZone] != "" {
 				virtualNodes = append(virtualNodes, node)
 			}
 			continue // Ignore any legacy masqueraded single-host annotation.
@@ -119,12 +139,12 @@ func (h *hostInventory) snapshot(ctx context.Context) (map[string]string, error)
 		if host == "" {
 			continue
 		}
-		reserved[host] = true
-		if podvmv2.IsDedicatedHostNode(node) && node.DeletionTimestamp == nil {
+		reserved[host] = node.Name
+		if podvmv2.IsDedicatedHostNode(node) {
 			add(host, node.Name)
 		} else {
-			// Neither an unsupported node type nor a terminating Node can be
-			// interpreted as evidence that this host has joined a VirtualNode.
+			// An unsupported node type is never read as an ESXi host Node, and
+			// nothing else can be said to own the host it names either.
 			conflicts[host] = true
 		}
 	}
@@ -141,14 +161,16 @@ func (h *hostInventory) snapshot(ctx context.Context) (map[string]string, error)
 
 // addVirtualNodeHosts publishes each VirtualNode's hosts from its NodeMapping.
 // The platform scopes that list to hosts without a dedicated Node, so CSI
-// performs no handoff inference of its own. A host listed by two VirtualNodes,
-// or by a VirtualNode and a dedicated Node, gets no owner.
+// performs no handoff inference of its own. A host listed by two VirtualNodes
+// gets no owner. A host listed by a VirtualNode that a dedicated Node still
+// holds stays with the dedicated Node, which is the live owner until it is
+// deleted; dropping both claimants would hide that host's volumes.
 //
 // A NodeMapping read failure here fails the whole snapshot. Returning the dedicated owners alone
 // would be a plausible-looking view of a mixed cluster in which every VirtualNode has silently
 // lost its volumes, which is worse than no answer at all.
 func (h *hostInventory) addVirtualNodeHosts(ctx context.Context, virtualNodes []*corev1.Node,
-	reserved, conflicts map[string]bool, add func(host, node string)) error {
+	reserved map[string]string, conflicts map[string]bool, add func(host, node string)) error {
 	log := logger.GetLogger(ctx)
 	mappings, err := h.nodeMappings(ctx)
 	if err != nil {
@@ -179,13 +201,17 @@ func (h *hostInventory) addVirtualNodeHosts(ctx context.Context, virtualNodes []
 			continue
 		}
 		for _, host := range hosts {
-			if reserved[host] {
-				// The platform scopes status.hosts to hosts without a dedicated
-				// Node, so an overlap means the mapping and live Node state
-				// disagree: producer lag, a reverse transition or a bug.
-				log.Errorf("Host %q is published by VirtualNode %q but is still held by a dedicated Node; "+
-					"publishing no owner for it", host, node.Name)
-				conflicts[host] = true
+			// The platform scopes status.hosts to hosts without a dedicated
+			// Node, so an overlap means the mapping and live Node state
+			// disagree: producer lag, a reverse transition or a bug.
+			if holder, held := reserved[host]; held {
+				if conflicts[host] {
+					log.Errorf("Host %q is published by VirtualNode %q but is also held by Node %q and has "+
+						"no resolvable owner; publishing no owner for it", host, node.Name, holder)
+				} else {
+					log.Errorf("Host %q is published by VirtualNode %q but is still held by dedicated Node %q; "+
+						"keeping the dedicated Node as its owner", host, node.Name, holder)
+				}
 				continue
 			}
 			// add marks the host as conflicting if another VirtualNode already

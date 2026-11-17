@@ -180,21 +180,22 @@ enabled, it is backed by a fresh inventory snapshot (`hostInventory.snapshot` in
 ```mermaid
 flowchart TD
     A[List core Nodes] --> B{node-type?}
-    B -- "virtual-node, not deleting, has zone" --> V[VirtualNode candidates]
-    B -- "empty, not deleting, has esxi-node-moid" --> D["owners[host] = ESXi Node<br/>reserve host"]
-    B -- "deleting or unknown type, has esxi-node-moid" --> R["reserve host as conflict<br/>(no owner)"]
+    B -- "virtual-node, has zone" --> V[VirtualNode candidates]
+    B -- "empty, has esxi-node-moid" --> D["owners[host] = ESXi Node<br/>reserve host"]
+    B -- "unknown type, has esxi-node-moid" --> R["reserve host as conflict<br/>(no owner)"]
     V --> H[List NodeMapping CRs]
     H --> E{"same name, ownerRef UID == Node UID,<br/>not deleting, Ready=True?"}
     E -- no --> X[publish no hosts for this VirtualNode]
     E -- yes --> L{for each status.hosts entry: reserved by a dedicated Node?}
-    L -- yes --> K["conflict: publish no owner for host"]
+    L -- yes --> W["dedicated Node keeps the host<br/>log the disagreement"]
     L -- no --> U{already claimed by another VirtualNode?}
-    U -- yes --> K
+    U -- yes --> K["conflict: publish no owner for host"]
     U -- no --> O["owners[host] = VirtualNode"]
     D --> M[Drop conflicting hosts, return copy]
     R --> M
     O --> M
     K --> M
+    W --> M
 ```
 
 Rules:
@@ -203,6 +204,11 @@ Rules:
   host listed by two VirtualNodes gets no owner.
   CSI never reuses an earlier snapshot and never falls back to a masqueraded host annotation on a
   VirtualNode.
+- **A Node owns its hosts until it is deleted.** `deletionTimestamp` is not a hand-off: a
+  terminating Node of either kind still exists and the VolumeAttachments on its hosts still name
+  it, so its hosts stay resolved until the object is gone. For the same reason an overlap resolves
+  to the dedicated Node rather than to nobody (section 7.4): it is the live owner, and withholding
+  it would hide that host's volumes from ListVolumes.
 - **A failed lookup fails the snapshot.** A Node-list failure or a NodeMapping-list failure returns
   an error, and `GetNodeIDtoNameMap` propagates it. Answering from the dedicated Nodes alone would
   be a plausible-looking view of a mixed cluster in which every VirtualNode has silently lost its
@@ -282,7 +288,8 @@ ListVolumes (pkg/csi/service/wcp/controller.go)
 |---|---|
 | Host still has a dedicated (9.1) ESXi Node | That ESXi Node name |
 | Host listed in a Ready NodeMapping | The VirtualNode name |
-| Host has no resolved owner (hand-off gap, conflict, CR not Ready) | Entry skipped. No owner is fabricated. |
+| Host also claimed by a NodeMapping while a dedicated Node holds it | That ESXi Node name. The conflict is logged (section 7.4). |
+| Host has no resolved owner (hand-off gap, CR not Ready) | Entry skipped. No owner is fabricated. |
 | Ownership could not be resolved (the Node list or the NodeMapping list failed) | The RPC fails. The caller retries on the next sync. |
 | Ownership map empty | Existing error path. The caller retries on the next sync. |
 
@@ -480,9 +487,12 @@ sequenceDiagram
 ### 7.4 Behavior during the mixed interval
 
 - **Exclusive ownership.** A host is owned by its dedicated Node or by the VirtualNode, never both.
-  If the NodeMapping lists a host that a live or deleting ESXi Node still holds, CSI publishes no
-  owner for that host and logs the conflict. The platform's contract says this should not happen, so
-  it signals producer lag or a bug.
+  If the NodeMapping lists a host that an ESXi Node still holds, deleting or not, CSI keeps the
+  dedicated Node as the owner and logs the disagreement. The platform's contract says this should
+  not happen (D1.e), so it signals producer lag or a bug — but the dedicated Node object exists and
+  the VolumeAttachments on that host still name it, so it is the live owner. Publishing no owner
+  would drop that host's volumes from ListVolumes, which the external-attacher reads as a detach:
+  a worse outcome than the disagreement it was reporting.
 - **Hand-off gap.** Between deleting `esxi-host-21` and adding host-21 to the NodeMapping, host-21
   has no owner. Because the host is in maintenance mode for this whole interval and runs no
   PodVMs, ListVolumes has nothing attached there to skip. The gap is therefore harmless, provided
@@ -530,6 +540,7 @@ sequenceDiagram
 | VirtualNode without zone | Not registered and not used in inventory. Retried when the zone label is set. |
 | VirtualNode without NodeMapping | Registered as a CSINode, owns no hosts. |
 | NodeMapping not Ready, wrong owner UID or deleting | Hosts withheld. |
+| Host listed by a VirtualNode and held by a dedicated Node | The dedicated Node stays the owner. The conflict is logged (section 7.4). |
 | Host listed by two VirtualNodes | No owner for that host. |
 | Unknown `node-type` value | Not registered. If it carries a host MoID, that host is reserved and has no owner. |
 | Node list or NodeMapping list error | The lookup fails and ListVolumes fails with it. No stale cache is used and no partial map is published. |
@@ -569,7 +580,8 @@ CSI or provisioner code task beyond these.
 - Inventory: all ESXi Nodes; mixed (dedicated plus NodeMapping); all hosts on the VirtualNode; empty
   `hosts`; missing, not-Ready, deleting and foreign-owner mappings; a host listed by two
   VirtualNodes; a host claimed by both a dedicated Node and a NodeMapping; deleting Nodes;
-  unknown Node type; a failed Node list and a failed NodeMapping list.
+  unknown Node type; a failed Node list and a failed NodeMapping list; a NodeMapping client that
+  fails to build on first use and is retried.
 - ListVolumes: `published_node_ids` for all-regular, mixed and all-virtual inventories; an
   unresolved host is skipped; an empty map and a failed ownership lookup both take the error path;
   fake-attach is unchanged.
