@@ -74,12 +74,12 @@ const (
 	retryDelay      = 3 * time.Minute
 
 	// restLoginCooldown is how long connect() waits before attempting another
-	// rest login after one was rejected as an authentication failure: a flat
-	// 3-minute delay matching vCenter's SSO lockout window (5 attempts in
-	// 180s). The rest re-login path runs on every connect() and has no attempt
-	// limit of its own, so without a cooldown a wrong password would spend that
-	// budget within seconds on an active cluster and lock the account out.
-	restLoginCooldown = 3 * time.Minute
+	// rest login after one was rejected as an authentication failure. It matches
+	// retryDelay, and for the same reason: the rest re-login path runs on every
+	// connect() and has no attempt limit of its own, so without a cooldown a
+	// wrong password would spend vCenter's SSO lockout budget (5 attempts in
+	// 180s) within seconds on an active cluster and lock the account out.
+	restLoginCooldown = retryDelay
 )
 
 // restLoginTimeout bounds a rest re-login attempt on connect()'s repair path.
