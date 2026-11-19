@@ -2203,7 +2203,8 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 		// Details to be persisted.
 		volumeOperationDetails *cnsvolumeoperationrequest.VolumeOperationRequestDetails
 		// CnsVolumeOperationRequest instance name.
-		instanceName = "expand-" + volumeID
+		// File volume IDs contain a ":" which is invalid in a Kubernetes object name.
+		instanceName = "expand-" + strings.ReplaceAll(volumeID, ":", "-")
 		// quotaInfo consists of values required to populate QuotaDetails in CnsVolumeOperationRequest CR.
 		quotaInfo                            *cnsvolumeoperationrequest.QuotaDetails
 		isPodVMOnStretchSupervisorFSSEnabled bool

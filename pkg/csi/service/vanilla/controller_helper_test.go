@@ -83,3 +83,87 @@ func TestValidateVanillaControllerExpandVolumeRequest_AllowsBlockVolume(t *testi
 		t.Fatalf("expected block volume expansion to be allowed, got error: %v", err)
 	}
 }
+
+func fileVolumeExpandRequest(volumeID string) *csi.ControllerExpandVolumeRequest {
+	return &csi.ControllerExpandVolumeRequest{
+		VolumeId:      volumeID,
+		CapacityRange: &csi.CapacityRange{RequiredBytes: 3221225472},
+		VolumeCapability: &csi.VolumeCapability{
+			AccessMode: &csi.VolumeCapability_AccessMode{Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER},
+			AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{FsType: "nfs4"}},
+		},
+	}
+}
+
+func TestIsVanillaFileVolume(t *testing.T) {
+	ctx := context.Background()
+	for volumeID, want := range map[string]bool{
+		"file:1234-abcd": true,
+		"1234-abcd":      false,
+		"":               false,
+	} {
+		if got := isVanillaFileVolume(ctx, volumeID); got != want {
+			t.Errorf("isVanillaFileVolume(%q) = %v, want %v", volumeID, got, want)
+		}
+	}
+}
+
+// TestValidateVanillaControllerExpandFileVolumeRequest verifies a file volume is expanded only for a
+// legacy "file:" volume and only when the VsanFileVolumeExpansion FSS is enabled.
+func TestValidateVanillaControllerExpandFileVolumeRequest(t *testing.T) {
+	ctx := context.Background()
+
+	for _, tt := range []struct {
+		name     string
+		volumeID string
+		fssOn    bool
+		want     codes.Code
+	}{
+		{"FSS off rejects legacy file volume", "file:1234-abcd", false, codes.Unimplemented},
+		{"FSS on allows legacy file volume", "file:1234-abcd", true, codes.OK},
+		{"FSS on rejects FVS volume id", "fv:ns:fv-name", true, codes.Unimplemented},
+		{"FSS off rejects FVS volume id", "fv:ns:fv-name", false, codes.Unimplemented},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateVanillaControllerExpandFileVolumeRequest(ctx, fileVolumeExpandRequest(tt.volumeID), tt.fssOn)
+			if got := status.Code(err); got != tt.want {
+				t.Fatalf("code = %v, want %v (err: %v)", got, tt.want, err)
+			}
+		})
+	}
+
+	t.Run("required parameters are still validated", func(t *testing.T) {
+		noID := fileVolumeExpandRequest("")
+		noCap := fileVolumeExpandRequest("file:1234-abcd")
+		noCap.VolumeCapability = nil
+		noRange := fileVolumeExpandRequest("file:1234-abcd")
+		noRange.CapacityRange = nil
+		for name, req := range map[string]*csi.ControllerExpandVolumeRequest{
+			"missing volume id":      noID,
+			"missing capability":     noCap,
+			"missing capacity range": noRange,
+		} {
+			err := validateVanillaControllerExpandFileVolumeRequest(ctx, req, true)
+			if got := status.Code(err); got != codes.InvalidArgument {
+				t.Errorf("%s: code = %v, want InvalidArgument", name, got)
+			}
+		}
+	})
+}
+
+// TestIsNodeExpansionRequiredFileVolume verifies a file volume never asks kubelet for a node-side
+// expansion, which would fail on an NFS mount (it looks up a block device from the mount).
+func TestIsNodeExpansionRequiredFileVolume(t *testing.T) {
+	mount := &csi.VolumeCapability{
+		AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{FsType: "nfs4"}},
+	}
+	block := &csi.VolumeCapability{
+		AccessType: &csi.VolumeCapability_Block{Block: &csi.VolumeCapability_BlockVolume{}},
+	}
+	if isNodeExpansionRequired(true, mount) {
+		t.Error("file volume with mount capability must not require node expansion")
+	}
+	if isNodeExpansionRequired(true, block) {
+		t.Error("file volume with block capability must not require node expansion")
+	}
+}
