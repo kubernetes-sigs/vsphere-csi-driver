@@ -193,7 +193,8 @@ func NewVolumeHealthReconciler(
 		return nil, err
 	}
 	for _, pv := range pvs.Items {
-		if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name && pv.Status.Phase == v1.VolumeBound {
+		if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name && pv.Status.Phase == v1.VolumeBound &&
+			!common.IsGuestNFSPersistentVolume(&pv) {
 			// Add to volumeHandleToPVs.
 			rc.volumeHandleToPVs.add(pv.Spec.CSI.VolumeHandle, pv.Name)
 		}
@@ -217,6 +218,12 @@ func (rc *volumeHealthReconciler) tkgUpdatePV(oldObj, newObj interface{}) {
 	}
 	newPv, ok := newObj.(*v1.PersistentVolume)
 	if !ok {
+		return
+	}
+	// A guest NFS volume has no Supervisor PVC to copy the health from: looking one up by its volume handle
+	// would find none and mark the guest PVC inaccessible, or, for a handle with a "/" in it, fail to split
+	// the queue key and retry it forever. Full sync sets its health instead (syncGuestNFSVolumeHealth).
+	if common.IsGuestNFSPersistentVolume(newPv) {
 		return
 	}
 	if newPv.Spec.CSI != nil && newPv.Spec.CSI.Driver == csitypes.Name &&

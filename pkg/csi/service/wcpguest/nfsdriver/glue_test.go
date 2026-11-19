@@ -26,6 +26,8 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Every PVC directory is created with the controller's own mode unless a StorageClass opts in,
@@ -225,6 +227,178 @@ func TestCreateVolumeWithoutContentSourceIsUnaffectedByCleanup(t *testing.T) {
 	require.Equal(t, "pvc-plain", resp.Volume.VolumeContext[paramSubDir])
 }
 
+// staticPublishRequest is the NodePublishVolume request kubelet sends for a statically provisioned
+// PersistentVolume with the given handle and volumeAttributes, mountOptions [nfsvers=4.1] and
+// access mode ReadWriteMany.
+func staticPublishRequest(target, handle string, attributes map[string]string) *csi.NodePublishVolumeRequest {
+	volCap := mountCap(csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER)
+	volCap.GetMount().MountFlags = []string{"nfsvers=4.1"}
+	return &csi.NodePublishVolumeRequest{
+		VolumeId:         handle,
+		TargetPath:       target,
+		VolumeCapability: volCap,
+		VolumeContext:    attributes,
+	}
+}
+
+// mountedPath is the path the fake mounter records a mount of target under.
+func mountedPath(t *testing.T, target string) string {
+	t.Helper()
+	p, err := filepath.EvalSymlinks(target)
+	require.NoError(t, err)
+	return p
+}
+
+func TestNodePublishGuestVolumeMountsStaticPV(t *testing.T) {
+	m := newFakeNFSMounter()
+	ns := newTestNodeServer(t, m)
+	target := filepath.Join(t.TempDir(), "target")
+	req := staticPublishRequest(target, VolumeIDPrefix+"pv-nfs-static",
+		map[string]string{"server": "nas-1.example.com", "share": "/exports", "subdir": "team-a"})
+	req.Readonly = true
+
+	_, err := ns.NodePublishGuestVolume(context.Background(), req)
+	require.NoError(t, err)
+	require.Len(t, m.MountPoints, 1)
+	require.Equal(t, "nas-1.example.com:/exports/team-a", m.MountPoints[0].Device)
+	require.Equal(t, mountedPath(t, target), m.MountPoints[0].Path)
+	require.Equal(t, "nfs", m.MountPoints[0].Type)
+	require.Equal(t, []string{"nfsvers=4.1", "ro"}, m.MountPoints[0].Opts)
+
+	// Without a subdir the share itself is mounted.
+	other := filepath.Join(t.TempDir(), "target")
+	_, err = ns.NodePublishGuestVolume(context.Background(), staticPublishRequest(other, VolumeIDPrefix+"pv-2",
+		map[string]string{"server": "fd00::1", "share": "/exports"}))
+	require.NoError(t, err)
+	require.Equal(t, "[fd00::1]:/exports", m.MountPoints[1].Device)
+}
+
+// A static PersistentVolume's attributes are checked like a StorageClass's before anything is
+// mounted, and before the target path is even created.
+func TestNodePublishGuestVolumeRejectsInvalidLocation(t *testing.T) {
+	loc := func(server, share, subDir string) map[string]string {
+		return map[string]string{"server": server, "share": share, "subdir": subDir}
+	}
+	tests := []struct {
+		name       string
+		handle     string
+		attributes map[string]string
+		errPart    string
+	}{
+		{"missing server", "", map[string]string{"share": "/exports"}, "server is a required parameter"},
+		{"missing share", "", map[string]string{"server": "10.0.0.1"}, "share is a required parameter"},
+		{"server with a path", "", loc("10.0.0.1:/other", "/exports", ""), "invalid server"},
+		{"server with whitespace", "", loc("nas 1", "/exports", ""), "invalid server"},
+		{"server that reads as an option", "", loc("-oremount", "/exports", ""), "invalid server"},
+		{"share traversal", "", loc("10.0.0.1", "/exports/../etc", ""), "traversal"},
+		{"subdir traversal", "", loc("10.0.0.1", "/exports", "../other-team"), "traversal"},
+		{"nested subdir traversal", "", loc("10.0.0.1", "/exports", "team-a/../../etc"), "traversal"},
+		{"share with the ID separator", "", loc("10.0.0.1", "/ex#ports", ""), "must not contain"},
+		{"subdir with the ID separator", "", loc("10.0.0.1", "/exports", "team#a"), "must not contain"},
+		{"no location and a free-form handle", VolumeIDPrefix + "pv-nfs-static", nil, "no NFS location"},
+		{"no location and a handle naming the share root", VolumeIDPrefix + "10.0.0.1#exports#.##", nil,
+			"share root"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newFakeNFSMounter()
+			ns := newTestNodeServer(t, m)
+			target := filepath.Join(t.TempDir(), "target")
+			handle := tc.handle
+			if handle == "" {
+				handle = VolumeIDPrefix + "pv-nfs-static"
+			}
+
+			_, err := ns.NodePublishGuestVolume(context.Background(), staticPublishRequest(target, handle, tc.attributes))
+			require.Equal(t, codes.InvalidArgument, status.Code(err), "got: %v", err)
+			require.Contains(t, err.Error(), tc.errPart)
+			require.Empty(t, m.MountPoints)
+			require.NoDirExists(t, target)
+		})
+	}
+}
+
+// A static PersistentVolume that sets no location is mounted from its handle, when the handle is
+// in the form CreateVolume mints. Attributes, when given, win, as they do upstream.
+func TestNodePublishGuestVolumeDerivesLocationFromHandle(t *testing.T) {
+	m := newFakeNFSMounter()
+	ns := newTestNodeServer(t, m)
+	handle := VolumeIDPrefix + "10.0.0.1#exports#team-a/data##"
+
+	_, err := ns.NodePublishGuestVolume(context.Background(),
+		staticPublishRequest(filepath.Join(t.TempDir(), "target"), handle, nil))
+	require.NoError(t, err)
+	require.Equal(t, "10.0.0.1:/exports/team-a/data", m.MountPoints[0].Device)
+	require.Equal(t, []string{"nfsvers=4.1"}, m.MountPoints[0].Opts)
+
+	// Other attributes, or empty location ones, do not stop the location being taken from the handle.
+	_, err = ns.NodePublishGuestVolume(context.Background(), staticPublishRequest(
+		filepath.Join(t.TempDir(), "target"), handle, map[string]string{"mountOptions": "hard", "Server": ""}))
+	require.NoError(t, err)
+	require.Equal(t, "10.0.0.1:/exports/team-a/data", m.MountPoints[1].Device)
+	require.Equal(t, []string{"nfsvers=4.1", "hard"}, m.MountPoints[1].Opts)
+
+	_, err = ns.NodePublishGuestVolume(context.Background(), staticPublishRequest(
+		filepath.Join(t.TempDir(), "target"), handle, map[string]string{"server": "10.0.0.2", "share": "/other"}))
+	require.NoError(t, err)
+	require.Equal(t, "10.0.0.2:/other", m.MountPoints[2].Device)
+}
+
+// A dynamically provisioned volume is mounted exactly as before: from the context CreateVolume
+// returned, which the PersistentVolume carries along with the provisioner's own attribute. Its
+// handle names the same location.
+func TestNodePublishGuestVolumeDynamicVolumeIsUnchanged(t *testing.T) {
+	cs, _ := newTestControllerServer(t)
+	resp, err := cs.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name: "pvc-1",
+		Parameters: map[string]string{
+			"server": "10.0.0.1", "share": "/exports", "subDir": "${pvc.metadata.namespace}/${pvc.metadata.name}",
+			pvcNamespaceKey: "ns", pvcNameKey: "claim", pvNameKey: "pvc-1",
+		},
+		VolumeCapabilities: []*csi.VolumeCapability{mountCap(csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER)},
+	})
+	require.NoError(t, err)
+	attributes := map[string]string{
+		"storage.kubernetes.io/csiProvisionerIdentity": "1700000000000-1-csi.vsphere.vmware.com",
+	}
+	for k, v := range resp.Volume.VolumeContext {
+		attributes[k] = v
+	}
+
+	viaVendored := newFakeNFSMounter()
+	_, err = newTestNodeServer(t, viaVendored).NodePublishVolume(context.Background(),
+		staticPublishRequest(filepath.Join(t.TempDir(), "target"), resp.Volume.VolumeId, attributes))
+	require.NoError(t, err)
+
+	for _, attrs := range []map[string]string{attributes, nil} {
+		m := newFakeNFSMounter()
+		_, err = newTestNodeServer(t, m).NodePublishGuestVolume(context.Background(),
+			staticPublishRequest(filepath.Join(t.TempDir(), "target"), resp.Volume.VolumeId, attrs))
+		require.NoError(t, err)
+		require.Equal(t, "10.0.0.1:/exports/ns/claim", m.MountPoints[0].Device)
+		require.Equal(t, viaVendored.MountPoints[0].Device, m.MountPoints[0].Device)
+		require.Equal(t, viaVendored.MountPoints[0].Opts, m.MountPoints[0].Opts)
+	}
+}
+
+// Unknown attributes are logged, not rejected: refusing one would turn any attribute this code does
+// not know about into a failure to mount.
+func TestNodePublishGuestVolumeIgnoresUnknownAttributes(t *testing.T) {
+	m := newFakeNFSMounter()
+	ns := newTestNodeServer(t, m)
+
+	_, err := ns.NodePublishGuestVolume(context.Background(), staticPublishRequest(
+		filepath.Join(t.TempDir(), "target"), VolumeIDPrefix+"pv-nfs-static",
+		map[string]string{"server": "10.0.0.1", "share": "/exports", "subDirectory": "team-a"}))
+	require.NoError(t, err)
+	require.Equal(t, "10.0.0.1:/exports", m.MountPoints[0].Device)
+
+	require.True(t, isKnownVolumeContextKey("storage.kubernetes.io/csiprovisioneridentity"))
+	require.True(t, isKnownVolumeContextKey(pvcNameKey))
+	require.True(t, isKnownVolumeContextKey(mountPermissionsField))
+	require.False(t, isKnownVolumeContextKey("subdirectory"))
+}
+
 // Each poll is an Lstat over NFS, so the interval must be human-scale, not microseconds.
 func TestWaitForPathNotExist(t *testing.T) {
 	require.GreaterOrEqual(t, pathPollInterval, 100*time.Millisecond)
@@ -248,4 +422,34 @@ func TestWaitForPathNotExist(t *testing.T) {
 		_ = os.Remove(target)
 	}()
 	require.NoError(t, waitForPathNotExistWithTimeout(target, 5*time.Second))
+}
+
+// The external-snapshotter decides whether a pre-provisioned snapshot is ready by listing it by
+// ID, so an existing archive must be found, and a missing one or an invalid ID reported as absent.
+func TestGetSnapshot(t *testing.T) {
+	cs, workDir := newTestControllerServer(t)
+	seedVolume(t, workDir, "pvc-src", "pvc-src")
+	created, err := cs.CreateSnapshot(context.Background(),
+		&csi.CreateSnapshotRequest{Name: "snap-1", SourceVolumeId: testSourceVolumeID})
+	require.NoError(t, err)
+
+	got, err := cs.GetSnapshot(context.Background(), created.Snapshot.SnapshotId, nil)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, created.Snapshot.SnapshotId, got.SnapshotId)
+	require.Equal(t, created.Snapshot.SizeBytes, got.SizeBytes)
+	require.True(t, created.Snapshot.CreationTime.AsTime().Equal(got.CreationTime.AsTime()))
+	require.True(t, got.ReadyToUse)
+
+	missing := VolumeIDPrefix + "10.0.0.1#export#snap-2#snap-2#pvc-src"
+	got, err = cs.GetSnapshot(context.Background(), missing, nil)
+	require.NoError(t, err)
+	require.Nil(t, got)
+
+	mounter := cs.Driver.ns.mounter.(*fakeNFSMounter)
+	mounter.ResetLog()
+	got, err = cs.GetSnapshot(context.Background(), VolumeIDPrefix+"10.0.0.1#export#.#.#pvc-src", nil)
+	require.NoError(t, err)
+	require.Nil(t, got)
+	require.Empty(t, mounter.GetLog(), "an invalid ID must not be mounted")
 }

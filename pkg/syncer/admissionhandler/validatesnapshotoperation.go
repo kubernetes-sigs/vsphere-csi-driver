@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 
 	snap "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 )
 
 const (
@@ -39,7 +40,12 @@ func validateSnapshotOperationGuestRequest(ctx context.Context, req *admissionv1
 			return admission.Denied(reason)
 		}
 		log.Debugf("Validating VolumeSnapshotClass: %q", vsclass.Name)
-		if vsclass.Driver == "csi.vsphere.vmware.com" && !featureGateBlockVolumeSnapshotEnabled {
+		// A class names no volume, so it cannot tell a guest NFS snapshot, which does not need the
+		// block-volume-snapshot feature, from a block volume one. It is allowed while guest NFS volumes
+		// are enabled; the VolumeSnapshot and VolumeSnapshotContent checks below still refuse snapshots
+		// of other volumes.
+		if vsclass.Driver == "csi.vsphere.vmware.com" && !featureGateBlockVolumeSnapshotEnabled &&
+			!featureIsGuestNFSVolumeEnabled {
 			// Disallow any operation on VolumeSnapshotClass object if block-volume-snapshot feature is not enabled
 			return admission.Denied(SnapshotFeatureNotEnabled)
 		}
@@ -51,7 +57,8 @@ func validateSnapshotOperationGuestRequest(ctx context.Context, req *admissionv1
 			return admission.Denied(reason)
 		}
 		log.Debugf("Validating VolumeSnapshotContent: %q", vsc.Name)
-		if vsc.Spec.Driver == "csi.vsphere.vmware.com" && !featureGateBlockVolumeSnapshotEnabled {
+		if vsc.Spec.Driver == "csi.vsphere.vmware.com" && !featureGateBlockVolumeSnapshotEnabled &&
+			!isGuestNFSVolumeSnapshotContent(&vsc) {
 			// Disallow any operation on VolumeSnapshotContent object if block-volume-snapshot feature is not enabled
 			return admission.Denied(SnapshotFeatureNotEnabled)
 		}
@@ -103,7 +110,11 @@ func validateSnapshotOperationGuestRequest(ctx context.Context, req *admissionv1
 				log.Warn(reason)
 				return admission.Denied(reason)
 			}
-			if vsclass.Driver == "csi.vsphere.vmware.com" && !featureGateBlockVolumeSnapshotEnabled {
+			// A VolumeSnapshot that is being deleted is let through: by the time the snapshot
+			// controller removes its last finalizer its content is gone, so it can no longer be told
+			// apart, and refusing the update would only leave it stuck.
+			if vsclass.Driver == "csi.vsphere.vmware.com" && !featureGateBlockVolumeSnapshotEnabled &&
+				vs.DeletionTimestamp == nil && !isGuestNFSVolumeSnapshot(ctx, snapshotterClient, &vs, req.Namespace) {
 				return admission.Denied(SnapshotFeatureNotEnabled)
 			}
 		}
@@ -111,6 +122,62 @@ func validateSnapshotOperationGuestRequest(ctx context.Context, req *admissionv1
 	log.Debugf("validateSnapshotOperationGuestRequest completed for the request name=%q namespace=%q",
 		req.Name, req.Namespace)
 	return admission.Allowed("")
+}
+
+// isGuestNFSVolumeSnapshotContent reports whether vsc is a snapshot of a guest NFS volume, dynamic
+// (its source is the volume) or pre-provisioned (its source is the snapshot). Such a snapshot is an
+// archive on the NFS server and does not depend on the block-volume-snapshot feature.
+func isGuestNFSVolumeSnapshotContent(vsc *snap.VolumeSnapshotContent) bool {
+	src := vsc.Spec.Source
+	return (src.VolumeHandle != nil && common.IsGuestNFSVolumeHandle(*src.VolumeHandle)) ||
+		(src.SnapshotHandle != nil && common.IsGuestNFSVolumeHandle(*src.SnapshotHandle))
+}
+
+// isGuestNFSVolumeSnapshot reports whether vs is a snapshot of a guest NFS volume: by the content it
+// is bound to or names, or, if there is none, by the PV of the PVC it is taken of. namespace is that
+// of the request, which a new object need not carry. Any other lookup failure reads as false, which
+// keeps the check as strict as it is for every other volume.
+func isGuestNFSVolumeSnapshot(ctx context.Context, snapshotterClient snapshotterClientSet.Interface,
+	vs *snap.VolumeSnapshot, namespace string) bool {
+	log := logger.GetLogger(ctx)
+	var contentName string
+	if vs.Status != nil && vs.Status.BoundVolumeSnapshotContentName != nil {
+		contentName = *vs.Status.BoundVolumeSnapshotContentName
+	}
+	if contentName == "" && vs.Spec.Source.VolumeSnapshotContentName != nil {
+		contentName = *vs.Spec.Source.VolumeSnapshotContentName
+	}
+	if contentName != "" {
+		vsc, err := snapshotterClient.SnapshotV1().VolumeSnapshotContents().Get(ctx, contentName, metav1.GetOptions{})
+		if err == nil {
+			return isGuestNFSVolumeSnapshotContent(vsc)
+		}
+		if !apierrors.IsNotFound(err) {
+			log.Warnf("failed to get VolumeSnapshotContent %q of VolumeSnapshot %s/%s: %v",
+				contentName, namespace, vs.Name, err)
+			return false
+		}
+	}
+	if vs.Spec.Source.PersistentVolumeClaimName == nil {
+		return false
+	}
+	pvcName := *vs.Spec.Source.PersistentVolumeClaimName
+	k8sClient, err := newK8sClient(ctx)
+	if err != nil {
+		log.Warnf("failed to get k8s client to look up PVC %s/%s: %v", namespace, pvcName, err)
+		return false
+	}
+	pvc, err := k8sClient.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+	if err != nil || pvc.Spec.VolumeName == "" {
+		log.Debugf("PVC %s/%s of VolumeSnapshot %s is not found or not bound: %v", namespace, pvcName, vs.Name, err)
+		return false
+	}
+	pv, err := k8sClient.CoreV1().PersistentVolumes().Get(ctx, pvc.Spec.VolumeName, metav1.GetOptions{})
+	if err != nil {
+		log.Warnf("failed to get PV %q of PVC %s/%s: %v", pvc.Spec.VolumeName, namespace, pvcName, err)
+		return false
+	}
+	return common.IsGuestNFSPersistentVolume(pv)
 }
 
 func validateSnapshotOperationSupervisorRequest(ctx context.Context,

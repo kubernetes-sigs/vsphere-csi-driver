@@ -8,6 +8,15 @@
 # Restore (and clone) only with an NFS StorageClass such as nfs-csi: a guest NFS snapshot lives in
 # this guest cluster only, so a PVC on a Supervisor-backed StorageClass that uses it as its
 # dataSource is rejected with InvalidArgument.
+#
+# Guest NFS snapshots do not need the Supervisor's block volume snapshot support. When that is off,
+# the pvCSI admission webhook still accepts this class while "guest-nfs-volume" is enabled, and
+# accepts VolumeSnapshots and VolumeSnapshotContents of guest NFS volumes only. The webhook reads
+# both feature states when it starts.
+#
+# The snapshot's restore size is the size of its archive, which is about the amount of data in the
+# volume, and the restored PVC must request at least that much. An NFS volume can hold more data
+# than its PVC requests, so a nearly full or overfilled source may need a larger restored PVC.
 apiVersion: snapshot.storage.k8s.io/v1
 kind: VolumeSnapshotClass
 metadata:

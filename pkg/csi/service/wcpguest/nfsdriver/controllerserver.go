@@ -199,13 +199,25 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	}
 
 	if req.GetVolumeContentSource() != nil {
-		if err := cs.copyVolume(ctx, req, nfsVol); err != nil {
-			// Leaving the half-populated directory would make the provisioner's retry find the
-			// directory, copy again over a partial result and report success.
-			if createdByThisCall {
-				cs.removeFailedVolumeDir(ctx, nfsVol, volCap, internalVolumePath)
+		// A copy can outlast the provisioner's timeout; its retry then waits on the volume lock
+		// until the copy finishes. Copying again at that point would only time out again, so a
+		// volume this process has finished populating is returned as it is.
+		populated, cacheErr := cs.Driver.volPopulatedCache.Get(nfsVol.id, CacheReadTypeDefault)
+		if cacheErr != nil {
+			return nil, status.Errorf(codes.Internal, "%v", cacheErr)
+		}
+		if populated != nil && !createdByThisCall {
+			klog.V(2).Infof("CreateVolume: volume %s is already populated from its content source", nfsVol.id)
+		} else {
+			if err := cs.copyVolume(ctx, req, nfsVol); err != nil {
+				// Leaving the half-populated directory would make the provisioner's retry find the
+				// directory, copy again over a partial result and report success.
+				if createdByThisCall {
+					cs.removeFailedVolumeDir(ctx, nfsVol, volCap, internalVolumePath)
+				}
+				return nil, err
 			}
-			return nil, err
+			cs.Driver.volPopulatedCache.Set(nfsVol.id, "")
 		}
 	}
 
@@ -363,6 +375,14 @@ func (cs *ControllerServer) CreateSnapshot(ctx context.Context, req *csi.CreateS
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "failed to create nfsSnapshot: %v", err)
 	}
+
+	// A retry of a snapshot whose response was lost, typically because archiving outlasted the
+	// snapshotter's timeout, must not write the archive while the first attempt still does.
+	if acquired := cs.Driver.volumeLocks.TryAcquire(snapshot.id); !acquired {
+		return nil, status.Errorf(codes.Aborted, volumeOperationAlreadyExistsFmt, snapshot.id)
+	}
+	defer cs.Driver.volumeLocks.Release(snapshot.id)
+
 	snapVol := volumeFromSnapshot(snapshot)
 	volCap := getVolumeCapabilityFromSecret(req.GetSourceVolumeId(), req.GetSecrets())
 	if err = cs.internalMount(ctx, snapVol, req.GetParameters(), volCap); err != nil {
@@ -381,6 +401,21 @@ func (cs *ControllerServer) CreateSnapshot(ctx context.Context, req *csi.CreateS
 		return nil, err
 	}
 
+	dstPath := filepath.Join(snapInternalVolPath, snapshot.archiveName(cs.Driver.enableSnapshotCompression))
+	// The archive gets its final name only once it is complete, so one that exists is this snapshot,
+	// cut by an earlier attempt. Archiving again would replace it with a later copy of the volume.
+	if fi, err := os.Stat(dstPath); err == nil {
+		klog.V(2).Infof("CreateSnapshot: archive %s of snapshot %s already exists", dstPath, snapshot.id)
+		return snapshotResponse(snapshot, srcVol, fi), nil
+	}
+	partialPath := dstPath + partialArchiveSuffix
+	archived := false
+	defer func() {
+		if !archived {
+			removeFailedSnapshot(snapInternalVolPath, partialPath)
+		}
+	}()
+
 	if err = cs.internalMount(ctx, srcVol, req.GetParameters(), volCap); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to mount src nfs server: %v", err)
 	}
@@ -391,42 +426,67 @@ func (cs *ControllerServer) CreateSnapshot(ctx context.Context, req *csi.CreateS
 	}()
 
 	srcPath := getInternalVolumePath(cs.Driver.workingMountDir, srcVol)
-	dstPath := filepath.Join(snapInternalVolPath, snapshot.archiveName(cs.Driver.enableSnapshotCompression))
 
-	klog.V(2).Infof("tar %v -> %v", srcPath, dstPath)
+	klog.V(2).Infof("tar %v -> %v", srcPath, partialPath)
 	if cs.Driver.useTarCommandInSnapshot {
 		var tarArgs []string
 		if cs.Driver.enableSnapshotCompression {
-			tarArgs = []string{"-C", srcPath, "-czvf", dstPath, "."}
+			tarArgs = []string{"-C", srcPath, "-czvf", partialPath, "."}
 		} else {
-			tarArgs = []string{"-C", srcPath, "-cvf", dstPath, "."}
+			tarArgs = []string{"-C", srcPath, "-cvf", partialPath, "."}
 		}
 		if out, err := exec.Command("tar", tarArgs...).CombinedOutput(); err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to create archive for snapshot: %v: %v", err, string(out))
 		}
 	} else {
-		if err := TarPack(srcPath, dstPath, cs.Driver.enableSnapshotCompression); err != nil {
+		if err := TarPack(srcPath, partialPath, cs.Driver.enableSnapshotCompression); err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to create archive for snapshot: %v", err)
 		}
 	}
+	if err := os.Rename(partialPath, dstPath); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to complete archive for snapshot: %v", err)
+	}
+	archived = true
 	klog.V(2).Infof("tar %s -> %s complete", srcPath, dstPath)
 
-	var snapshotSize int64
 	fi, err := os.Stat(dstPath)
 	if err != nil {
 		klog.Warningf("failed to determine snapshot size: %v", err)
-	} else {
-		snapshotSize = fi.Size()
 	}
-	return &csi.CreateSnapshotResponse{
+	return snapshotResponse(snapshot, srcVol, fi), nil
+}
+
+// partialArchiveSuffix marks a snapshot archive that is still being written.
+const partialArchiveSuffix = ".partial"
+
+// snapshotResponse describes snap, whose archive is archive (nil if it could not be read). The
+// archive's modification time is the creation time, so every call for the snapshot reports the same.
+func snapshotResponse(snap *nfsSnapshot, srcVol *nfsVolume, archive os.FileInfo) *csi.CreateSnapshotResponse {
+	resp := &csi.CreateSnapshotResponse{
 		Snapshot: &csi.Snapshot{
-			SnapshotId:     snapshot.id,
+			SnapshotId:     snap.id,
 			SourceVolumeId: srcVol.id,
-			SizeBytes:      snapshotSize,
 			CreationTime:   timestamppb.Now(),
 			ReadyToUse:     true,
 		},
-	}, nil
+	}
+	if archive != nil {
+		resp.Snapshot.SizeBytes = archive.Size()
+		resp.Snapshot.CreationTime = timestamppb.New(archive.ModTime())
+	}
+	return resp
+}
+
+// removeFailedSnapshot removes what a failed CreateSnapshot left on the NFS server. The snapshot
+// was never reported, so the snapshotter has no ID to call DeleteSnapshot with, and nothing else
+// would remove it. The directory is removed only if that leaves it empty.
+func removeFailedSnapshot(snapDir, partialPath string) {
+	if err := os.Remove(partialPath); err != nil && !os.IsNotExist(err) {
+		klog.Warningf("failed to remove partial snapshot archive %s: %v", partialPath, err)
+	}
+	if err := os.Remove(snapDir); err != nil && !os.IsNotExist(err) {
+		klog.V(4).Infof("not removing snapshot directory %s: %v", snapDir, err)
+	}
 }
 
 func (cs *ControllerServer) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshotRequest) (
@@ -772,6 +832,10 @@ func newNFSSnapshot(name string, params map[string]string, vol *nfsVolume) (*nfs
 			return nil, err
 		}
 	}
+	// Mint only IDs that getNfsSnapFromID accepts again, or the snapshot could not be deleted.
+	if err := validateSnapshotDirs(snapshot); err != nil {
+		return nil, err
+	}
 	snapshot.id = getSnapshotIDFromNfsSnapshot(snapshot)
 	return snapshot, nil
 }
@@ -924,8 +988,17 @@ func getNfsVolFromID(id string) (*nfsVolume, error) {
 	// IDs minted by this package carry VolumeIDPrefix (see getVolumeIDFromNfsVol). Remember the
 	// ID as given, which is what the volume must be reported back as, and parse the rest.
 	rawID := id
+	prefixed := IsGuestVolumeID(id)
 	id = strings.TrimPrefix(id, VolumeIDPrefix)
 	segments := strings.Split(id, separator)
+	// DEVIATION FROM VENDORED UPSTREAM: a prefixed ID is only accepted in the one shape
+	// getVolumeIDFromNfsVol mints. Anything else carrying the prefix was written by hand, for a
+	// statically provisioned volume, and the older shapes accepted below must not let it name a
+	// directory for DeleteVolume to remove.
+	if prefixed && len(segments) != totalIDElements {
+		return nil, fmt.Errorf("volume ID %q is not of the form %s<server>#<share>#<subDir>#<name>#<onDelete> "+
+			"that this driver creates", rawID, VolumeIDPrefix)
+	}
 	if len(segments) < 3 {
 		klog.V(2).Infof("could not split %s into server, baseDir and subDir with separator(%s)", id, separator)
 		// try with separator "/"
@@ -962,6 +1035,11 @@ func getNfsVolFromID(id string) (*nfsVolume, error) {
 			return nil, fmt.Errorf("invalid uuid %q: %v", uuid, err)
 		}
 	}
+	// DeleteVolume deletes the directory for any onDelete other than retain or archive, so a
+	// misspelt one must not decode as "delete".
+	if err := validateOnDeleteValue(onDelete); err != nil {
+		return nil, err
+	}
 
 	return &nfsVolume{
 		id:       rawID,
@@ -981,16 +1059,36 @@ func getNfsVolFromID(id string) (*nfsVolume, error) {
 func getNfsSnapFromID(id string) (*nfsSnapshot, error) {
 	segments := strings.Split(strings.TrimPrefix(id, VolumeIDPrefix), separator)
 	if len(segments) == totalIDSnapElements {
-		return &nfsSnapshot{
+		snap := &nfsSnapshot{
 			id:      id,
 			server:  segments[idSnapServer],
 			baseDir: segments[idSnapBaseDir],
 			src:     segments[idSnapArchiveName],
 			uuid:    segments[idSnapUUID],
-		}, nil
+		}
+		if err := validateSnapshotDirs(snap); err != nil {
+			return &nfsSnapshot{}, err
+		}
+		return snap, nil
 	}
 
 	return &nfsSnapshot{}, fmt.Errorf("failed to create nfsSnapshot from snapshot ID")
+}
+
+// validateSnapshotDirs rejects a snapshot whose directory would resolve to the share root or
+// outside it. The snapshot name is the directory DeleteSnapshot removes, so an ID with an empty or
+// "." name would make it remove the whole export's contents, and ".." a directory above it.
+func validateSnapshotDirs(snap *nfsSnapshot) error {
+	if err := validatePath(snap.baseDir); err != nil {
+		return fmt.Errorf("invalid share %q: %v", snap.baseDir, err)
+	}
+	if err := validateSubDir(snap.uuid); err != nil {
+		return fmt.Errorf("invalid snapshot name %q: %v", snap.uuid, err)
+	}
+	if err := validateSubDir(snap.src); err != nil {
+		return fmt.Errorf("invalid source volume name %q: %v", snap.src, err)
+	}
+	return nil
 }
 
 // isValidVolumeCapabilities validates the given VolumeCapability array is valid
@@ -1027,17 +1125,17 @@ func validateSnapshot(snapInternalVolPath string, snap *nfsSnapshot, enableCompr
 		if err != nil {
 			return err
 		}
-		// Check if it's either compressed or uncompressed archive
-		compressedName := snap.archiveName(true)
-		uncompressedName := snap.archiveName(false)
-		if d.Name() != compressedName && d.Name() != uncompressedName {
-			// there should be just one archive in the snapshot path and archive name should match
-			return status.Errorf(codes.AlreadyExists,
-				"snapshot with the same name but different source volume ID already exists: found %q, desired %q",
-				d.Name(), expectedArchiveName)
+		// Check if it's either compressed or uncompressed archive, complete or still being written
+		switch d.Name() {
+		case snap.archiveName(true), snap.archiveName(false),
+			snap.archiveName(true) + partialArchiveSuffix, snap.archiveName(false) + partialArchiveSuffix:
+			// If archive already exists (either compressed or uncompressed), snapshot was already created
+			return nil
 		}
-		// If archive already exists (either compressed or uncompressed), snapshot was already created
-		return nil
+		// there should be just one archive in the snapshot path and archive name should match
+		return status.Errorf(codes.AlreadyExists,
+			"snapshot with the same name but different source volume ID already exists: found %q, desired %q",
+			d.Name(), expectedArchiveName)
 	})
 }
 

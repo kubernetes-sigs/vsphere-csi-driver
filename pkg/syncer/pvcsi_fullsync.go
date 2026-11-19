@@ -71,6 +71,9 @@ func PvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) er
 		prometheus.FullSyncOpsHistVec.WithLabelValues(fullSyncStatus).Observe(
 			(time.Since(fullSyncStartTime)).Seconds())
 	}()
+	// Runs after the passes below on every return, including the early ones when the Supervisor cannot be
+	// reached: guest NFS volumes do not depend on the Supervisor.
+	defer syncGuestNFSVolumeHealth(ctx, metadataSyncer)
 
 	isWorkloadDomainIsolationEnabledInPVCSI := metadataSyncer.coCommonInterface.IsFSSEnabled(
 		ctx, common.WorkloadDomainIsolationFSS)

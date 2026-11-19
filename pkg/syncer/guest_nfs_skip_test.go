@@ -19,6 +19,7 @@ package syncer
 import (
 	"context"
 	"testing"
+	"time"
 
 	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	"github.com/stretchr/testify/assert"
@@ -26,6 +27,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	corelisters "k8s.io/client-go/listers/core/v1"
@@ -179,6 +181,37 @@ func TestAddNodeAffinityRulesOnPVSkipsGuestNFS(t *testing.T) {
 	got, err := guestClient.CoreV1().PersistentVolumes().Get(ctx, "pv-nfs", metav1.GetOptions{})
 	require.NoError(t, err)
 	assert.Nil(t, got.Spec.NodeAffinity)
+}
+
+// Expanding a guest NFS PVC grows its status capacity, which queues it in the resize reconciler.
+// It has no Supervisor PVC to update, so the reconciler must finish with it without a Supervisor
+// call instead of failing the lookup and requeueing it forever.
+func TestResizeReconcilerSkipsGuestNFSVolumes(t *testing.T) {
+	ctx := context.Background()
+	pv := makeGuestNFSPV("pv-nfs")
+	pvc := createTestPVC("nfs-pvc", "ns", "2Gi", "2Gi", nil, nil)
+	pvc.Spec.VolumeName = pv.Name
+	tkgClient := k8sfake.NewClientset(pv, pvc)
+	svClient := k8sfake.NewClientset()
+	informerFactory := informers.NewSharedInformerFactory(tkgClient, time.Hour)
+	rc := &resizeReconciler{
+		tkgClient:           tkgClient,
+		supervisorClient:    svClient,
+		supervisorNamespace: "sv-ns",
+		pvcLister:           informerFactory.Core().V1().PersistentVolumeClaims().Lister(),
+		pvLister:            informerFactory.Core().V1().PersistentVolumes().Lister(),
+		claimQueue:          newTestRateLimitingQueue("test-guest-nfs"),
+	}
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	informerFactory.Start(stopCh)
+	informerFactory.WaitForCacheSync(stopCh)
+
+	require.NoError(t, rc.syncPVC(ctx, "ns/nfs-pvc"))
+	rc.claimQueue.Add("ns/nfs-pvc")
+	rc.syncPVCs(ctx)
+	assert.Zero(t, rc.claimQueue.NumRequeues("ns/nfs-pvc"), "the claim must not be requeued")
+	assert.Empty(t, svClient.Actions(), "no Supervisor API call may be made for a guest NFS PVC")
 }
 
 // A guest NFS VolumeSnapshotContent has no Supervisor VolumeSnapshot: snapshot full sync must not

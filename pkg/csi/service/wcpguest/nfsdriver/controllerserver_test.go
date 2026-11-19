@@ -17,7 +17,9 @@ limitations under the License.
 package nfsdriver
 
 import (
+	"archive/tar"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -155,6 +157,18 @@ func TestGetNfsVolFromID(t *testing.T) {
 			want: nfsVolume{server: "10.0.0.1", baseDir: "export", subDir: "pvc-1"}},
 		{name: "pvCSI prefix is not part of the server", id: VolumeIDPrefix + "10.0.0.1#export#pvc-1##",
 			want: nfsVolume{server: "10.0.0.1", baseDir: "export", subDir: "pvc-1"}},
+		{name: "onDelete is kept as written", id: VolumeIDPrefix + "10.0.0.1#export#tenant#pvc-1#Retain",
+			want: nfsVolume{server: "10.0.0.1", baseDir: "export", subDir: "tenant", uuid: "pvc-1", onDelete: "Retain"}},
+		// A prefixed ID can only have been minted by getVolumeIDFromNfsVol, which always writes
+		// five fields; any other shape was written by hand for a statically provisioned volume.
+		{name: "prefixed id with three fields", id: VolumeIDPrefix + "10.0.0.1#export#data", errPart: "is not of the form"},
+		{name: "prefixed id with four fields", id: VolumeIDPrefix + "10.0.0.1#export#data#", errPart: "is not of the form"},
+		{name: "prefixed id with six fields", id: VolumeIDPrefix + "10.0.0.1#export#data###x",
+			errPart: "is not of the form"},
+		{name: "prefixed legacy slash separated id", id: VolumeIDPrefix + "10.0.0.1/export/data",
+			errPart: "is not of the form"},
+		{name: "prefixed free-form id", id: VolumeIDPrefix + "pv-nfs-static", errPart: "is not of the form"},
+		{name: "unknown onDelete", id: VolumeIDPrefix + "10.0.0.1#export#data##keep", errPart: "OnDelete"},
 		{name: "subDir dot", id: "10.0.0.1#export#.#pvc-1", errPart: "share root"},
 		{name: "empty subDir", id: "10.0.0.1#export##pvc-1#", errPart: "share root"},
 		{name: "subDir slash", id: "10.0.0.1#export#/#pvc-1", errPart: "share root"},
@@ -384,7 +398,7 @@ func TestDeleteVolumeIgnoresShareRootIDs(t *testing.T) {
 		"10.0.0.1#export#.#pvc-1",
 		"10.0.0.1#export##pvc-1#",
 		"10.0.0.1#export#/#pvc-1",
-		VolumeIDPrefix + "10.0.0.1#export#.#pvc-1",
+		VolumeIDPrefix + "10.0.0.1#export#.#pvc-1#",
 	} {
 		t.Run(id, func(t *testing.T) {
 			cs, workDir := newTestControllerServer(t)
@@ -395,6 +409,32 @@ func TestDeleteVolumeIgnoresShareRootIDs(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, resp)
 			require.FileExists(t, filepath.Join(other, "data.txt"))
+		})
+	}
+}
+
+// The handle of a statically provisioned PersistentVolume is whatever its author wrote. Unless it
+// is exactly in the shape CreateVolume mints, DeleteVolume must treat it as a volume that does not
+// exist and leave the directory it seems to name alone, even though the older ID shapes that
+// getNfsVolFromID still decodes for unprefixed IDs would name one.
+func TestDeleteVolumeLeavesDataOfHandlesItDidNotMint(t *testing.T) {
+	for _, id := range []string{
+		VolumeIDPrefix + "10.0.0.1#export#data",
+		VolumeIDPrefix + "10.0.0.1#export#data#",
+		VolumeIDPrefix + "10.0.0.1#export#data###x",
+		VolumeIDPrefix + "10.0.0.1/export/data",
+		VolumeIDPrefix + "10.0.0.1#export#data##keep",
+		VolumeIDPrefix + "10.0.0.1#export#data##retained",
+	} {
+		t.Run(id, func(t *testing.T) {
+			cs, workDir := newTestControllerServer(t)
+			// Where DeleteVolume would look for subDir "data" if it decoded the handle.
+			data := seedVolume(t, workDir, "data", "data")
+
+			resp, err := cs.DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{VolumeId: id})
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+			require.FileExists(t, filepath.Join(data, "data.txt"))
 		})
 	}
 }
@@ -422,4 +462,166 @@ func TestArchiveVolumeDirMovesSource(t *testing.T) {
 	require.NoDirExists(t, src)
 	require.FileExists(t, filepath.Join(workDir, "pvc-1", "archived-pvc-1", "data.txt"))
 	require.NoFileExists(t, filepath.Join(workDir, "pvc-1", "archived-pvc-1", "stale.txt"))
+}
+
+// A snapshot ID is decoded by DeleteSnapshot, which removes the snapshot's directory, and by a
+// restore, which reads the archive in it. An ID whose directory resolves to the share root or
+// above it, or whose archive lies outside it, must be refused.
+func TestGetNfsSnapFromIDRejectsUnsafeIDs(t *testing.T) {
+	for _, id := range []string{
+		"10.0.0.1#export####",
+		"10.0.0.1#export#.#.#pvc-1",
+		"10.0.0.1#export#/#/#pvc-1",
+		"10.0.0.1#export#..#..#pvc-1",
+		"10.0.0.1#export#snap-1#snap-1#",
+		"10.0.0.1#export#snap-1#snap-1#../pvc-1",
+		"10.0.0.1#../export#snap-1#snap-1#pvc-1",
+		VolumeIDPrefix + "10.0.0.1#export#.#.#pvc-1",
+	} {
+		_, err := getNfsSnapFromID(id)
+		require.Error(t, err, id)
+	}
+
+	snap, err := getNfsSnapFromID(VolumeIDPrefix + "10.0.0.1#export#snap-1#snap-1#pvc-1")
+	require.NoError(t, err)
+	require.Equal(t, "snap-1", snap.uuid)
+	require.Equal(t, "pvc-1", snap.src)
+}
+
+// DeleteSnapshot of an ID that decodes to the share root must succeed without removing anything:
+// the snapshot directory would be the whole mounted export.
+func TestDeleteSnapshotIgnoresShareRootIDs(t *testing.T) {
+	for _, id := range []string{
+		"10.0.0.1#export####",
+		VolumeIDPrefix + "10.0.0.1#export#.#.#pvc-1",
+	} {
+		t.Run(id, func(t *testing.T) {
+			cs, workDir := newTestControllerServer(t)
+			other := seedVolume(t, workDir, "pvc-1", "pvc-1")
+
+			_, err := cs.DeleteSnapshot(context.Background(), &csi.DeleteSnapshotRequest{SnapshotId: id})
+			require.NoError(t, err)
+			require.FileExists(t, filepath.Join(other, "data.txt"))
+		})
+	}
+}
+
+const testSourceVolumeID = VolumeIDPrefix + "10.0.0.1#export#pvc-src##"
+
+func tarEntries(t *testing.T, archive string) []string {
+	t.Helper()
+	f, err := os.Open(archive)
+	require.NoError(t, err)
+	defer f.Close()
+	var names []string
+	r := tar.NewReader(f)
+	for {
+		hdr, err := r.Next()
+		if err == io.EOF {
+			return names
+		}
+		require.NoError(t, err)
+		names = append(names, hdr.Name)
+	}
+}
+
+// A retry of CreateSnapshot, for example after its response was lost, must return the snapshot
+// that was cut rather than archive the volume again: content, size and creation time stay those
+// of the first call.
+func TestCreateSnapshotIsIdempotent(t *testing.T) {
+	cs, workDir := newTestControllerServer(t)
+	srcDir := seedVolume(t, workDir, "pvc-src", "pvc-src")
+	req := &csi.CreateSnapshotRequest{Name: "snap-1", SourceVolumeId: testSourceVolumeID}
+
+	first, err := cs.CreateSnapshot(context.Background(), req)
+	require.NoError(t, err)
+	archive := filepath.Join(workDir, "snap-1", "snap-1", "pvc-src.tar")
+	fi, err := os.Stat(archive)
+	require.NoError(t, err)
+	require.Equal(t, fi.Size(), first.Snapshot.SizeBytes)
+	require.NoFileExists(t, archive+partialArchiveSuffix)
+
+	require.NoError(t, os.WriteFile(filepath.Join(srcDir, "later.txt"), []byte("after the snapshot"), 0644))
+	second, err := cs.CreateSnapshot(context.Background(), req)
+	require.NoError(t, err)
+	require.Equal(t, first.Snapshot.SnapshotId, second.Snapshot.SnapshotId)
+	require.Equal(t, first.Snapshot.SizeBytes, second.Snapshot.SizeBytes)
+	require.True(t, first.Snapshot.CreationTime.AsTime().Equal(second.Snapshot.CreationTime.AsTime()))
+	require.NotContains(t, tarEntries(t, archive), "later.txt")
+}
+
+// While an attempt for a snapshot is still running, typically one whose caller already gave up
+// waiting, another attempt must not write the same archive: it is told to come back later.
+func TestCreateSnapshotRefusedWhileInProgress(t *testing.T) {
+	cs, workDir := newTestControllerServer(t)
+	seedVolume(t, workDir, "pvc-src", "pvc-src")
+	srcVol, err := getNfsVolFromID(testSourceVolumeID)
+	require.NoError(t, err)
+	snap, err := newNFSSnapshot("snap-1", nil, srcVol)
+	require.NoError(t, err)
+	req := &csi.CreateSnapshotRequest{Name: "snap-1", SourceVolumeId: testSourceVolumeID}
+
+	require.True(t, cs.Driver.volumeLocks.TryAcquire(snap.id))
+	_, err = cs.CreateSnapshot(context.Background(), req)
+	require.Equal(t, codes.Aborted, status.Code(err), "got: %v", err)
+	require.NoDirExists(t, filepath.Join(workDir, "snap-1"))
+
+	cs.Driver.volumeLocks.Release(snap.id)
+	_, err = cs.CreateSnapshot(context.Background(), req)
+	require.NoError(t, err)
+}
+
+// A snapshot that fails part-way is never reported, so the snapshotter has no ID to delete: the
+// partial archive and the snapshot's directory must not be left on the export.
+func TestCreateSnapshotRemovesPartialArchiveOnFailure(t *testing.T) {
+	cs, workDir := newTestControllerServer(t)
+	// The source volume has no directory on the export, so archiving fails after the archive file
+	// was created.
+	_, err := cs.CreateSnapshot(context.Background(), &csi.CreateSnapshotRequest{
+		Name: "snap-1", SourceVolumeId: VolumeIDPrefix + "10.0.0.1#export#pvc-missing##",
+	})
+	require.Equal(t, codes.Internal, status.Code(err), "got: %v", err)
+	require.NoDirExists(t, filepath.Join(workDir, "snap-1", "snap-1"))
+}
+
+// A restore can outlast the provisioner's timeout, so the provisioner asks again once the copy
+// has finished. That retry must return the volume instead of copying again; after a restart,
+// which forgets the first copy, copying again over it, symlinks included, must still succeed.
+func TestCreateVolumeFromSnapshotRetry(t *testing.T) {
+	cs, workDir := newTestControllerServer(t)
+	srcDir := seedVolume(t, workDir, "pvc-src", "pvc-src")
+	require.NoError(t, os.Symlink("data.txt", filepath.Join(srcDir, "link")))
+	snap, err := cs.CreateSnapshot(context.Background(),
+		&csi.CreateSnapshotRequest{Name: "snap-1", SourceVolumeId: testSourceVolumeID})
+	require.NoError(t, err)
+
+	// CreateVolume adds the resolved subDir to the parameters it is given, so every call gets a
+	// request of its own, as each one arriving over gRPC does.
+	restore := func() error {
+		_, err := cs.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+			Name:               "pvc-restored",
+			Parameters:         map[string]string{paramServer: "10.0.0.1", paramShare: "/export"},
+			VolumeCapabilities: []*csi.VolumeCapability{mountCap(csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER)},
+			VolumeContentSource: &csi.VolumeContentSource{Type: &csi.VolumeContentSource_Snapshot{
+				Snapshot: &csi.VolumeContentSource_SnapshotSource{SnapshotId: snap.Snapshot.SnapshotId}}},
+		})
+		return err
+	}
+	require.NoError(t, restore())
+	restored := filepath.Join(workDir, "pvc-restored", "pvc-restored")
+	require.FileExists(t, filepath.Join(restored, "data.txt"))
+
+	// Not copied again: the file removed here stays removed.
+	require.NoError(t, os.Remove(filepath.Join(restored, "data.txt")))
+	require.NoError(t, restore())
+	require.NoFileExists(t, filepath.Join(restored, "data.txt"))
+
+	c, err := NewTimedCache(time.Hour, func(string) (interface{}, error) { return nil, nil }, false)
+	require.NoError(t, err)
+	cs.Driver.volPopulatedCache = c
+	require.NoError(t, restore())
+	require.FileExists(t, filepath.Join(restored, "data.txt"))
+	target, err := os.Readlink(filepath.Join(restored, "link"))
+	require.NoError(t, err)
+	require.Equal(t, "data.txt", target)
 }

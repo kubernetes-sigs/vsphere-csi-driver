@@ -41,9 +41,22 @@ limitations under the License.
 //   - Hardening against deleting or mis-decoding the wrong data (utils.go validateSubDir /
 //     validateIDComponent, controllerserver.go newNFSVolume / getNfsVolFromID): a subDir,
 //     volume name or decoded ID that resolves to the share root is rejected, as is a '#' in any
-//     ID component, and getNfsVolFromID tolerates the pvCSI VolumeIDPrefix.
+//     ID component, and getNfsVolFromID tolerates the pvCSI VolumeIDPrefix. Snapshot IDs get the
+//     same treatment (controllerserver.go validateSnapshotDirs, used by newNFSSnapshot and
+//     getNfsSnapFromID), so DeleteSnapshot cannot remove the share root or a directory above it.
+//   - getNfsVolFromID accepts an ID carrying VolumeIDPrefix only in the exact shape
+//     getVolumeIDFromNfsVol mints, and rejects an unknown onDelete value, so the handle of a
+//     statically provisioned volume cannot be decoded as a directory to delete.
 //   - DeleteVolume is idempotent after a lost response or a restart: archiveVolumeDir and
 //     removeEmptyDirs treat an already-removed path as done.
+//   - CreateSnapshot is idempotent and leaves nothing behind when it fails: it holds a lock per
+//     snapshot, writes the archive under a ".partial" name that is renamed once complete, returns
+//     an existing archive instead of archiving the volume again, and removes the partial archive
+//     and the then-empty snapshot directory on failure.
+//   - CreateVolume does not copy a content source again into a volume this process has already
+//     populated (nfs.go volPopulatedCache), and tar.go TarUnpack replaces a file or symlink in
+//     the way of a symlink, so a retry after a lost CreateVolume response, which may come only
+//     once a copy that outlasted the provisioner's timeout finished, succeeds.
 //   - isValidVolumeCapabilities also requires a mount access type and an access mode.
 //   - cache.go TimedCache evicts expired entries instead of only refreshing them on read.
 //   - nodeserver.go NodePublishVolume keeps its volume lock until a timed-out mount actually

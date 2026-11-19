@@ -62,6 +62,9 @@ type Driver struct {
 	volStatsCacheExpireInMinutes int
 	// a timed cache storing volume deletion records <volumeID, "">
 	volDeletionCache Resource
+	// a timed cache storing the volumes CreateVolume has finished copying a content source into
+	// <volumeID, "">
+	volPopulatedCache Resource
 }
 
 const (
@@ -128,6 +131,11 @@ func NewDriver(options *DriverOptions) *Driver {
 		klog.Fatalf("%v", err)
 	}
 	if n.volDeletionCache, err = NewTimedCache(time.Minute, getter, false); err != nil {
+		klog.Fatalf("%v", err)
+	}
+	// Long past the external-provisioner's longest retry interval (5 minutes by default), by which
+	// it asks again once a copy that outlasted its timeout has finished.
+	if n.volPopulatedCache, err = NewTimedCache(time.Hour, getter, false); err != nil {
 		klog.Fatalf("%v", err)
 	}
 	return n

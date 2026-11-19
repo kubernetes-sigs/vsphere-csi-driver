@@ -34,6 +34,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
@@ -216,6 +217,13 @@ func (rc *resizeReconciler) syncPVC(ctx context.Context, key string) error {
 	if err != nil {
 		log.Errorf("Could not get the volume for pvc %s", tkgPVC.Name)
 		return err
+	}
+
+	// A guest NFS volume has no Supervisor PVC to keep in step: looking one up by its volume handle
+	// would fail on every attempt and requeue the PVC forever.
+	if common.IsGuestNFSPersistentVolume(tkgPV) {
+		log.Debugf("PVC %s/%s is a guest NFS volume, it has no Supervisor PVC to update", namespace, name)
+		return nil
 	}
 
 	// Get corresponding PVC from the Supervisor Cluster given the pv in the
