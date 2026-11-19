@@ -96,4 +96,9 @@ const (
 	VimFaultCNSFault = VimFaultPrefix + "CnsFault"
 	// VimFaultNotSupported is the fault returned from CNS when the operation is not supported on the object.
 	VimFaultNotSupported = VimFaultPrefix + "NotSupported"
+	// VimFaultCnsLinkedCloneNotSupported is the fault returned from CNS when it cannot create a volume as a linked
+	// clone of a snapshot because the request is not supported: encryption combined with a linked clone, a VMFS
+	// "Reserve space" or "Fully initialized" allocation policy, or no host that supports linked clones. CSI creates
+	// a full clone instead. Not every vCenter returns it; the others return a CnsFault whose cause is NotSupported.
+	VimFaultCnsLinkedCloneNotSupported = VimFaultPrefix + "CnsLinkedCloneNotSupportedFault"
 )

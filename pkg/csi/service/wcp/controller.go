@@ -1273,6 +1273,19 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			c.manager, &createVolumeSpec, candidateDatastores, []string{}, createVolumeOpts, nil)
 	}
 	if err != nil {
+		if isLinkedCloneRequest && cnsvolume.IsCnsLinkedCloneNotSupportedFault(ctx, faultType) {
+			// CNS cannot create this volume as a linked clone: for example the storage policy uses encryption or a
+			// VMFS "Reserve space" or "Fully initialized" allocation, or no host supports linked clones. Whoever asks
+			// for a linked clone cannot know beforehand whether it is supported, so create a full clone of the
+			// snapshot instead of failing the request.
+			//
+			// Repeat the request without the linked clone parameter: this chooses the datastores and hosts for a full
+			// clone, and the volume is not recorded as a linked clone. That request is not a linked clone request, so
+			// it cannot fall back again. If the full clone fails too, its error is returned.
+			log.Warnf("linked clone is not supported for volume %q, creating a full clone instead. Reason: %v",
+				req.Name, err)
+			return c.createBlockVolume(ctx, fullCloneRequest(req), isWorkloadDomainIsolationEnabled, clusterMoIds)
+		}
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to create volume. Error: %+v", err)
 	}
