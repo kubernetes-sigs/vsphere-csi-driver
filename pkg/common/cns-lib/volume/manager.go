@@ -337,6 +337,10 @@ type defaultManager struct {
 	clusterDistribution            string
 	idempotencyHandlingEnabled     bool
 	multivCenterTopologyDeployment bool
+	// cnsDeleteVolumeFunc issues the CNS DeleteVolume call. When nil, the call
+	// goes to the CNS client. It is a seam for unit tests.
+	cnsDeleteVolumeFunc func(ctx context.Context, volumeIDs []cnstypes.CnsVolumeId,
+		deleteDisk bool) (*object.Task, error)
 }
 
 // ClearTaskInfoObjects is a go routine which runs in the background to clean
@@ -1706,9 +1710,17 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 	switch {
 	case err == nil:
 		if volumeOperationDetails.OperationDetails != nil {
-			// Validate if previous attempt was successful.
+			// A previous Success record is deliberately not treated as proof that the
+			// volume is gone. The same volume ID can be registered again before the
+			// record is cleaned up (e.g. a restore recreating a volume under its
+			// original ID), and a backing disk can also exist without a CNS
+			// registration, so CNS reporting nothing for the ID proves nothing either.
+			// Always invoke CNS DeleteVolume: it reports NotFound for a volume that is
+			// really gone, which is handled as success below, and a
+			// CnsNotRegisteredFault takes the re-registration path.
 			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusSuccess {
-				return "", nil
+				log.Infof("DeleteVolume: found a Success record %q for volume %q. Not skipping CNS DeleteVolume "+
+					"since the volume ID may have been reused.", instanceName, volumeID)
 			}
 			// Validate if previous operation is pending.
 			// If we're retrying after re-registration, don't reuse the old pending task
@@ -1756,7 +1768,7 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 		}
 		// Call the CNS DeleteVolume.
 		cnsVolumeIDList = append(cnsVolumeIDList, cnsVolumeID)
-		task, err = m.virtualCenter.CnsClient.DeleteVolume(ctx, cnsVolumeIDList, deleteDisk)
+		task, err = m.cnsDeleteVolume(ctx, cnsVolumeIDList, deleteDisk)
 		if err != nil {
 			faultType = ExtractFaultTypeFromErr(ctx, err)
 			if cnsvsphere.IsNotFoundError(err) {
@@ -1772,9 +1784,11 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 			log.Errorf("CNS DeleteVolume failed from the vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 			volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
 				nil, metav1.Now(), "", "", "", taskInvocationStatusError, err.Error(), "")
-			err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
-			if err != nil {
-				log.Warnf("failed to store DeleteVolume details with error: %v", err)
+			// storeErr, not err: the CNS error is what the caller must see. Shadowing it
+			// here made a failed CNS DeleteVolume call return the (nil) store result,
+			// i.e. report success for a volume that was never deleted.
+			if storeErr := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); storeErr != nil {
+				log.Warnf("failed to store DeleteVolume details with error: %v", storeErr)
 			}
 			return faultType, err
 		}
@@ -1873,6 +1887,12 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 		// In such a case, send back success as the volume is already deleted.
 		if IsNotFoundFault(ctx, faultType) {
 			log.Infof("DeleteVolume: VolumeID %q, not found, thus returning success", volumeID)
+			// Record the outcome so the record does not stay InProgress. Delete records
+			// are exempt from the stale-record cleanup while InProgress, so it would
+			// otherwise never be removed.
+			volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
+				nil, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
+				task.Reference().Value, "", taskInfo.ActivationId, taskInvocationStatusSuccess, "", "")
 			return "", nil
 		}
 
@@ -1889,6 +1909,15 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 		nil, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
 		task.Reference().Value, "", taskInfo.ActivationId, taskInvocationStatusSuccess, "", "")
 	return "", nil
+}
+
+// cnsDeleteVolume issues the CNS DeleteVolume call.
+func (m *defaultManager) cnsDeleteVolume(ctx context.Context, volumeIDs []cnstypes.CnsVolumeId,
+	deleteDisk bool) (*object.Task, error) {
+	if m.cnsDeleteVolumeFunc != nil {
+		return m.cnsDeleteVolumeFunc(ctx, volumeIDs, deleteDisk)
+	}
+	return m.virtualCenter.CnsClient.DeleteVolume(ctx, volumeIDs, deleteDisk)
 }
 
 // UpdateVolumeMetadata updates a volume given its spec.

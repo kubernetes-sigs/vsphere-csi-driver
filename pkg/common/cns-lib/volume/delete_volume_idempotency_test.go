@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/govmomi"
+	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -77,6 +79,8 @@ func (f *fakeOperationStore) HasPriorSuccessfulCreate(ctx context.Context, name 
 type fakeListView struct {
 	addTaskErr         error
 	deliverEmptyResult bool
+	// taskInfo, when set, is delivered as the terminal result of the task.
+	taskInfo *vim25types.TaskInfo
 }
 
 func (f *fakeListView) AddTask(ctx context.Context, taskMoRef vim25types.ManagedObjectReference,
@@ -86,6 +90,9 @@ func (f *fakeListView) AddTask(ctx context.Context, taskMoRef vim25types.Managed
 	}
 	if f.deliverEmptyResult {
 		ch <- TaskResult{}
+	}
+	if f.taskInfo != nil {
+		ch <- TaskResult{TaskInfo: f.taskInfo}
 	}
 	return nil
 }
@@ -243,25 +250,179 @@ func TestDeleteVolumeResumesTaskOnListViewAdditionFailure(t *testing.T) {
 		"a listview addition failure must stay pending so the same task is resumed")
 }
 
-// TestDeleteVolumeShortCircuitsOnSuccessRecord documents why no delete path may
-// record Success without a successful CNS response: a Success record turns every
-// later delete of the same volume ID into a no-op.
-func TestDeleteVolumeShortCircuitsOnSuccessRecord(t *testing.T) {
+// seedSuccessfulDelete stores the record left behind by a completed delete.
+func seedSuccessfulDelete(store *fakeOperationStore, instanceName string) {
+	store.records[instanceName] = cnsvolumeoperationrequest.CreateVolumeOperationRequestDetails(
+		instanceName, "", "", 0, nil, metav1.Now(), "old-task", "", "old-op-id",
+		cnsvolumeoperationrequest.TaskInvocationStatusSuccess, "", "")
+}
+
+// cnsDeleteCall is one CNS DeleteVolume request seen by recordingCNS.
+type cnsDeleteCall struct {
+	volumeIDs  []string
+	deleteDisk bool
+}
+
+// recordingCNS stands in for the CNS client's DeleteVolume. It records every
+// request and answers with a fixed task or error.
+type recordingCNS struct {
+	calls   []cnsDeleteCall
+	taskID  string
+	callErr error
+}
+
+func (r *recordingCNS) deleteVolume(ctx context.Context, ids []cnstypes.CnsVolumeId,
+	deleteDisk bool) (*object.Task, error) {
+	call := cnsDeleteCall{deleteDisk: deleteDisk}
+	for _, id := range ids {
+		call.volumeIDs = append(call.volumeIDs, id.Id)
+	}
+	r.calls = append(r.calls, call)
+	if r.callErr != nil {
+		return nil, r.callErr
+	}
+	return object.NewTask(&vim25.Client{},
+		vim25types.ManagedObjectReference{Type: "Task", Value: r.taskID}), nil
+}
+
+// cnsTaskInfo builds the terminal task state CNS reports for a DeleteVolume
+// task, with fault set for a failed one.
+func cnsTaskInfo(taskID, opID string, fault *vim25types.LocalizedMethodFault) *vim25types.TaskInfo {
+	return &vim25types.TaskInfo{
+		Task:         vim25types.ManagedObjectReference{Type: "Task", Value: taskID},
+		ActivationId: opID,
+		Result: cnstypes.CnsVolumeOperationBatchResult{
+			VolumeResults: []cnstypes.BaseCnsVolumeOperationResult{
+				&cnstypes.CnsVolumeOperationResult{Fault: fault},
+			},
+		},
+	}
+}
+
+// TestDeleteVolumeWithSuccessRecord covers a prior Success delete record. The
+// record must never stand in for a CNS delete, because the volume ID may have
+// been registered again since (a restore recreates volumes under their original
+// IDs) and CNS having nothing for the ID does not prove the backing disk is gone.
+// The delete therefore always reaches CNS, and the outcome is whatever CNS says.
+func TestDeleteVolumeWithSuccessRecord(t *testing.T) {
+	const (
+		volumeID     = "test-volume-id"
+		instanceName = "delete-" + volumeID
+		newTaskID    = "task-new"
+		newOpID      = "op-new"
+	)
+	notFound := &vim25types.LocalizedMethodFault{Fault: &vim25types.NotFound{}}
+	inUse := &vim25types.LocalizedMethodFault{Fault: &vim25types.ResourceInUse{}}
+
+	tests := []struct {
+		name         string
+		callErr      error
+		taskInfo     *vim25types.TaskInfo
+		expectErr    bool
+		expectStatus string
+		expectTaskID string
+	}{
+		{
+			name:         "volume registered again is deleted",
+			taskInfo:     cnsTaskInfo(newTaskID, newOpID, nil),
+			expectStatus: cnsvolumeoperationrequest.TaskInvocationStatusSuccess,
+			expectTaskID: newTaskID,
+		},
+		{
+			// A retry of a delete that really did complete: CNS has nothing left.
+			name:         "volume already gone is reported as success",
+			callErr:      createFCDSoapFault(vim25types.NotFound{}, "not found"),
+			expectStatus: cnsvolumeoperationrequest.TaskInvocationStatusSuccess,
+			expectTaskID: "",
+		},
+		{
+			name:         "volume already gone reported on the task is success",
+			taskInfo:     cnsTaskInfo(newTaskID, newOpID, notFound),
+			expectStatus: cnsvolumeoperationrequest.TaskInvocationStatusSuccess,
+			expectTaskID: newTaskID,
+		},
+		{
+			name:         "CNS delete failure replaces the stale record with Error",
+			taskInfo:     cnsTaskInfo(newTaskID, newOpID, inUse),
+			expectErr:    true,
+			expectStatus: cnsvolumeoperationrequest.TaskInvocationStatusError,
+			expectTaskID: newTaskID,
+		},
+		{
+			name:         "CNS call failure replaces the stale record with Error",
+			callErr:      errors.New("vc unreachable"),
+			expectErr:    true,
+			expectStatus: cnsvolumeoperationrequest.TaskInvocationStatusError,
+			expectTaskID: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := logger.NewContextWithLogger(context.Background())
+			store := newFakeOperationStore()
+			seedSuccessfulDelete(store, instanceName)
+			cns := &recordingCNS{taskID: newTaskID, callErr: tt.callErr}
+			m := newDeleteVolumeTestManagerWithListView(store, &fakeListView{taskInfo: tt.taskInfo})
+			m.cnsDeleteVolumeFunc = cns.deleteVolume
+
+			_, err := m.deleteVolumeWithImprovedIdempotency(ctx, volumeID, true, false)
+			if tt.expectErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+
+			assert.Equal(t, []cnsDeleteCall{{volumeIDs: []string{volumeID}, deleteDisk: true}}, cns.calls,
+				"a Success record must not stand in for a CNS DeleteVolume of the volume")
+			record := store.records[instanceName]
+			assert.NotNil(t, record)
+			assert.Equal(t, tt.expectStatus, record.OperationDetails.TaskStatus)
+			assert.Equal(t, tt.expectTaskID, record.OperationDetails.TaskID)
+		})
+	}
+}
+
+// TestDeleteVolumeWithoutRecordInvokesCNS is the baseline: with no record the
+// delete reaches CNS exactly once and is recorded as a success.
+func TestDeleteVolumeWithoutRecordInvokesCNS(t *testing.T) {
 	const (
 		volumeID     = "test-volume-id"
 		instanceName = "delete-" + volumeID
 	)
 	ctx := logger.NewContextWithLogger(context.Background())
 	store := newFakeOperationStore()
-	store.records[instanceName] = cnsvolumeoperationrequest.CreateVolumeOperationRequestDetails(
-		instanceName, "", "", 0, nil, metav1.Now(), "task-1", "", "test-op-id",
-		cnsvolumeoperationrequest.TaskInvocationStatusSuccess, "", "")
-	// AddTask would fail if it were reached, proving CNS is never contacted.
-	m := newDeleteVolumeTestManager(store, errors.New("should not be called"))
+	cns := &recordingCNS{taskID: "task-1"}
+	m := newDeleteVolumeTestManagerWithListView(store, &fakeListView{taskInfo: cnsTaskInfo("task-1", "op-1", nil)})
+	m.cnsDeleteVolumeFunc = cns.deleteVolume
 
-	faultType, err := m.deleteVolumeWithImprovedIdempotency(ctx, volumeID, true, false)
+	_, err := m.deleteVolumeWithImprovedIdempotency(ctx, volumeID, false, false)
 	assert.NoError(t, err)
-	assert.Empty(t, faultType)
+	assert.Equal(t, []cnsDeleteCall{{volumeIDs: []string{volumeID}, deleteDisk: false}}, cns.calls)
+	assert.Equal(t, cnsvolumeoperationrequest.TaskInvocationStatusSuccess,
+		store.records[instanceName].OperationDetails.TaskStatus)
+}
+
+// TestDeleteVolumeResumesPendingTaskWithoutNewCNSCall guards the idempotency the
+// record still provides: a retry that finds an in-flight task resumes it rather
+// than issuing a second CNS DeleteVolume.
+func TestDeleteVolumeResumesPendingTaskWithoutNewCNSCall(t *testing.T) {
+	const (
+		volumeID     = "test-volume-id"
+		instanceName = "delete-" + volumeID
+		taskID       = "task-55858"
+	)
+	ctx := logger.NewContextWithLogger(context.Background())
+	store := newFakeOperationStore()
+	seedPendingDelete(store, instanceName, taskID)
+	cns := &recordingCNS{taskID: "must-not-be-used"}
+	m := newDeleteVolumeTestManagerWithListView(store, &fakeListView{taskInfo: cnsTaskInfo(taskID, "op-1", nil)})
+	m.cnsDeleteVolumeFunc = cns.deleteVolume
+
+	_, err := m.deleteVolumeWithImprovedIdempotency(ctx, volumeID, true, false)
+	assert.NoError(t, err)
+	assert.Empty(t, cns.calls, "a pending task must be resumed, not replaced")
+	assert.Equal(t, cnsvolumeoperationrequest.TaskInvocationStatusSuccess,
+		store.records[instanceName].OperationDetails.TaskStatus)
 }
 
 // TestIsTaskPendingRetryContract covers IsTaskPending directly, since the choice
