@@ -169,10 +169,30 @@ func TestReconciler_Reconcile(t *testing.T) {
 			// Assert
 			assertUtil(tt, reconciler, request, res, err, false, 0, false, "", "", "")
 		})
+		tt.Run("WhenGettingParamsFails", func(tt *testing.T) {
+			// Setup
+			getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) (params, error) {
+				return params{}, errors.New("PVC is in a different namespace")
+			}
+			unregisterVolume = func(ctx context.Context, volMgr volume.Manager, request reconcile.Request,
+				params params) (string, error) {
+				tt.Fatal("unregisterVolume must not be called")
+				return "", nil
+			}
+			instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
+				[]string{cnsoptypes.CNSUnregisterVolumeFinalizer}, true, false, false, true)
+			reconciler := setup(tt, []client.Object{instance}, interceptor.Funcs{}, nil)
+
+			// Execute
+			res, err := reconciler.Reconcile(context.Background(), request)
+
+			// Assert
+			assertUtil(tt, reconciler, request, res, err, false, 0, false, "", "", "")
+		})
 		tt.Run("WhenGettingVolumeUsageInfoFails", func(tt *testing.T) {
 			// Setup
-			getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
-				return params{}
+			getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) (params, error) {
+				return params{}, nil
 			}
 			getVolumeUsageInfo = func(ctx context.Context,
 				pvcName, pvcNamespace string, ignoreVMUsage bool) (*volumeUsageInfo, error) {
@@ -195,8 +215,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 				pods:    []string{"pod"},
 				isInUse: true,
 			}
-			getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
-				return params{}
+			getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) (params, error) {
+				return params{}, nil
 			}
 			getVolumeUsageInfo = func(ctx context.Context,
 				pvcName, pvcNamespace string, ignoreVMUsage bool) (*volumeUsageInfo, error) {
@@ -216,8 +236,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 			tt.Run("WhenVolumeNotFoundOrOperationNotSupported", func(tt *testing.T) {
 				// Setup
 				errMsg := "internal server error"
-				getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
-					return params{}
+				getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) (params, error) {
+					return params{}, nil
 				}
 				getVolumeUsageInfo = func(ctx context.Context,
 					pvcName, pvcNamespace string, ignoreVMUsage bool) (*volumeUsageInfo, error) {
@@ -240,8 +260,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 			tt.Run("WhenOtherError", func(tt *testing.T) {
 				// Setup
 				errMsg := "internal server error"
-				getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
-					return params{}
+				getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) (params, error) {
+					return params{}, nil
 				}
 				getVolumeUsageInfo = func(ctx context.Context,
 					pvcName, pvcNamespace string, ignoreVMUsage bool) (*volumeUsageInfo, error) {
@@ -265,8 +285,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 		tt.Run("WhenRemovingFinalizerFails", func(tt *testing.T) {
 			// Setup
 			errMsg := "internal server error"
-			getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
-				return params{}
+			getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) (params, error) {
+				return params{}, nil
 			}
 			getVolumeUsageInfo = func(ctx context.Context,
 				pvcName, pvcNamespace string, ignoreVMUsage bool) (*volumeUsageInfo, error) {
@@ -296,8 +316,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 		})
 		tt.Run("WhenSuccessful", func(tt *testing.T) {
 			// Setup
-			getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
-				return params{}
+			getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) (params, error) {
+				return params{}, nil
 			}
 			getVolumeUsageInfo = func(ctx context.Context,
 				pvcName, pvcNamespace string, ignoreVMUsage bool) (*volumeUsageInfo, error) {
@@ -331,11 +351,33 @@ func TestReconciler_Reconcile(t *testing.T) {
 		assertUtil(tt, reconciler, request, res, err, false, 0, false, "", "", "")
 	})
 	t.Run("WhenNormalReconcile", func(tt *testing.T) {
+		tt.Run("WhenGettingParamsFails", func(tt *testing.T) {
+			// Setup
+			errMsg := "volume mock-volume-id is bound to PVC other-namespace/mock-pvc " +
+				"which is not in namespace mock-namespace"
+			getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) (params, error) {
+				return params{}, errors.New(errMsg)
+			}
+			unregisterVolume = func(ctx context.Context, volMgr volume.Manager, request reconcile.Request,
+				params params) (string, error) {
+				tt.Fatal("unregisterVolume must not be called")
+				return "", nil
+			}
+			instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
+				nil, true, false, false, false)
+			reconciler := setup(tt, []client.Object{instance}, interceptor.Funcs{}, nil)
+
+			// Execute
+			res, err := reconciler.Reconcile(context.Background(), request)
+
+			// Assert
+			assertUtil(tt, reconciler, request, res, err, true, time.Second, true, "", errMsg, errMsg)
+		})
 		tt.Run("WhenProtectingInstanceFails", func(tt *testing.T) {
 			// Setup
 			errMsg := "failed to add finalizer"
-			getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
-				return params{}
+			getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) (params, error) {
+				return params{}, nil
 			}
 			instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
 				nil, true, false, false, false)
@@ -355,8 +397,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 		tt.Run("WhenGettingVolumeUsageInfoFails", func(tt *testing.T) {
 			// Setup
 			errMsg := "failed to get volume usage info"
-			getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
-				return params{}
+			getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) (params, error) {
+				return params{}, nil
 			}
 			instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
 				[]string{cnsoptypes.CNSUnregisterVolumeFinalizer}, true, false, false, false)
@@ -378,8 +420,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 				pods:    []string{"pod"},
 				isInUse: true,
 			}
-			getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
-				return params{volumeID: "mock-volume-id"}
+			getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) (params, error) {
+				return params{volumeID: "mock-volume-id"}, nil
 			}
 			getVolumeUsageInfo = func(ctx context.Context,
 				pvcName, pvcNamespace string, ignoreVMUsage bool) (*volumeUsageInfo, error) {
@@ -399,8 +441,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 			tt.Run("WhenVolumeNotFound", func(tt *testing.T) {
 				// Setup
 				errMsg := "internal server error"
-				getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
-					return params{}
+				getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) (params, error) {
+					return params{}, nil
 				}
 				getVolumeUsageInfo = func(ctx context.Context,
 					pvcName, pvcNamespace string, ignoreVMUsage bool) (*volumeUsageInfo, error) {
@@ -424,8 +466,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 
 				// Setup
 				errMsg := "internal server error"
-				getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
-					return params{}
+				getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) (params, error) {
+					return params{}, nil
 				}
 				getVolumeUsageInfo = func(ctx context.Context,
 					pvcName, pvcNamespace string, ignoreVMUsage bool) (*volumeUsageInfo, error) {
@@ -449,8 +491,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 		tt.Run("WhenUpdatingStatusFails", func(tt *testing.T) {
 			// Setup
 			errMsg := "internal server error"
-			getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
-				return params{}
+			getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) (params, error) {
+				return params{}, nil
 			}
 			getVolumeUsageInfo = func(ctx context.Context,
 				pvcName, pvcNamespace string, ignoreVMUsage bool) (*volumeUsageInfo, error) {
@@ -478,8 +520,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 		})
 		tt.Run("WhenSuccessful", func(tt *testing.T) {
 			// Setup
-			getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
-				return params{}
+			getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) (params, error) {
+				return params{}, nil
 			}
 			getVolumeUsageInfo = func(ctx context.Context,
 				pvcName, pvcNamespace string, ignoreVMUsage bool) (*volumeUsageInfo, error) {
@@ -740,9 +782,10 @@ func TestGetParams(t *testing.T) {
 			}
 
 			// Execute
-			params := getParams(context.Background(), *instance)
+			params, err := getParams(context.Background(), *instance)
 
 			// Assert
+			assert.NoError(t, err)
 			assert.Equal(t, expParams, params, "Expected params to match")
 		})
 		t.Run("WhenPVNotFound", func(t *testing.T) {
@@ -767,10 +810,30 @@ func TestGetParams(t *testing.T) {
 			}
 
 			// Execute
-			params := getParams(context.Background(), *instance)
+			params, err := getParams(context.Background(), *instance)
 
 			// Assert
+			assert.NoError(t, err)
 			assert.Equal(t, expParams, params, "Expected params to match")
+		})
+		t.Run("WhenPVCIsInDifferentNamespace", func(t *testing.T) {
+			// Setup
+			getPVCName = func(ctx context.Context, volumeID string) (string, string, error) {
+				return "mock-pvc", "other-namespace", nil
+			}
+			getPVName = func(ctx context.Context, volumeID string) (string, error) {
+				return "mock-pv", nil
+			}
+			instance := newInstance(t, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
+				nil, false, false, false, false)
+
+			// Execute
+			p, err := getParams(context.Background(), *instance)
+
+			// Assert
+			assert.EqualError(t, err, "volume mock-volume-id is bound to PVC other-namespace/mock-pvc "+
+				"which is not in namespace mock-namespace")
+			assert.Empty(t, p, "Expected empty params")
 		})
 	})
 
@@ -795,9 +858,10 @@ func TestGetParams(t *testing.T) {
 			}
 
 			// Execute
-			params := getParams(context.Background(), *instance)
+			params, err := getParams(context.Background(), *instance)
 
 			// Assert
+			assert.NoError(t, err)
 			assert.Equal(t, expParams, params, "Expected params to match")
 		})
 		t.Run("WhenPVNotFound", func(t *testing.T) {
@@ -820,9 +884,10 @@ func TestGetParams(t *testing.T) {
 			}
 
 			// Execute
-			params := getParams(context.Background(), *instance)
+			params, err := getParams(context.Background(), *instance)
 
 			// Assert
+			assert.NoError(t, err)
 			assert.Equal(t, expParams, params, "Expected params to match")
 		})
 	})
