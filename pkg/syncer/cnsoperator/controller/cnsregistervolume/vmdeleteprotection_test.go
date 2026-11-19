@@ -252,3 +252,106 @@ func TestDeleteWhileVMDeleteProtectionPendingPreservesBoundVolume(t *testing.T) 
 	_, err = r.k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
 	require.NoError(t, err)
 }
+
+// protectionTestEnv builds the VM-import fixture shared by the abandon tests:
+// a bound CnsRegisterVolume, a VM-owned PVC marked non-removable, and a
+// reconciler whose VSLM clear behaves as the caller specifies. seedPVC=false
+// models garbage collection having already removed the PVC.
+func protectionTestEnv(t *testing.T, seedPVC bool, pvcMutate func(*v1.PersistentVolumeClaim),
+	clearErr error, intercept interceptor.Funcs) (*ReconcileCnsRegisterVolume, ctrlclient.Client,
+	*api.CnsRegisterVolume, *v1.PersistentVolumeClaim, *int) {
+	t.Helper()
+	cr := newCondTestInstance(api.CnsRegisterVolumeStatus{})
+	cr.Spec.PvcName = "test-pvc"
+	applyConditions(cr, trueCondition(api.ConditionPvcBound, api.ReasonBound, "PVC is bound"))
+	pvc := vmImportPVC("test-pvc", cr.Namespace, "test-vm")
+	if pvcMutate != nil {
+		pvcMutate(pvc)
+	}
+	removable := false
+	vm := vmWithVolume("test-vm", cr.Namespace, pvc.Name, &removable)
+	scheme := condTestScheme()
+	require.NoError(t, vmoperator.AddToScheme(scheme))
+	objs := []ctrlclient.Object{cr, vm}
+	if seedPVC {
+		objs = append(objs, pvc)
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+		WithStatusSubresource(cr).WithInterceptorFuncs(intercept).Build()
+	calls := 0
+	manager := &mockVolumeManager{unprotectVolumeFromVMDeletionFunc: func(context.Context, string) error {
+		calls++
+		return clearErr
+	}}
+	r := &ReconcileCnsRegisterVolume{client: c, volumeManager: manager, recorder: record.NewFakeRecorder(20)}
+	backOffDuration = map[types.NamespacedName]time.Duration{}
+	return r, c, cr, pvc, &calls
+}
+
+// TestVMDeleteProtectionAbandonedWhenPvcTerminating covers the 1767699 shape:
+// the VSLM clear keeps failing while the VM is being destroyed. Retrying can no
+// longer change what vSphere leaves on the datastore, so the step must stop
+// rather than issue a clear every vmDeleteProtectionRetryInterval forever.
+func TestVMDeleteProtectionAbandonedWhenPvcTerminating(t *testing.T) {
+	ctx := context.Background()
+	deleting := func(pvc *v1.PersistentVolumeClaim) {
+		// The fake client only accepts a deletion timestamp with a finalizer.
+		pvc.Finalizers = []string{"kubernetes.io/pvc-protection"}
+		now := metav1.Now()
+		pvc.DeletionTimestamp = &now
+	}
+	r, c, cr, pvc, calls := protectionTestEnv(t, true, deleting,
+		errors.New("operation cannot be performed in current state"), interceptor.Funcs{})
+
+	_, retry := r.reconcileVMDeleteProtection(ctx, cr, pvc, "vol-1")
+
+	require.NotNil(t, retry)
+	require.Zero(t, retry.RequeueAfter, "a terminating PVC must not keep retrying the clear")
+	require.Equal(t, 1, *calls, "the attempt in flight still runs; only the retry is abandoned")
+	got := getCondTestInstance(t, c, cr)
+	require.Equal(t, api.ReasonPvcTerminating, condOf(got, api.ConditionVMDeleteProtectionConfigured).Reason)
+	require.Equal(t, api.ReasonPvcTerminating, condOf(got, api.ConditionReady).Reason,
+		"Ready must surface why the registration stopped")
+	require.False(t, got.Status.Registered)
+}
+
+// TestVMDeleteProtectionAbandonedWhenPvcGone covers the 1769149 shape: the clear
+// succeeds in CNS but its completion annotation cannot be written because the
+// PVC is already gone. The flag is cleared, so there is nothing left to retry.
+func TestVMDeleteProtectionAbandonedWhenPvcGone(t *testing.T) {
+	ctx := context.Background()
+	r, c, cr, pvc, _ := protectionTestEnv(t, false, nil, nil, interceptor.Funcs{})
+
+	_, retry := r.reconcileVMDeleteProtection(ctx, cr, pvc, "vol-1")
+
+	require.NotNil(t, retry)
+	require.Zero(t, retry.RequeueAfter, "a deleted PVC must not keep retrying the clear")
+	require.Equal(t, api.ReasonPvcTerminating,
+		condOf(getCondTestInstance(t, c, cr), api.ConditionVMDeleteProtectionConfigured).Reason)
+}
+
+// TestVMDeleteProtectionRetriesWhenPvcLookupFails guards the other side: only
+// NotFound means the PVC is gone. A transient API failure must not be mistaken
+// for a destroyed VM and silently abandon a clear that could still land.
+func TestVMDeleteProtectionRetriesWhenPvcLookupFails(t *testing.T) {
+	ctx := context.Background()
+	blocked := interceptor.Funcs{
+		Get: func(ctx context.Context, client ctrlclient.WithWatch, key ctrlclient.ObjectKey,
+			obj ctrlclient.Object, opts ...ctrlclient.GetOption) error {
+			if _, ok := obj.(*v1.PersistentVolumeClaim); ok {
+				return errors.New("api server unavailable")
+			}
+			return client.Get(ctx, key, obj, opts...)
+		},
+	}
+	r, c, cr, pvc, _ := protectionTestEnv(t, true, nil,
+		errors.New("operation cannot be performed in current state"), blocked)
+
+	_, retry := r.reconcileVMDeleteProtection(ctx, cr, pvc, "vol-1")
+
+	require.NotNil(t, retry)
+	require.Equal(t, vmDeleteProtectionRetryInterval, retry.RequeueAfter,
+		"an API blip must not be read as a terminating PVC")
+	require.Equal(t, api.ReasonClearKeepAfterDeleteVmFailed,
+		condOf(getCondTestInstance(t, c, cr), api.ConditionVMDeleteProtectionConfigured).Reason)
+}

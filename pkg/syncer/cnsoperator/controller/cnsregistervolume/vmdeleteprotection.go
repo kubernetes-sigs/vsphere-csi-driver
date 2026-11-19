@@ -22,6 +22,8 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	api "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/conditions"
@@ -35,6 +37,33 @@ const (
 )
 
 var errPersistVMDeleteProtection = errors.New("failed to persist VM-delete-protection result")
+
+// vmDeleteProtectionMoot reports whether clearing keepAfterDeleteVm can still
+// change anything.
+//
+// VM Operator owns this PVC through the VirtualMachine, so a PVC that is gone
+// or carries a deletion timestamp means the VM is already being destroyed. The
+// flag only decides what vSphere does while removing that VM: cleared, the
+// disks and the VM home directory go with it; left set, the directory is
+// stranded on the datastore. Once the destroy is under way that outcome is
+// already settled, so retrying the VSLM call every vmDeleteProtectionRetryInterval
+// cannot improve it.
+//
+// The PVC in hand was read before the attempt, which may have taken up to
+// vmDeleteProtectionClearTimeout, so it is re-read here. Any error other than
+// NotFound reports "still worth trying": an API blip must not abandon a clear
+// that could still land.
+func (r *ReconcileCnsRegisterVolume) vmDeleteProtectionMoot(ctx context.Context,
+	pvc *v1.PersistentVolumeClaim) bool {
+	if pvc == nil {
+		return true
+	}
+	latest := &v1.PersistentVolumeClaim{}
+	if err := r.client.Get(ctx, ctrlruntimeclient.ObjectKeyFromObject(pvc), latest); err != nil {
+		return apierrors.IsNotFound(err)
+	}
+	return latest.DeletionTimestamp != nil
+}
 
 // reconcileVMDeleteProtection runs after binding but before quota accounting and
 // registration success. A non-nil result means the caller must requeue. The PVC
@@ -65,6 +94,17 @@ func (r *ReconcileCnsRegisterVolume) reconcileVMDeleteProtection(ctx context.Con
 		case timedOut:
 			reason = api.ReasonClearKeepAfterDeleteVmTimedOut
 			message = "The VM-delete-protection attempt exceeded its deadline"
+		}
+		// Once the VM is being destroyed there is nothing left to protect, so
+		// stop rather than retrying a call that can no longer change anything.
+		if r.vmDeleteProtectionMoot(ctx, pvc) {
+			log.Infof("PVC %s/%s is gone or terminating; abandoning the keepAfterDeleteVm clear for "+
+				"volume %s after %s: its VirtualMachine is already being destroyed",
+				instance.Namespace, instance.Spec.PvcName, volumeID, reason)
+			setInstanceConditions(ctx, r, instance, falseCondition(api.ConditionVMDeleteProtectionConfigured,
+				api.ReasonPvcTerminating,
+				"The PVC is being deleted with its VirtualMachine, so keepAfterDeleteVm clearing no longer applies"))
+			return pvc, &reconcile.Result{}
 		}
 		// Use the parent context for reporting, since the attempt's context may
 		// have expired. Do not use recordEvent: it doubles the shared backoff,

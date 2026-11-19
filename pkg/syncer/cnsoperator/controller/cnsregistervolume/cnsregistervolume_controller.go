@@ -2197,6 +2197,75 @@ func patchCnsRegisterVolumeStatus(ctx context.Context, cnsOperatorClient client.
 	}
 }
 
+// isPvcBound reports whether this registration got as far as binding its PVC.
+//
+// The condition is the durable record of that. It is patched to the API server
+// as soon as the bind is observed, before any post-bind step runs, and a True
+// value is deliberately preserved across later passes, so it survives those
+// steps failing and being retried. The PVC itself cannot be consulted instead:
+// by the time a delete is reconciled, garbage collection has usually removed it.
+func isPvcBound(instance *cnsregistervolumev1alpha1.CnsRegisterVolume) bool {
+	cond := conditions.Get(instance, cnsregistervolumev1alpha1.ConditionPvcBound)
+	return cond != nil && cond.Status == metav1.ConditionTrue
+}
+
+// cnsCleanupDeadline bounds how long a deleted CnsRegisterVolume keeps retrying
+// CNS cleanup before giving up and releasing its finalizer.
+//
+// Cleanup failures are usually transient, so retrying is the right default. But
+// a fault that never clears used to hold the finalizer forever, which leaves the
+// Supervisor namespace in Terminating with no resolution short of editing the
+// object by hand. An FCD left registered in CNS can be reclaimed afterwards, so
+// bounding the wait trades a recoverable leak for a recoverable namespace.
+const cnsCleanupDeadline = 10 * time.Minute
+
+// giveUpOnCleanup reports whether a failed CNS cleanup during deletion should
+// stop being retried, and records the failure either way.
+//
+// Within cnsCleanupDeadline of the deletion timestamp it logs the failure and
+// returns false, so the caller requeues. Past the deadline it records the error
+// on the CR and returns true, so the caller can release the finalizer. The
+// message names the volume, because at that point the volume may still be
+// registered in CNS and need manual cleanup.
+func (r *ReconcileCnsRegisterVolume) giveUpOnCleanup(ctx context.Context,
+	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, volumeID string, cause error) bool {
+	log := logger.GetLogger(ctx).With("name", instance.Name).With("namespace", instance.Namespace).
+		With("volumeID", volumeID)
+	if instance.DeletionTimestamp == nil {
+		log.With("error", cause).Error("Failed to cleanup CNS volume")
+		return false
+	}
+	elapsed := time.Since(instance.DeletionTimestamp.Time).Truncate(time.Second)
+	if elapsed <= cnsCleanupDeadline {
+		// elapsed is formatted, not passed as a Duration: zap renders a Duration
+		// as a bare number of seconds, which reads as a timestamp in the logs.
+		log.With("error", cause).With("elapsed", elapsed.String()).
+			With("deadline", cnsCleanupDeadline.String()).
+			Error("Failed to cleanup CNS volume; will retry")
+		return false
+	}
+	msg := fmt.Sprintf("Giving up on CNS cleanup of volume %s after %s: %v. The volume may still be "+
+		"registered in CNS and need manual cleanup. Releasing the finalizer so the namespace can "+
+		"finish deleting.", volumeID, elapsed, cause)
+	log.Error(msg)
+	setInstanceError(ctx, r, instance, msg)
+	return true
+}
+
+// growDeleteBackoff doubles the requeue interval of a delete that is retrying.
+//
+// The delete path otherwise reuses whatever interval the registration left
+// behind, which is one second for a CR that never failed, so a cleanup that
+// keeps failing would re-issue a CNS call every second for as long as it lasts.
+// No event is recorded here: a warning per retry would be noise, and recordEvent
+// already owns the doubling for the paths that do publish one.
+func growDeleteBackoff(request reconcile.Request) {
+	backOffDurationMapMutex.Lock()
+	defer backOffDurationMapMutex.Unlock()
+	backOffDuration[request.NamespacedName] = min(backOffDuration[request.NamespacedName]*2,
+		cnsoperatortypes.MaxBackOffDurationForReconciler)
+}
+
 // reconcileDelete handles deletion of a CnsRegisterVolume instance.
 // This function ensures that:
 //  1. If registration hasn't started or failed early, we can safely delete without cleanup
@@ -2205,7 +2274,8 @@ func patchCnsRegisterVolumeStatus(ctx context.Context, cnsOperatorClient client.
 //  4. If PVC and PV are bound, we can safely remove the finalizer and let
 //     CNSUnregisterVolume workflow handle deletion of PVC and PV
 //
-// The finalizer is only removed after all cleanup is complete.
+// The finalizer is only removed after all cleanup is complete, or after
+// cnsCleanupDeadline has passed with the cleanup still failing.
 func (r *ReconcileCnsRegisterVolume) reconcileDelete(ctx context.Context,
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
 	request reconcile.Request, timeout time.Duration) (reconcile.Result, error) {
@@ -2215,8 +2285,19 @@ func (r *ReconcileCnsRegisterVolume) reconcileDelete(ctx context.Context,
 	// If already registered successfully, the CR's lifecycle belongs to its owner:
 	// the VirtualMachine when VM Operator created it, otherwise the PVC it registered.
 	// We can safely remove the finalizer and let Kubernetes garbage collection handle it.
-	if instance.Status.Registered {
-		log.Info("Instance already registered. Removing finalizer")
+	//
+	// A bound PVC means the same thing even while Registered is still false. The
+	// volume, its PV and its PVC all exist and belong to the workload; only the
+	// post-bind bookkeeping (VM-delete protection, quota, CnsVolumeInfo) had not
+	// finished. Undoing the registration at that point would unregister a disk a
+	// live VM and a bound PVC own, and a CNS fault while doing so requeued forever
+	// and left the Supervisor namespace stuck in Terminating. Deleting the PVC and
+	// the PV owns the volume from here.
+	//
+	// This check must stay ahead of resolveInFlightTaskForDelete below, which
+	// retries the same cleanup silently once the PV is gone.
+	if instance.Status.Registered || isPvcBound(instance) {
+		log.Info("Instance is registered or its PVC is bound. Removing finalizer")
 		err := removeFinalizer(ctx, r.client, instance)
 		if err != nil {
 			log.With("error", err).Error("Failed to remove finalizer")
@@ -2302,8 +2383,8 @@ func (r *ReconcileCnsRegisterVolume) reconcileDelete(ctx context.Context,
 		// A volume owned by another registration is left alone. Nothing of this
 		// instance remains either way, so the finalizer can be removed.
 		_, err := r.cleanupCNSVolume(ctx, instance, volumeID)
-		if err != nil {
-			log.With("error", err).Error("Failed to cleanup CNS volume")
+		if err != nil && !r.giveUpOnCleanup(ctx, instance, volumeID, err) {
+			growDeleteBackoff(request)
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 	}

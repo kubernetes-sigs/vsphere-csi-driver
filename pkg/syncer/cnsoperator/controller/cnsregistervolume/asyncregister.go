@@ -487,7 +487,12 @@ func (r *ReconcileCnsRegisterVolume) resolveInFlightTaskForDelete(ctx context.Co
 		}
 		// Existing PVs go through the normal bound/ownership checks first.
 		if pv == nil {
-			if _, err := r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
+			// giveUpOnCleanup logs the failure. Returning a bare requeue here is
+			// what made a stuck delete invisible: every later pass reached this
+			// line and re-queued without recording why.
+			if _, err := r.cleanupCNSVolume(ctx, instance, volumeID); err != nil &&
+				!r.giveUpOnCleanup(ctx, instance, volumeID, err) {
+				growDeleteBackoff(request)
 				return &reconcile.Result{RequeueAfter: timeout}
 			}
 		}
