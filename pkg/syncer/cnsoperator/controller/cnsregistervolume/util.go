@@ -155,83 +155,179 @@ func checkDatastorePolicyCompatibility(ctx context.Context, vc *vsphere.VirtualC
 var getHostLocalAccessibleTopologyFn = getHostLocalAccessibleTopology
 
 // getHostLocalAccessibleTopology returns the PV node-affinity topology segments for a
-// host-local volume, pinned to the single ESX host that mounts the datastore:
-// {topology.kubernetes.io/zone, kubernetes.io/hostname}.
+// host-local volume, pinned to the single ESX host that mounts the datastore, and the MoID of
+// that host:
+//   - PodVM v2 capability disabled: {topology.kubernetes.io/zone, kubernetes.io/hostname}, and an
+//     empty host MoID.
+//   - PodVM v2 capability enabled: {topology.kubernetes.io/zone} only, and the host MoID. An ESX
+//     host may then be represented by a VirtualNode, so the PV must not name a Supervisor Node; the
+//     caller records the host in the PV pin annotation, the PV volume attribute and the PVC mirror.
 //
 // Derivation (per feature requirements):
-//   - host: Datastore.host[0] — the first host mount of the datastore.
-//   - hostname: the kubernetes.io/hostname value for that host, obtained by reversing
-//     the node-name -> ESX-host-MoID map (on a supervisor the node name equals the
-//     kubernetes.io/hostname label value).
+//   - host: Datastore.host[0] — the first host mount of the datastore. With PodVM v2 it must also
+//     be the only one: the host is pinned by MoID, so a datastore mounted by more than one host is
+//     ambiguous and is rejected.
+//   - hostname (PodVM v2 disabled): the kubernetes.io/hostname value for that host.
 //   - zone: derived from the cluster the host belongs to (host.parent) via clusterToZone,
 //     which is the inverted AvailabilityZone -> clusters map.
 //
 // Registration cannot proceed if any segment cannot be derived, so this returns an error
-// (not an empty result) when the datastore has no host mount, the host has no matching
-// supervisor node, or the host's cluster has no zone mapping.
+// (not an empty result) when the datastore has no host mount, has more than one host mount
+// (PodVM v2 enabled), the host has no matching supervisor node (PodVM v2 disabled), or the host's
+// cluster has no zone mapping.
 func getHostLocalAccessibleTopology(ctx context.Context, vc *vsphere.VirtualCenter,
-	dsInfo *vsphere.DatastoreInfo, clusterToZone map[string]string) ([]map[string]string, error) {
+	dsInfo *vsphere.DatastoreInfo, clusterToZone map[string]string) ([]map[string]string, string, error) {
 	log := logger.GetLogger(ctx)
 
 	// Datastore.host[0]: the ESX host that mounts the host-local datastore.
 	var dsMo mo.Datastore
 	if err := dsInfo.Properties(ctx, dsInfo.Reference(), []string{"host"}, &dsMo); err != nil {
-		return nil, logger.LogNewErrorf(log,
+		return nil, "", logger.LogNewErrorf(log,
 			"failed to retrieve host mounts for datastore %q: %v", dsInfo.Info.Url, err)
 	}
 	if len(dsMo.Host) == 0 {
-		return nil, logger.LogNewErrorf(log,
+		return nil, "", logger.LogNewErrorf(log,
 			"host-local datastore %q has no host mounts", dsInfo.Info.Url)
+	}
+	podVMV2 := commonco.ContainerOrchestratorUtility.IsPodVMV2EnabledAtStartup(ctx)
+	if podVMV2 && len(dsMo.Host) != 1 {
+		return nil, "", logger.LogNewErrorf(log,
+			"host-local datastore %q must be mounted by exactly one ESX host, found %d",
+			dsInfo.Info.Url, len(dsMo.Host))
 	}
 	hostRef := dsMo.Host[0].Key
 
 	// hostname: reverse the node-name -> host-MoID map to resolve the host to its node name,
-	// which is the kubernetes.io/hostname value on a supervisor.
-	nodeNameToHostMoID := commonco.ContainerOrchestratorUtility.GetNodeNameToHostMoIDMap(ctx)
+	// which is the kubernetes.io/hostname value on a supervisor. Not used with PodVM v2.
 	hostname := ""
-	for nodeName, hostMoID := range nodeNameToHostMoID {
-		if hostMoID == hostRef.Value {
-			hostname = nodeName
-			break
+	if !podVMV2 {
+		nodeNameToHostMoID := commonco.ContainerOrchestratorUtility.GetNodeNameToHostMoIDMap(ctx)
+		for nodeName, hostMoID := range nodeNameToHostMoID {
+			if hostMoID == hostRef.Value {
+				hostname = nodeName
+				break
+			}
 		}
-	}
-	if hostname == "" {
-		return nil, logger.LogNewErrorf(log,
-			"failed to resolve kubernetes.io/hostname for ESX host %q backing host-local datastore %q",
-			hostRef.Value, dsInfo.Info.Url)
+		if hostname == "" {
+			return nil, "", logger.LogNewErrorf(log,
+				"failed to resolve kubernetes.io/hostname for ESX host %q backing host-local datastore %q",
+				hostRef.Value, dsInfo.Info.Url)
+		}
 	}
 
 	// zone: derive from the cluster the host belongs to (host.parent).
 	hostObj := object.NewHostSystem(vc.Client.Client, hostRef)
 	var hostMo mo.HostSystem
 	if err := hostObj.Properties(ctx, hostRef, []string{"parent"}, &hostMo); err != nil {
-		return nil, logger.LogNewErrorf(log,
+		return nil, "", logger.LogNewErrorf(log,
 			"failed to retrieve parent cluster for ESX host %q: %v", hostRef.Value, err)
 	}
 	if hostMo.Parent == nil {
-		return nil, logger.LogNewErrorf(log,
+		return nil, "", logger.LogNewErrorf(log,
 			"ESX host %q backing host-local datastore %q has no parent cluster", hostRef.Value, dsInfo.Info.Url)
 	}
 	zone, ok := clusterToZone[hostMo.Parent.Value]
 	if !ok || zone == "" {
-		return nil, logger.LogNewErrorf(log,
+		return nil, "", logger.LogNewErrorf(log,
 			"no zone mapping found for cluster %q (host %q); host-local registration requires a "+
 				"zone derived from the host's cluster", hostMo.Parent.Value, hostRef.Value)
 	}
 
 	segment := map[string]string{
 		v1.LabelTopologyZone: zone,
-		v1.LabelHostname:     hostname,
 	}
-	log.Infof("host-local datastore %q resolved to host %q (node %q) in cluster %q, topology: %+v",
-		dsInfo.Info.Url, hostRef.Value, hostname, hostMo.Parent.Value, segment)
-	return []map[string]string{segment}, nil
+	hostMoID := ""
+	if podVMV2 {
+		hostMoID = hostRef.Value
+		log.Infof("host-local datastore %q resolved to host %q in cluster %q, topology: %+v",
+			dsInfo.Info.Url, hostRef.Value, hostMo.Parent.Value, segment)
+	} else {
+		segment[v1.LabelHostname] = hostname
+		log.Infof("host-local datastore %q resolved to host %q (node %q) in cluster %q, topology: %+v",
+			dsInfo.Info.Url, hostRef.Value, hostname, hostMo.Parent.Value, segment)
+	}
+	return []map[string]string{segment}, hostMoID, nil
+}
+
+// setHostLocalPVMetadata records the backing host of a host-local volume on a PV.
+func setHostLocalPVMetadata(pv *v1.PersistentVolume, hostMoID string) {
+	if pv.Annotations == nil {
+		pv.Annotations = make(map[string]string)
+	}
+	pv.Annotations[common.AnnPodVMHostPinned] = hostMoID
+	if pv.Spec.CSI.VolumeAttributes == nil {
+		pv.Spec.CSI.VolumeAttributes = make(map[string]string)
+	}
+	pv.Spec.CSI.VolumeAttributes[common.AnnESXiHostMoID] = hostMoID
+}
+
+// pvHostnameAffinity returns the kubernetes.io/hostname values that a PV's required node affinity
+// selects, or nil when it has no hostname term.
+func pvHostnameAffinity(pv *v1.PersistentVolume) []string {
+	if pv.Spec.NodeAffinity == nil || pv.Spec.NodeAffinity.Required == nil {
+		return nil
+	}
+	var hostnames []string
+	for _, term := range pv.Spec.NodeAffinity.Required.NodeSelectorTerms {
+		for _, expr := range term.MatchExpressions {
+			if expr.Key == v1.LabelHostname {
+				hostnames = append(hostnames, expr.Values...)
+			}
+		}
+	}
+	return hostnames
+}
+
+// needsAnnotation reports whether obj still needs annotation key=value: it returns add=true when
+// the annotation is missing, so the caller must add it, and false when it is already set to value.
+// It fails when the annotation is set to a different value: the object then records a different
+// host than the one the volume lives on, and overwriting it would silently move the pin.
+func needsAnnotation(obj metav1.Object, key, value string) (add bool, err error) {
+	current, ok := obj.GetAnnotations()[key]
+	if !ok || current == "" {
+		return true, nil
+	}
+	if current != value {
+		return false, fmt.Errorf("%q has annotation %s=%q, but the volume lives on host %q",
+			obj.GetName(), key, current, value)
+	}
+	return false, nil
+}
+
+// annotationPatch returns a merge patch that sets a single annotation.
+func annotationPatch(key, value string) ([]byte, error) {
+	return json.Marshal(map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"annotations": map[string]string{key: value},
+		},
+	})
+}
+
+// ensureHostLocalPinOnPV adds the host pin annotation to a host-local PV that already exists, for
+// example one created before the pin was introduced.
+func ensureHostLocalPinOnPV(ctx context.Context, k8sclient clientset.Interface, pv *v1.PersistentVolume,
+	hostMoID string) (*v1.PersistentVolume, error) {
+	log := logger.GetLogger(ctx)
+	add, err := needsAnnotation(pv, common.AnnPodVMHostPinned, hostMoID)
+	if err != nil || !add {
+		return pv, err
+	}
+	patchBytes, err := annotationPatch(common.AnnPodVMHostPinned, hostMoID)
+	if err != nil {
+		return pv, err
+	}
+	patched, err := k8sclient.CoreV1().PersistentVolumes().Patch(ctx, pv.Name, types.MergePatchType,
+		patchBytes, metav1.PatchOptions{})
+	if err != nil {
+		return pv, fmt.Errorf("failed to add annotation %s to PV %s: %w", common.AnnPodVMHostPinned, pv.Name, err)
+	}
+	log.Infof("Added annotation %s=%s to existing PV %s", common.AnnPodVMHostPinned, hostMoID, pv.Name)
+	return patched, nil
 }
 
 // buildNodeAffinityFromSegments builds a PV VolumeNodeAffinity from topology segments.
 // Each segment contributes one NodeSelectorTerm whose match expressions require every
-// segment key to equal its value (In operator), so both the zone and hostname keys of a
-// host-local segment become required node-selector terms on the PV.
+// segment key to equal its value (In operator).
 func buildNodeAffinityFromSegments(segments []map[string]string) *v1.VolumeNodeAffinity {
 	if len(segments) == 0 {
 		return nil
