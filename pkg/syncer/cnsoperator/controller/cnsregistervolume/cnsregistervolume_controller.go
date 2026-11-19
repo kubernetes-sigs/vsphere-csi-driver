@@ -672,9 +672,11 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	}
 
 	// datastoreAccessibleTopology holds the PV/PVC topology segments. For host-local volumes it is
-	// populated by the node-driven resolver below; otherwise it is computed later from shared
+	// populated from the resolved placement below; otherwise it is computed later from shared
 	// datastores in the IsPodVMOnStretchSupervisorFSSEnabled block.
 	var datastoreAccessibleTopology []map[string]string
+	// hostLocal is the backing ESX host and zone of a host-local volume.
+	var hostLocal hostLocalPlacement
 
 	if isHostLocal {
 		// Bypass the shared-datastore "accessible to all hosts" gate. Build the clusterMoID -> zone
@@ -724,8 +726,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				"The host-local storage policy is not compatible with the datastore the disk lives on", timeout), nil
 		}
 
-		// Derive the PV topology from Datastore.host[0] -> {zone (from host's cluster), hostname}.
-		datastoreAccessibleTopology, err = getHostLocalAccessibleTopologyFn(ctx, vc, dsInfo, clusterToZone)
+		// Resolve the datastore's only host and its zone. The PV/PVC topology is zone-only; the host
+		// is recorded in the PV pin annotation, the PV volume attribute and the PVC mirror annotation.
+		hostLocal, err = getHostLocalPlacementFn(ctx, vc, dsInfo, clusterToZone)
 		if err != nil {
 			log.Errorf("failed to resolve host-local topology for volume %s on datastore %s: %+v",
 				volumeID, volume.DatastoreUrl, err)
@@ -734,6 +737,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				fmt.Sprintf("failed to resolve host-local topology for volume %s: %+v", volumeID, err),
 				"The accessible topology for the host-local volume could not be resolved", timeout), nil
 		}
+		datastoreAccessibleTopology = hostLocal.topologySegments()
 	} else if syncer.IsPodVMOnStretchSupervisorFSSEnabled {
 		if workloadDomainIsolationEnabled || len(clusterComputeResourceMoIds) > 1 {
 			if isMultipleClustersPerVsphereZoneEnabled {
@@ -859,8 +863,8 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	}
 
 	// Calculate accessible topology for the provisioned volume. datastoreAccessibleTopology is
-	// declared earlier and, for host-local volumes, is already populated by the node-driven
-	// resolver, so build the PV node affinity from it directly (covering all configurations,
+	// declared earlier and, for host-local volumes, already holds the zone of the backing host,
+	// so build the PV node affinity from it directly (covering all configurations,
 	// including non-stretched supervisors). Otherwise fall back to the shared-datastore topology.
 	if isHostLocal {
 		pvNodeAffinity = buildNodeAffinityFromSegments(datastoreAccessibleTopology)
@@ -997,10 +1001,10 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		// Validate topology compatibility if PVC exists and can be reused. For host-local volumes the
 		// topology is already resolved (datastoreAccessibleTopology is non-empty) and topologyMgr is
 		// not consulted, so run the validation even when topologyMgr is nil (e.g. non-stretched
-		// supervisor) to ensure the reused PVC gets the {zone, hostname} annotation.
+		// supervisor) to ensure the reused PVC gets the zone annotation and the host mirror.
 		if topologyMgr != nil || isHostLocal {
 			err = validatePVCTopologyCompatibility(ctx, k8sclient, pvc, volume.DatastoreUrl, topologyMgr, vc,
-				datastoreAccessibleTopology, isHostLocal)
+				datastoreAccessibleTopology, hostLocal.HostMoID)
 			if err != nil {
 				msg := fmt.Sprintf("PVC topology validation failed: %v", err)
 				log.Error(msg)
@@ -1065,6 +1069,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				accessMode, instance.Spec.VolumeMode, storageClassName, claimRef,
 				instance.Namespace, instance.Name)
 			pvSpec.Spec.NodeAffinity = pvNodeAffinity
+			if isHostLocal {
+				setHostLocalPVMetadata(pvSpec, hostLocal.HostMoID)
+			}
 			if isRestore {
 				setRestoreAnnotations(pvSpec, instance)
 			}
@@ -1096,9 +1103,19 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		}
 		// PV exists - check if volumeMode needs correction
 		pv, err = validateAndFixPVVolumeMode(ctx, k8sclient, r, instance, pv, pvName, volumeID, pvCapacity,
-			accessMode, storageClassName, pvNodeAffinity, timeout, isRestore)
+			accessMode, storageClassName, pvNodeAffinity, hostLocal.HostMoID, timeout, isRestore)
 		if err != nil {
 			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		// A host-local PV created before the host pin existed is missing it; add it. Only for a PV
+		// of this volume: a PV of another volume is caught as a duplicate request below.
+		if isHostLocal && pv.Spec.CSI != nil && pv.Spec.CSI.VolumeHandle == volumeID {
+			pv, err = ensureHostLocalPinOnPV(ctx, k8sclient, pv, hostLocal.HostMoID)
+			if err != nil {
+				log.Error(err.Error())
+				setInstanceError(ctx, r, instance, err.Error())
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
 		}
 	}
 	// If PV is already bound to a different PVC at this point, then its a
@@ -1155,6 +1172,11 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			log.Errorf(msg)
 			setInstanceError(ctx, r, instance, msg)
 			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		if isHostLocal {
+			// Created together with the zone-only topology annotation, so readers never see one without
+			// the other.
+			pvcSpec.Annotations[common.AnnESXiHostMoID] = hostLocal.HostMoID
 		}
 		log.Debugf("PVC spec is: %+v", pvcSpec)
 		pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(instance.Namespace).Create(ctx,
@@ -1374,10 +1396,25 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 
 // validatePVCTopologyCompatibility checks if the existing PVC's topology annotation is compatible
 // with the volume's actual placement zone.
+//
+// hostLocalHostMoID is the backing ESX host of a host-local volume, and is empty for any other
+// volume. For a host-local volume the PVC must also carry that host in the common.AnnESXiHostMoID
+// annotation: it is added when missing, in the same patch as the topology annotation when that is
+// missing too, and a PVC that records a different host is rejected.
 func validatePVCTopologyCompatibility(ctx context.Context, k8sclient clientset.Interface, pvc *v1.PersistentVolumeClaim,
 	volumeDatastoreURL string, topologyMgr commoncotypes.ControllerTopologyService,
-	vc *cnsvsphere.VirtualCenter, datastoreAccessibleTopology []map[string]string, isHostLocal bool) error {
+	vc *cnsvsphere.VirtualCenter, datastoreAccessibleTopology []map[string]string, hostLocalHostMoID string) error {
 	log := logger.GetLogger(ctx)
+	isHostLocal := hostLocalHostMoID != ""
+
+	addHostMirror := false
+	if isHostLocal {
+		var err error
+		addHostMirror, err = ensureAnnotation(pvc, common.AnnESXiHostMoID, hostLocalHostMoID)
+		if err != nil {
+			return fmt.Errorf("PVC %s/%s cannot be reused for the host-local volume: %w", pvc.Namespace, pvc.Name, err)
+		}
+	}
 
 	// Check if PVC has topology annotation
 	topologyAnnotation, exists := pvc.Annotations[common.AnnVolumeAccessibleTopology]
@@ -1400,6 +1437,9 @@ func validatePVCTopologyCompatibility(ctx context.Context, k8sclient clientset.I
 			pvc.Annotations = make(map[string]string)
 		}
 		pvc.Annotations[common.AnnVolumeAccessibleTopology] = topologyAnnotation
+		if addHostMirror {
+			pvc.Annotations[common.AnnESXiHostMoID] = hostLocalHostMoID
+		}
 
 		// Persist the topology annotation via a merge patch (resourceVersion-agnostic) instead of a
 		// full-object Update, so this write can't 409 if the PVC was already mutated earlier in this
@@ -1442,7 +1482,7 @@ func validatePVCTopologyCompatibility(ctx context.Context, k8sclient clientset.I
 	}
 
 	// Determine the volume's actual topology. For host-local volumes the caller already resolved the
-	// node-driven {zone, hostname} topology; reuse it directly and skip the shared-datastore
+	// zone of the backing host; reuse it directly and skip the shared-datastore
 	// intersection recompute (GetTopologyInfoFromNodes), which would incorrectly drop the single-host
 	// datastore and reject the PVC.
 	var volumeTopologySegments []map[string]string
@@ -1465,12 +1505,37 @@ func validatePVCTopologyCompatibility(ctx context.Context, k8sclient clientset.I
 	if isTopologyCompatible(pvcTopologySegments, volumeTopologySegments) {
 		log.Infof("PVC %s/%s topology annotation is compatible with volume placement",
 			pvc.Namespace, pvc.Name)
+		if addHostMirror {
+			return addHostMirrorToPVC(ctx, k8sclient, pvc, hostLocalHostMoID)
+		}
 		return nil
 	}
 
 	// No compatible topology found
 	return fmt.Errorf("PVC %s/%s topology annotation %s is not compatible with volume placement in zones %+v",
 		pvc.Namespace, pvc.Name, topologyAnnotation, volumeTopologySegments)
+}
+
+// addHostMirrorToPVC adds the common.AnnESXiHostMoID annotation to a reused PVC that already has
+// its topology annotation, patching only that key.
+func addHostMirrorToPVC(ctx context.Context, k8sclient clientset.Interface, pvc *v1.PersistentVolumeClaim,
+	hostMoID string) error {
+	log := logger.GetLogger(ctx)
+	patchBytes, err := annotationPatch(common.AnnESXiHostMoID, hostMoID)
+	if err != nil {
+		return err
+	}
+	if _, err = k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Patch(ctx, pvc.Name,
+		apitypes.MergePatchType, patchBytes, metav1.PatchOptions{}); err != nil {
+		return fmt.Errorf("failed to add annotation %s to PVC %s/%s: %w", common.AnnESXiHostMoID,
+			pvc.Namespace, pvc.Name, err)
+	}
+	if pvc.Annotations == nil {
+		pvc.Annotations = make(map[string]string)
+	}
+	pvc.Annotations[common.AnnESXiHostMoID] = hostMoID
+	log.Infof("Added annotation %s=%s to PVC %s/%s", common.AnnESXiHostMoID, hostMoID, pvc.Namespace, pvc.Name)
+	return nil
 }
 
 // isTopologyCompatible checks if volume topology segments are compatible with PVC topology segments.
@@ -1644,7 +1709,8 @@ func validateAndFixPVVolumeMode(ctx context.Context, k8sclient clientset.Interfa
 	r *ReconcileCnsRegisterVolume, instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
 	pv *v1.PersistentVolume, pvName, volumeID string, pvCapacity resource.Quantity,
 	accessMode v1.PersistentVolumeAccessMode, storageClassName string,
-	pvNodeAffinity *v1.VolumeNodeAffinity, timeout time.Duration, isRestore bool) (*v1.PersistentVolume, error) {
+	pvNodeAffinity *v1.VolumeNodeAffinity, hostLocalHostMoID string, timeout time.Duration,
+	isRestore bool) (*v1.PersistentVolume, error) {
 	log := logger.GetLogger(ctx)
 
 	// Determine expected volumeMode
@@ -1732,6 +1798,9 @@ func validateAndFixPVVolumeMode(ctx context.Context, k8sclient clientset.Interfa
 			accessMode, instance.Spec.VolumeMode, storageClassName, claimRef,
 			instance.Namespace, instance.Name)
 		pvSpec.Spec.NodeAffinity = pvNodeAffinity
+		if hostLocalHostMoID != "" {
+			setHostLocalPVMetadata(pvSpec, hostLocalHostMoID)
+		}
 		if isRestore {
 			setRestoreAnnotations(pvSpec, instance)
 		}
