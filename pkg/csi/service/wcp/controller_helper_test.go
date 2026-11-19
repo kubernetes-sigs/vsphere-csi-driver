@@ -742,3 +742,37 @@ func TestGetPodVMUUIDStorageFeatureMatrix(t *testing.T) {
 		}
 	}
 }
+
+func TestGetPVCVolumeAttributesClassName(t *testing.T) {
+	ctx := context.Background()
+	vacName := "vac1"
+	withVAC := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "pvc-vac", Namespace: "ns"},
+		Spec:       v1.PersistentVolumeClaimSpec{VolumeAttributesClassName: &vacName},
+	}
+	withoutVAC := &v1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "pvc-no-vac", Namespace: "ns"}}
+	k8sClient := fake.NewClientset(withVAC, withoutVAC)
+
+	t.Run("PVC with VAC", func(t *testing.T) {
+		got, err := getPVCVolumeAttributesClassName(ctx, k8sClient, "ns", "pvc-vac")
+		assert.NoError(t, err)
+		assert.Equal(t, vacName, got)
+	})
+	t.Run("PVC without VAC", func(t *testing.T) {
+		got, err := getPVCVolumeAttributesClassName(ctx, k8sClient, "ns", "pvc-no-vac")
+		assert.NoError(t, err)
+		assert.Equal(t, "", got)
+	})
+	t.Run("PVC not found", func(t *testing.T) {
+		_, err := getPVCVolumeAttributesClassName(ctx, k8sClient, "ns", "missing")
+		assert.Error(t, err)
+	})
+	t.Run("missing PVC name", func(t *testing.T) {
+		_, err := getPVCVolumeAttributesClassName(ctx, k8sClient, "ns", "")
+		assert.Error(t, err)
+	})
+	t.Run("nil client", func(t *testing.T) {
+		_, err := getPVCVolumeAttributesClassName(ctx, nil, "ns", "pvc-vac")
+		assert.Error(t, err)
+	})
+}

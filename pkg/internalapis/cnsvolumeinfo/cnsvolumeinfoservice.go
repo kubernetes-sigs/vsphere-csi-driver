@@ -68,9 +68,10 @@ type VolumeInfoService interface {
 	CreateVolumeInfo(ctx context.Context, volumeID string, vCenter string) error
 
 	// CreateVolumeInfoWithPolicyInfo creates VolumeInfo CR to persist VolumeID,
-	// pvcnamespace, storage policy info and  vCenter details
+	// pvcnamespace, storage policy info and  vCenter details. volumeAttributesClassName is the
+	// VolumeAttributesClass the volume's quota is tracked under, if any.
 	CreateVolumeInfoWithPolicyInfo(ctx context.Context, volumeID, pvcnamespace, storagePolicyId, storageClassName,
-		vCenter string, capacity *resource.Quantity, isLinkedClone bool) error
+		volumeAttributesClassName, vCenter string, capacity *resource.Quantity, isLinkedClone bool) error
 
 	// DeleteVolumeInfo deletes VolumeInfo CR for the given VolumeID
 	DeleteVolumeInfo(ctx context.Context, volumeID string) error
@@ -258,11 +259,12 @@ func (volumeInfo *volumeInfo) CreateVolumeInfo(ctx context.Context, volumeID str
 
 // CreateVolumeInfoWithPolicyInfo creates VolumeInfo CR to persist VolumeID to Storage policy mapping
 func (volumeInfo *volumeInfo) CreateVolumeInfoWithPolicyInfo(ctx context.Context, volumeID, pvcnamespace,
-	storagePolicyId, storageClassName, vCenter string, capacity *resource.Quantity, isLinkedClone bool) error {
+	storagePolicyId, storageClassName, volumeAttributesClassName, vCenter string, capacity *resource.Quantity,
+	isLinkedClone bool) error {
 	log := logger.GetLogger(ctx)
 	log.Infof("creating cnsvolumeinfo for volumeID: %q, StoragePolicyID: %q, "+
-		"StorageClassName: %q, vCenter: %q, Capacity: %+v in the namespace: %q",
-		volumeID, storagePolicyId, storageClassName, vCenter, *capacity, csiNamespace)
+		"StorageClassName: %q, VolumeAttributesClassName: %q, vCenter: %q, Capacity: %+v in the namespace: %q",
+		volumeID, storagePolicyId, storageClassName, volumeAttributesClassName, vCenter, *capacity, csiNamespace)
 
 	volumeInfoCrName := getCnsVolumeInfoCrName(ctx, volumeID)
 
@@ -279,6 +281,8 @@ func (volumeInfo *volumeInfo) CreateVolumeInfoWithPolicyInfo(ctx context.Context
 			StorageClassName: storageClassName,
 			Capacity:         capacity,
 			IsLinkedClone:    isLinkedClone,
+			// VolumeAttributeClassName is set only when the volume's quota is tracked under a VAC.
+			VolumeAttributeClassName: volumeAttributesClassName,
 		},
 	}
 	err := volumeInfo.k8sClient.Create(ctx, &cnsvolumeinfo)

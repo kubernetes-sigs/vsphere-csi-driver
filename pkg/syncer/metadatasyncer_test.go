@@ -1590,6 +1590,337 @@ func TestCalculateModifyVolumeReservedForNamespace(t *testing.T) {
 	}
 }
 
+// TestCalculatePVCReservedForNamespaceExpansionWithVAC verifies that the expansion delta of a PVC
+// whose storage policy was changed via a VolumeAttributesClass is reserved against the VAC's storage
+// policy (from CNSVolumeInfo) when the mutability FSS is enabled, and against the StorageClass's
+// storage policy otherwise.
+func TestCalculatePVCReservedForNamespaceExpansionWithVAC(t *testing.T) {
+	ctx := context.Background()
+	const (
+		namespace    = "test-ns"
+		volumeHandle = "vol-1"
+	)
+	sc := "sc1" // resolves to "policy1" via fakeFetchStorageClassToStoragePolicyMapping
+	pvc := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "pvc1", Namespace: namespace},
+		Spec: v1.PersistentVolumeClaimSpec{
+			StorageClassName: &sc,
+			Resources: v1.VolumeResourceRequirements{
+				Requests: v1.ResourceList{v1.ResourceStorage: resource.MustParse("600Mi")},
+			},
+		},
+		Status: v1.PersistentVolumeClaimStatus{Phase: v1.ClaimBound},
+	}
+	pv := &v1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: "pv1"},
+		Spec: v1.PersistentVolumeSpec{
+			Capacity: v1.ResourceList{v1.ResourceStorage: resource.MustParse("300Mi")},
+			PersistentVolumeSource: v1.PersistentVolumeSource{
+				CSI: &v1.CSIPersistentVolumeSource{VolumeHandle: volumeHandle},
+			},
+		},
+	}
+	volumeMap := map[string]*v1.PersistentVolume{namespace + "/" + pvc.Name: pv}
+
+	tests := []struct {
+		name        string
+		fssEnabled  bool
+		pvcVAC      string
+		cviVAC      string
+		cviMissing  bool
+		expectError bool
+		expected    map[string]string // storagePolicyID -> expected reserved quantity
+	}{
+		{
+			name:       "FSS enabled, VAC set -> reserved against VAC's storage policy",
+			fssEnabled: true,
+			pvcVAC:     "vac1",
+			cviVAC:     "vac1",
+			expected:   map[string]string{"policy1": "0", "vac-policy": "300Mi"},
+		},
+		{
+			name:       "FSS enabled, no VAC -> reserved against StorageClass's storage policy",
+			fssEnabled: true,
+			expected:   map[string]string{"policy1": "300Mi"},
+		},
+		{
+			name:       "FSS disabled, VAC set -> reserved against StorageClass's storage policy",
+			fssEnabled: false,
+			pvcVAC:     "vac1",
+			cviVAC:     "vac1",
+			expected:   map[string]string{"policy1": "300Mi"},
+		},
+		{
+			name:        "FSS enabled, VAC set, CNSVolumeInfo lookup fails -> error, not the StorageClass's policy",
+			fssEnabled:  true,
+			pvcVAC:      "vac1",
+			cviMissing:  true,
+			expectError: true,
+		},
+		{
+			name:       "FSS enabled, no VAC, CNSVolumeInfo lookup fails -> reserved against StorageClass's policy",
+			fssEnabled: true,
+			cviMissing: true,
+			expected:   map[string]string{"policy1": "300Mi"},
+		},
+	}
+
+	origFetchSC := fetchStorageClassToStoragePolicyMapping
+	origFetchVAC := fetchVACToStoragePolicyMapping
+	origFSS := IsVMPVCStoragePolicyMutabilityEnabled
+	origVolumeInfoService := volumeInfoService
+	t.Cleanup(func() {
+		fetchStorageClassToStoragePolicyMapping = origFetchSC
+		fetchVACToStoragePolicyMapping = origFetchVAC
+		IsVMPVCStoragePolicyMutabilityEnabled = origFSS
+		volumeInfoService = origVolumeInfoService
+	})
+	fetchStorageClassToStoragePolicyMapping = fakeFetchStorageClassToStoragePolicyMapping
+	fetchVACToStoragePolicyMapping = func(ctx context.Context) (map[string]string, error) {
+		return map[string]string{"vac1": "vac-policy"}, nil
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			IsVMPVCStoragePolicyMutabilityEnabled = tt.fssEnabled
+			fakeSvc := newFakeVolumeInfoService()
+			if !tt.cviMissing {
+				fakeSvc.infoByID[volumeHandle] = &cnsvolumeinfov1alpha1.CNSVolumeInfo{
+					Spec: cnsvolumeinfov1alpha1.CNSVolumeInfoSpec{
+						VolumeID:                 volumeHandle,
+						Namespace:                namespace,
+						StorageClassName:         sc,
+						StoragePolicyID:          "vac-policy",
+						VolumeAttributeClassName: tt.cviVAC,
+					},
+				}
+			}
+			volumeInfoService = fakeSvc
+			testPVC := pvc.DeepCopy()
+			if tt.pvcVAC != "" {
+				testPVC.Spec.VolumeAttributesClassName = &tt.pvcVAC
+			}
+			metadataSyncer := buildSyncerWithPVCs(t, testPVC)
+
+			result, err := calculatePVCReservedForNamespace(ctx, volumeMap, namespace, metadataSyncer)
+			if tt.expectError {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, len(tt.expected), len(result))
+			for policyID, want := range tt.expected {
+				got, ok := result[policyID]
+				if !assert.True(t, ok, "expected policy %q in result", policyID) || got == nil {
+					continue
+				}
+				wantQty := resource.MustParse(want)
+				assert.Equalf(t, 0, got.Cmp(wantQty), "policy %q: got %s want %s", policyID, got.String(), want)
+			}
+		})
+	}
+}
+
+// TestCalculatePVCReservedForNamespacePendingWithVAC verifies that a pending PVC created with a
+// VolumeAttributesClass is reserved against the VAC's storage policy when the mutability FSS is
+// enabled, and that a Bound PVC with a VAC reports its VAC's policy with a zero reserved value.
+func TestCalculatePVCReservedForNamespacePendingWithVAC(t *testing.T) {
+	ctx := context.Background()
+	const namespace = "test-ns"
+	sc := "sc1" // resolves to "policy1" via fakeFetchStorageClassToStoragePolicyMapping
+	mkPVC := func(name, vac string, phase v1.PersistentVolumeClaimPhase) *v1.PersistentVolumeClaim {
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+			Spec: v1.PersistentVolumeClaimSpec{
+				StorageClassName: &sc,
+				Resources: v1.VolumeResourceRequirements{
+					Requests: v1.ResourceList{v1.ResourceStorage: resource.MustParse("1Gi")},
+				},
+			},
+			Status: v1.PersistentVolumeClaimStatus{Phase: phase},
+		}
+		if vac != "" {
+			pvc.Spec.VolumeAttributesClassName = &vac
+		}
+		return pvc
+	}
+
+	tests := []struct {
+		name       string
+		fssEnabled bool
+		pvcs       []*v1.PersistentVolumeClaim
+		expected   map[string]string // storagePolicyID -> expected reserved quantity
+	}{
+		{
+			name:       "FSS enabled, pending PVC with VAC -> reserved against VAC's storage policy",
+			fssEnabled: true,
+			pvcs:       []*v1.PersistentVolumeClaim{mkPVC("pvc1", "vac1", v1.ClaimPending)},
+			expected:   map[string]string{"policy1": "0", "vac-policy": "1Gi"},
+		},
+		{
+			name:       "FSS enabled, pending PVC with unknown VAC -> reserved against StorageClass's storage policy",
+			fssEnabled: true,
+			pvcs:       []*v1.PersistentVolumeClaim{mkPVC("pvc1", "vacX", v1.ClaimPending)},
+			expected:   map[string]string{"policy1": "1Gi"},
+		},
+		{
+			name:       "FSS disabled, pending PVC with VAC -> reserved against StorageClass's storage policy",
+			fssEnabled: false,
+			pvcs:       []*v1.PersistentVolumeClaim{mkPVC("pvc1", "vac1", v1.ClaimPending)},
+			expected:   map[string]string{"policy1": "1Gi"},
+		},
+		{
+			name:       "FSS enabled, Bound PVC with VAC -> VAC's storage policy reported with zero",
+			fssEnabled: true,
+			pvcs:       []*v1.PersistentVolumeClaim{mkPVC("pvc1", "vac1", v1.ClaimBound)},
+			expected:   map[string]string{"policy1": "0", "vac-policy": "0"},
+		},
+	}
+
+	origFetchSC := fetchStorageClassToStoragePolicyMapping
+	origFetchVAC := fetchVACToStoragePolicyMapping
+	origFSS := IsVMPVCStoragePolicyMutabilityEnabled
+	t.Cleanup(func() {
+		fetchStorageClassToStoragePolicyMapping = origFetchSC
+		fetchVACToStoragePolicyMapping = origFetchVAC
+		IsVMPVCStoragePolicyMutabilityEnabled = origFSS
+	})
+	fetchStorageClassToStoragePolicyMapping = fakeFetchStorageClassToStoragePolicyMapping
+	fetchVACToStoragePolicyMapping = func(ctx context.Context) (map[string]string, error) {
+		return map[string]string{"vac1": "vac-policy"}, nil
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			IsVMPVCStoragePolicyMutabilityEnabled = tt.fssEnabled
+			metadataSyncer := buildSyncerWithPVCs(t, tt.pvcs...)
+
+			result, err := calculatePVCReservedForNamespace(ctx, map[string]*v1.PersistentVolume{}, namespace,
+				metadataSyncer)
+			assert.NoError(t, err)
+			assert.Equal(t, len(tt.expected), len(result))
+			for policyID, want := range tt.expected {
+				got, ok := result[policyID]
+				if !assert.True(t, ok, "expected policy %q in result", policyID) || got == nil {
+					continue
+				}
+				wantQty := resource.MustParse(want)
+				assert.Equalf(t, 0, got.Cmp(wantQty), "policy %q: got %s want %s", policyID, got.String(), want)
+			}
+		})
+	}
+}
+
+// TestGetVACStoragePolicyIDForPV verifies that the VAC's storage policy is resolved from CNSVolumeInfo only
+// when the mutability FSS is enabled and the volume has a VAC, and that a failed CNSVolumeInfo lookup for a
+// PVC with a VAC is reported as an error rather than as a StorageClass-owned volume.
+func TestGetVACStoragePolicyIDForPV(t *testing.T) {
+	ctx := context.Background()
+	const volumeHandle = "vol-1"
+	csiPV := func(handle string) *v1.PersistentVolume {
+		return &v1.PersistentVolume{Spec: v1.PersistentVolumeSpec{PersistentVolumeSource: v1.PersistentVolumeSource{
+			CSI: &v1.CSIPersistentVolumeSource{VolumeHandle: handle}}}}
+	}
+	vac1 := "vac1"
+	pvcWithVAC := &v1.PersistentVolumeClaim{Spec: v1.PersistentVolumeClaimSpec{VolumeAttributesClassName: &vac1}}
+	pvcWithCurrentVAC := &v1.PersistentVolumeClaim{
+		Status: v1.PersistentVolumeClaimStatus{CurrentVolumeAttributesClassName: &vac1}}
+	pvcWithoutVAC := &v1.PersistentVolumeClaim{}
+
+	origFSS := IsVMPVCStoragePolicyMutabilityEnabled
+	origVolumeInfoService := volumeInfoService
+	t.Cleanup(func() {
+		IsVMPVCStoragePolicyMutabilityEnabled = origFSS
+		volumeInfoService = origVolumeInfoService
+	})
+
+	cases := []struct {
+		name       string
+		fssEnabled bool
+		cviVAC     string
+		pvc        *v1.PersistentVolumeClaim
+		pv         *v1.PersistentVolume
+		wantID     string
+		wantFound  bool
+		wantErr    bool
+	}{
+		{name: "FSS enabled, VAC set", fssEnabled: true, cviVAC: "vac1", pvc: pvcWithVAC, pv: csiPV(volumeHandle),
+			wantID: "vac-policy", wantFound: true},
+		{name: "FSS enabled, current VAC set", fssEnabled: true, cviVAC: "vac1", pvc: pvcWithCurrentVAC,
+			pv: csiPV(volumeHandle), wantID: "vac-policy", wantFound: true},
+		{name: "FSS enabled, PVC with VAC but CNSVolumeInfo without", fssEnabled: true, pvc: pvcWithVAC,
+			pv: csiPV(volumeHandle)},
+		{name: "FSS enabled, PVC without VAC is not looked up", fssEnabled: true, pvc: pvcWithoutVAC,
+			pv: csiPV("unknown")},
+		{name: "FSS disabled, VAC set", fssEnabled: false, cviVAC: "vac1", pvc: pvcWithVAC, pv: csiPV(volumeHandle)},
+		{name: "FSS enabled, CNSVolumeInfo lookup fails", fssEnabled: true, pvc: pvcWithVAC, pv: csiPV("unknown"),
+			wantErr: true},
+		{name: "FSS enabled, non-CSI PV", fssEnabled: true, pvc: pvcWithVAC, pv: &v1.PersistentVolume{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			IsVMPVCStoragePolicyMutabilityEnabled = tc.fssEnabled
+			fakeSvc := newFakeVolumeInfoService()
+			fakeSvc.infoByID[volumeHandle] = &cnsvolumeinfov1alpha1.CNSVolumeInfo{
+				Spec: cnsvolumeinfov1alpha1.CNSVolumeInfoSpec{
+					VolumeID:                 volumeHandle,
+					StoragePolicyID:          "vac-policy",
+					VolumeAttributeClassName: tc.cviVAC,
+				},
+			}
+			volumeInfoService = fakeSvc
+			gotID, gotFound, err := getVACStoragePolicyIDForPV(ctx, tc.pvc, tc.pv)
+			if tc.wantErr {
+				assert.Error(t, err)
+				assert.False(t, gotFound)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tc.wantFound, gotFound)
+			assert.Equal(t, tc.wantID, gotID)
+		})
+	}
+}
+
+// TestGetCurrentStoragePolicyUsageKeyForExpansion verifies that the StoragePolicyUsage charged with an
+// expansion's "used" follows the volume's current owner in CNSVolumeInfo, which may differ from the
+// owner the expansion was reserved against.
+func TestGetCurrentStoragePolicyUsageKeyForExpansion(t *testing.T) {
+	ctx := context.Background()
+	const volumeID = "vol-1"
+	origFSS := IsVMPVCStoragePolicyMutabilityEnabled
+	origVolumeInfoService := volumeInfoService
+	t.Cleanup(func() {
+		IsVMPVCStoragePolicyMutabilityEnabled = origFSS
+		volumeInfoService = origVolumeInfoService
+	})
+	IsVMPVCStoragePolicyMutabilityEnabled = true
+	fakeSvc := newFakeVolumeInfoService()
+	fakeSvc.infoByID[volumeID] = &cnsvolumeinfov1alpha1.CNSVolumeInfo{
+		Spec: cnsvolumeinfov1alpha1.CNSVolumeInfoSpec{
+			VolumeID:                 volumeID,
+			StorageClassName:         "sc1",
+			VolumeAttributeClassName: "vac1",
+		},
+	}
+	volumeInfoService = fakeSvc
+
+	key, ok := getCurrentStoragePolicyUsageKeyForExpansion(ctx, "expand-"+volumeID)
+	assert.True(t, ok)
+	assert.Equal(t, "vac-vac1", key)
+
+	_, ok = getCurrentStoragePolicyUsageKeyForExpansion(ctx, "expand-unknown")
+	assert.False(t, ok, "missing CNSVolumeInfo")
+
+	_, ok = getCurrentStoragePolicyUsageKeyForExpansion(ctx, "pvc-"+volumeID)
+	assert.False(t, ok, "not an expansion")
+
+	IsVMPVCStoragePolicyMutabilityEnabled = false
+	key, ok = getCurrentStoragePolicyUsageKeyForExpansion(ctx, "expand-"+volumeID)
+	assert.True(t, ok)
+	assert.Equal(t, "sc1", key, "FSS disabled keeps the StorageClass-keyed owner")
+}
+
 func TestFetchVACToStoragePolicyMapping(t *testing.T) {
 	ctx := context.Background()
 	orig := vacAPIAvailableCheck
@@ -2834,6 +3165,51 @@ func TestSyncStoragePolicyUsageUsedValues(t *testing.T) {
 		assert.Equal(t, int64(0), getUsed(t, fakeClient, vacSPU.Name),
 			"VAC-keyed SPU must reset to 0 when the deleted volume was its only member, "+
 				"even though an unrelated PV remains Bound in the namespace")
+	})
+
+	t.Run("SC- and VAC-keyed SPUs sharing a policy: a VAC volume is counted only in the VAC SPU", func(t *testing.T) {
+		origFSS := IsVMPVCStoragePolicyMutabilityEnabled
+		IsVMPVCStoragePolicyMutabilityEnabled = true
+		t.Cleanup(func() { IsVMPVCStoragePolicyMutabilityEnabled = origFSS })
+
+		cap10Gi := resource.MustParse("10Gi")
+		scSPU := mkSPU("sc-old-pvc-usage", "sc-old", "", "policy-uuid", ResourceKindPVC, cap10Gi.DeepCopy())
+		vacSPU := mkSPU("vac-vac-gold-pvc-usage", "", "vac-gold", "policy-uuid", ResourceKindPVC, cap10Gi.DeepCopy())
+		fakeClient := newFakeClient(t, scSPU, vacSPU)
+
+		pv := mkPV("pv-1", namespace, "csi-handle-1")
+		cvi := mkCVI("sc-old", "vac-gold", "policy-uuid", cap10Gi)
+
+		syncStoragePolicyUsageUsedValues(context.Background(), fakeClient,
+			&storagepolicyv1alpha3.StoragePolicyUsageList{
+				Items: []storagepolicyv1alpha3.StoragePolicyUsage{*scSPU, *vacSPU},
+			},
+			map[string][]*v1.PersistentVolume{namespace: {pv}},
+			map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo{"csi-handle-1": cvi})
+
+		assert.Equal(t, int64(0), getUsed(t, fakeClient, scSPU.Name),
+			"a volume whose quota is tracked under a VAC must not also be counted in the SC SPU")
+		assert.Equal(t, cap10Gi.Value(), getUsed(t, fakeClient, vacSPU.Name))
+	})
+
+	t.Run("FSS disabled: a volume with a VAC is still counted in the SC SPU", func(t *testing.T) {
+		origFSS := IsVMPVCStoragePolicyMutabilityEnabled
+		IsVMPVCStoragePolicyMutabilityEnabled = false
+		t.Cleanup(func() { IsVMPVCStoragePolicyMutabilityEnabled = origFSS })
+
+		cap10Gi := resource.MustParse("10Gi")
+		scSPU := mkSPU("sc-old-pvc-usage", "sc-old", "", "policy-uuid", ResourceKindPVC, resource.MustParse("0"))
+		fakeClient := newFakeClient(t, scSPU)
+
+		pv := mkPV("pv-1", namespace, "csi-handle-1")
+		cvi := mkCVI("sc-old", "vac-gold", "policy-uuid", cap10Gi)
+
+		syncStoragePolicyUsageUsedValues(context.Background(), fakeClient,
+			&storagepolicyv1alpha3.StoragePolicyUsageList{Items: []storagepolicyv1alpha3.StoragePolicyUsage{*scSPU}},
+			map[string][]*v1.PersistentVolume{namespace: {pv}},
+			map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo{"csi-handle-1": cvi})
+
+		assert.Equal(t, cap10Gi.Value(), getUsed(t, fakeClient, scSPU.Name))
 	})
 
 	t.Run("snapshot SPU: is enqueued for the snapshot reconciler and not written by the sync", func(t *testing.T) {

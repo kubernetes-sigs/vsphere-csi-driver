@@ -1071,6 +1071,25 @@ func GetZonesFromAccessibilityRequirements(ctx context.Context,
 	return zones, nil
 }
 
+// getPVCVolumeAttributesClassName returns spec.volumeAttributesClassName of the given PVC, or "" if unset.
+func getPVCVolumeAttributesClassName(ctx context.Context, k8sClient kubernetes.Interface,
+	namespace, name string) (string, error) {
+	if k8sClient == nil {
+		return "", fmt.Errorf("kubernetes client is not initialized")
+	}
+	if namespace == "" || name == "" {
+		return "", fmt.Errorf("PVC name and namespace must be provided, got %q/%q", namespace, name)
+	}
+	pvc, err := k8sClient.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+	if pvc.Spec.VolumeAttributesClassName == nil {
+		return "", nil
+	}
+	return *pvc.Spec.VolumeAttributesClassName, nil
+}
+
 // getSnapshotLimitForNamespace reads the snapshot limit from ConfigMap in the namespace.
 // Returns the effective limit after applying defaults and absolute max clamping.
 func getSnapshotLimitForNamespace(ctx context.Context, k8sClient kubernetes.Interface, namespace string) (int, error) {

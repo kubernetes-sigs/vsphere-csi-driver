@@ -496,7 +496,7 @@ func (f *fakeVolumeInfoServiceImpl) CreateVolumeInfo(
 }
 
 func (f *fakeVolumeInfoServiceImpl) CreateVolumeInfoWithPolicyInfo(
-	_ context.Context, _, _, _, _, _ string, _ *resource.Quantity, _ bool) error {
+	_ context.Context, _, _, _, _, _, _ string, _ *resource.Quantity, _ bool) error {
 	return nil
 }
 
