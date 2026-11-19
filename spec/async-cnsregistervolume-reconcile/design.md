@@ -115,6 +115,8 @@ Two listview properties shape the tracker:
 | **Distinct `Unknown` task state** | A nil listview `TaskInfo` can mean a terminal task error or a lost session. Read the task directly to distinguish them. Inconclusive reads retain the task ID and slot; a confirmed missing task follows the CNS lookup and recovery procedure in 3.4. |
 | **Settle submitted work before admission** | A changed StorageClass or policy must not prevent a completed CNS task from being checkpointed and its slot released. Admission is still checked before PV or PVC creation. |
 | **Deletion waits for an in-flight task** | Dropping the finalizer while a task runs would delete the CRV and orphan the volume the task creates. The finalizer is held until the task settles, then any volume it created is cleaned up. |
+| **Deletion after bind does not undo the registration** | Once `PvcBound=True`, the volume, PV and PVC belong to the workload even if `registered` is still false. Unregistering it would pull a disk from a live VM and a bound PVC, and a CNS fault doing so used to requeue forever and leave the namespace `Terminating`. The finalizer is released; PVC and PV deletion own the volume. See 3.6. |
+| **Deletion cleanup is bounded** | A CNS cleanup fault during deletion is retried with growing backoff for `cnsCleanupDeadline` (10m) from the deletion timestamp, then recorded in `status.error` and a Warning event, and the finalizer is released. A leaked CNS registration can be reclaimed later; a namespace stuck in `Terminating` cannot without manual edits. |
 | **`DiskURLPath` volume name from the CRV UID** | Every attempt for one CRV uses `static-pv-<uid>`, so a volume whose task reference was lost can still be found by name. |
 | **CreateVolume latency metric recorded in the tracker** | `Manager.CreateVolume` timed its blocking call. That call is gone from this path; without this the metric would silently stop for registrations. |
 | **CNS fault handling unchanged** | A failed task still writes `status.error` and retries indefinitely. Classifying faults as permanent needs agreement with VM Operator first, because a misclassification wedges a VM that currently self-heals. |
@@ -211,6 +213,20 @@ A condition does return to `False` when the fact it reports stops being true, wh
 exactly one place — a terminal accessibility failure deletes the CNS volume, so
 `CnsVolumeRegistered` is republished as `False`.
 
+`PvcBound=True` is the one condition that is **not** purely informational. It is the durable
+record that the registration reached binding. `reconcileDelete` reads it (3.6) because by the time
+a delete is reconciled, owner-reference garbage collection has usually removed the PVC and it
+cannot be consulted directly. Three rules keep it reliable:
+
+- **Persisted before any post-bind step.** The bind is published with an error-returning variant
+  of the condition writer. If that patch fails, the pass requeues without running VM-delete
+  protection, quota or CnsVolumeInfo work. Every other condition write stays best-effort.
+- **Never downgraded.** A later pass that sees the PVC unbound requeues but leaves `True` in place.
+- **The PVC is never recreated after bind.** If `PvcBound=True` and the PVC is gone or terminating,
+  its owner is deleting it. The pipeline stops with `Ready=False, reason=PvcTerminating` instead of
+  creating a new, unbound PVC, which would leak and would move `PvcBound` back to `False`. This
+  check reads only persisted state, so it also holds after a syncer restart.
+
 #### Reasons
 
 Every condition carries a `reason`. The CRD requires it (`minLength: 1`, pattern
@@ -251,10 +267,12 @@ The reasons are the diagnostic payload: they are what used to be invisible.
 | | False | `ClearKeepAfterDeleteVmFailed` | A lookup or VSLM call failed; retry after 5s. |
 | | False | `ClearKeepAfterDeleteVmTimedOut` | The attempt exceeded its deadline; retry after 5s. |
 | | False | `PersistClearResultFailed` | The clear succeeded but its PVC annotation could not be persisted; retry the idempotent clear. |
+| | False | `PvcTerminating` | The PVC is gone (`NotFound`) or has a deletion timestamp, so its VirtualMachine is already being destroyed. **Terminal**: the clear is abandoned, not retried, and the outcome is recorded in the in-memory terminal guard so earlier-scheduled requeues are absorbed. |
 | | True | `KeepAfterDeleteVmCleared` | The successful clear is recorded on the PVC. |
 | | True | `NotRequired` | The PVC is outside the registration-time clearing rules. |
 | `Ready` | True | `Registered` | Written in the same patch as `registered=true`. |
 | | False | `Finalizing` | The PVC is bound; CnsVolumeInfo and StoragePolicyUsage bookkeeping is in progress. |
+| | False | `PvcTerminating` | The PVC was bound and is now gone or terminating, found at any later step. **Terminal**, recorded in the in-memory terminal guard; the PVC is not recreated. |
 | | False | *the blocking condition's reason* | Mirrors the leftmost condition that is not `True`. |
 
 A `False` condition is not by itself terminal, and a reader must not infer "give up" from `False`.
@@ -444,7 +462,9 @@ flowchart TD
     K8S --> BIND{"PVC Bound?"}
     BIND -->|No| R2["Requeue 2s"]
     BIND -->|Yes| PROTECT["mark PvcBound<br/>configure VM-delete protection<br/>(30s attempt deadline)"]
-    PROTECT -->|failure| R5["mark VMDeleteProtectionConfigured=False<br/>registered remains false<br/>requeue 5s"]
+    PROTECT -->|failure| MOOT{"PVC gone or<br/>terminating?"}
+    MOOT -->|No| R5["mark VMDeleteProtectionConfigured=False<br/>registered remains false<br/>requeue 5s"]
+    MOOT -->|Yes| ABANDON["VMDeleteProtectionConfigured=False,<br/>reason=PvcTerminating<br/>record terminal, no requeue"]
     PROTECT -->|cleared or not required| FIN["mark VMDeleteProtectionConfigured=True<br/>metadata and quota bookkeeping<br/>registered=true and Ready"]
 ```
 
@@ -495,10 +515,36 @@ when no caller deadline exists, covering other callers without lengthening the
 controller's deadline. These bounds are initial values for end-to-end validation,
 not a promise of completion within the test's 40s polling window.
 
-Existing deletion handling remains responsible for cancelled registrations and
-preserves bound PVs. Test deletion with a bound PVC and an incomplete protection
-step. The syncer's owner-reference-based repair remains separate from this
-registration-time requirement; do not rely on it to justify early success.
+**VM deleted before the clear completes.** CNS registers every FCD with
+`keepAfterDeleteVm` set. If the VM is deleted after binding but before the clear
+lands, vSphere preserves the FCD; `DeleteVolume` removes it later with the PVC, but
+the VM home directory is left on the datastore. The controller cannot prevent that
+outcome once the destroy has begun. It must, however, not get stuck in it: owner-
+reference garbage collection removes the PVC (and the CRV) while the clear is still
+being retried, so the clear keeps failing (a CNS fault, or a successful clear whose
+annotation write finds the PVC gone).
+
+So after a failed attempt the PVC is re-read (the copy in hand predates an attempt
+that may have taken up to `vmDeleteProtectionClearTimeout`). If it is `NotFound` or
+carries a deletion timestamp, VM Operator, which owns it through the VirtualMachine,
+is destroying the VM and a later clear cannot change what vSphere leaves behind. The
+step is abandoned with the terminal reason `PvcTerminating` and returns without a
+requeue. Any other read error counts as "still worth trying", so an API blip does
+not abandon a clear that could still land.
+
+Returning without a requeue does not cancel a requeue scheduled earlier, such as the
+task safety requeue. If that requeue arrives before the CR is marked for deletion,
+it would run the pipeline again, retrying the clear or recreating the deleted PVC.
+So the abandon is recorded in `terminalFailures` (UID and generation), the same guard
+a terminal accessibility failure uses, and such a requeue is absorbed. The record is
+in memory only. After a restart, the "never recreated after bind" rule in 2.4 reaches
+the same outcome from the persisted `PvcBound=True`. PVC reads bypass the informer
+cache, so a newly created PVC cannot read as `NotFound` and be abandoned by mistake.
+
+Deletion with a bound PVC and an incomplete protection step releases the finalizer
+without unregistering the volume (3.6). The syncer's owner-reference-based repair
+remains separate from this registration-time requirement; do not rely on it to
+justify early success.
 
 Status patches adopt the whole object returned by the API server into the working CR. Otherwise,
 condition writes make that object stale before the metadata update in `setInstanceSuccess`,
@@ -506,10 +552,17 @@ causing conflicts with the controller's own writes. Only the resourceVersion is 
 fresh version on stale spec or metadata would let a later full update silently revert another
 writer's change. Every status field is part of the patch, so no local status is lost.
 
+The adopted object has an empty TypeMeta: the controller-runtime client decodes typed responses
+without their GVK. The event recorder therefore must be built with the manager's scheme, which
+registers `CnsRegisterVolume`, so it can resolve the kind for `involvedObject`. With client-go's
+kubernetes scheme, every event recorded after a status patch is dropped with "no kind is
+registered" (for example the `AccessMode ... is not supported` warning).
+
 Regression coverage must verify binding before clearing; retry, timeout and
 annotation-persistence failure conditions; stable transition times; recovery with
 a fresh reconciler; annotation-based skipping; `NotRequired`; and success only
-after clearing. Validate powered-on and powered-off VM imports in the affected
+after clearing; abandonment with `PvcTerminating` when the PVC is gone or
+terminating, and continued retry when the PVC read fails transiently. Validate powered-on and powered-off VM imports in the affected
 build with separate timestamps for PVC creation, binding, clear attempts and CRV
 completion. Snapshot-restore timeouts reported in the Jira are outside this fix.
 
@@ -736,7 +789,9 @@ Failure and restart handling:
 
 ```mermaid
 flowchart TD
-    D["reconcileDelete"] --> T{"cnsTaskID set?"}
+    D["reconcileDelete"] --> B{"registered=true or<br/>PvcBound=True?"}
+    B -->|Yes| REL["Remove finalizer;<br/>PVC and PV deletion own the volume"]
+    B -->|No| T{"cnsTaskID set?"}
     T -->|No| N["Check persisted volume result,<br/>bound PV and restore ownership,<br/>then normal cleanup"]
     T -->|Yes| O{"Task finished?"}
     O -->|No| H["Hold finalizer, requeue 10s"]
@@ -750,6 +805,29 @@ flowchart TD
 Deletion does not submit a replacement task. When the task is missing, it checkpoints a recovered
 volume before the usual PV and ownership checks and cleanup; a confirmed empty lookup permits
 deletion to continue. Failed or ambiguous lookups retain the finalizer and restore reservation.
+
+**A bound registration is not undone.** The first check in `reconcileDelete` is
+`status.registered || PvcBound=True`. A CRV deleted after its PVC bound but before
+`registered=true` (VM-delete protection, quota or CnsVolumeInfo bookkeeping still pending) is
+not a half-finished registration: its volume, PV and PVC exist and belong to the workload.
+Previously such a CRV was treated as half-finished, so deletion removed the PV and called CNS
+`UnregisterVolume` on a disk a live VM and a bound PVC owned. Any fault other than `NotFound`
+requeued about once a second; on later passes the PV was gone while `cnsVolumeID` was still set,
+so `resolveInFlightTaskForDelete` retried the same cleanup and requeued without logging. The
+finalizer was never removed and the Supervisor namespace stayed `Terminating`. The check must stay
+ahead of `resolveInFlightTaskForDelete` so later passes cannot reach that retry.
+
+**CNS cleanup during deletion is bounded.** Both cleanup call sites — the persisted-volume path in
+`resolveInFlightTaskForDelete` (no PV) and the normal cleanup in `reconcileDelete` — go through
+`giveUpOnCleanup`:
+
+| Elapsed since `deletionTimestamp` | Behavior |
+|---|---|
+| ≤ `cnsCleanupDeadline` (10m) | Log the failure with the elapsed time and deadline, double the per-CR backoff (`growDeleteBackoff`, capped at `MaxBackOffDurationForReconciler`), requeue. No event per retry. |
+| > `cnsCleanupDeadline` | Write `status.error` naming the volume ID and stating it may still be registered in CNS and need manual cleanup, emit a Warning event, and release the finalizer. |
+
+Without the backoff, the delete path reused the registration's interval, one second for a CR that
+never failed, and re-issued a CNS call every second.
 
 ### 3.7 Status publication
 

@@ -259,9 +259,12 @@ func buildNodeAffinityFromSegments(segments []map[string]string) *v1.VolumeNodeA
 // on the just-registered FCD when the PVC was created by VM Operator with a
 // VirtualMachine DataSourceRef and the matching volume entry on the VM has
 // removable=false. CNS automatically sets keepAfterDeleteVm on every newly
-// registered FCD; for non-removable VM-imported PVCs we want the FCD lifecycle
-// to be governed by the PVC, not by the consuming VM, so we clear the flag
-// after registration.
+// registered FCD, which makes the disk survive deletion of the VM it is attached
+// to. A non-removable disk of a VM-imported PVC should instead be deleted with
+// its VM, the same as a native VM disk, so we clear the flag after registration.
+// The PVC is removed at the same time, because VM Operator owns it through the
+// VirtualMachine. While the flag is still set, deleting the VM preserves the FCD
+// and leaves the VM home directory behind on the datastore.
 //
 // The clear is performed via the VSLM endpoint (UnprotectVolumeFromVMDeletion),
 // which is broadly available on older vSphere as well; no FSS gate is required.

@@ -215,6 +215,12 @@ const (
 	ReasonPersistClearResultFailed       = "PersistClearResultFailed"
 	ReasonKeepAfterDeleteVmCleared       = "KeepAfterDeleteVmCleared"
 	ReasonNotRequired                    = "NotRequired"
+	// ReasonPvcTerminating means the PVC went away while the clear was being
+	// retried. VM Operator owns the PVC through the VirtualMachine, so this
+	// means the VM is already being destroyed and no further attempt can change
+	// what vSphere leaves on the datastore. Unlike the reasons above, this one
+	// is terminal: the clear is abandoned rather than retried.
+	ReasonPvcTerminating = "PvcTerminating"
 )
 
 // CnsRegisterVolumeStatus defines the observed state of CnsRegisterVolume
