@@ -36,7 +36,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -99,7 +98,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 			Interface: k8sclient.CoreV1().Events(""),
 		},
 	)
-	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: cnsoperatorapis.GroupName})
+	recorder := eventBroadcaster.NewRecorder(mgr.GetScheme(), v1.EventSource{Component: cnsoperatorapis.GroupName})
 	return add(mgr, newReconciler(mgr, configInfo, volumeManager, k8sclient, recorder))
 }
 
