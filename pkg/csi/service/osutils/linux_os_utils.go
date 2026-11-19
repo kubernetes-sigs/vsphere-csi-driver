@@ -446,17 +446,39 @@ func (osUtils *OsUtils) IsBlockVolumeMounted(
 			err.Error())
 	}
 
-	// device is mounted more than once. Should only be mounted to target.
-	if len(mnts) > 1 {
+	// The device should be mounted only to the target. Count paths, not mount-table entries: the
+	// same mount can be listed more than once at the target (see mountPathOtherThan).
+	if otherPath, found := mountPathOtherThan(ctx, mnts, stagingTargetPath); found {
 		return false, logger.LogNewErrorCodef(log, codes.Internal,
-			"isBlockVolumeMounted: volume: %s appears mounted in multiple places", volID)
+			"isBlockVolumeMounted: volume: %s appears mounted in multiple places: %q in addition to %q",
+			volID, otherPath, stagingTargetPath)
+	}
+	if len(mnts) > 1 {
+		log.Infof("isBlockVolumeMounted: volume %q has %d mount table entries, all at target %q; "+
+			"treating them as a single mount", volID, len(mnts), stagingTargetPath)
 	}
 
 	// Since we looked up the block volume from the target path, we assume that
-	// the one existing mount is from the block to the target.
+	// the existing mount is from the block to the target.
 	log.Debugf("isBlockVolumeMounted: Found single mount point for volume %q and target %q",
 		volID, stagingTargetPath)
 	return true, nil
+}
+
+// mountPathOtherThan returns the path of the first entry in mnts that is not mounted at target.
+//
+// One mount can be listed several times at the same path. When /var/lib/kubelet is bind-mounted
+// onto itself with shared propagation, every mount made under it is propagated to the underlying
+// peer mount and shows up twice in the mount table with the same path. Those copies are not
+// another user of the device, and unmounting the target removes them too, so only an entry at a
+// different path means the device is in use elsewhere.
+func mountPathOtherThan(ctx context.Context, mnts []gofsutil.Info, target string) (string, bool) {
+	for _, m := range mnts {
+		if p := unescape(ctx, m.Path); p != target {
+			return p, true
+		}
+	}
+	return "", false
 }
 
 // CleanupPublishPath will unmount and remove publish path

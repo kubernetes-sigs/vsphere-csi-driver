@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/akutz/gofsutil"
 	"k8s.io/mount-utils"
 	utilexec "k8s.io/utils/exec"
 	testingexec "k8s.io/utils/exec/testing"
@@ -343,6 +344,72 @@ func TestUnescape(t *testing.T) {
 			out := unescape(ctx, test.in)
 			if out != test.out {
 				t.Errorf("Expected %q to be unescaped as %q, got %q", test.in, test.out, out)
+			}
+		})
+	}
+}
+
+func TestMountPathOtherThan(t *testing.T) {
+	const (
+		dev     = "/dev/sdd"
+		staging = "/var/lib/kubelet/plugins/kubernetes.io/csi/csi.vsphere.vmware.com/" +
+			"0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0/globalmount"
+		podMount = "/var/lib/kubelet/pods/c46d6473-0810-11ea-94c1-005056825b1f/volumes/" +
+			"kubernetes.io~csi/pvc-9e3d1d08-080f-11ea-be93-005056825b1f/mount"
+	)
+	at := func(path string) gofsutil.Info {
+		return gofsutil.Info{Device: dev, Path: path, Type: "ext4", Opts: []string{"rw", "relatime"}}
+	}
+	tests := []struct {
+		name      string
+		mnts      []gofsutil.Info
+		target    string
+		wantPath  string
+		wantFound bool
+	}{
+		{name: "no mounts", target: staging},
+		{name: "single mount at the target", mnts: []gofsutil.Info{at(staging)}, target: staging},
+		{
+			// /var/lib/kubelet bind-mounted onto itself with shared propagation lists the staging
+			// mount twice, as two identical lines.
+			name:   "propagated duplicate at the target",
+			mnts:   []gofsutil.Info{at(staging), at(staging)},
+			target: staging,
+		},
+		{
+			name:      "also mounted at a pod path",
+			mnts:      []gofsutil.Info{at(staging), at(podMount)},
+			target:    staging,
+			wantPath:  podMount,
+			wantFound: true,
+		},
+		{
+			name:      "propagated duplicates plus a mount at a pod path",
+			mnts:      []gofsutil.Info{at(staging), at(staging), at(podMount), at(podMount)},
+			target:    staging,
+			wantPath:  podMount,
+			wantFound: true,
+		},
+		{
+			name:      "mounted only somewhere else",
+			mnts:      []gofsutil.Info{at(podMount)},
+			target:    staging,
+			wantPath:  podMount,
+			wantFound: true,
+		},
+		{
+			// The mount table octal-escapes spaces; the target from the CO does not.
+			name:   "escaped mount table path matches the target",
+			mnts:   []gofsutil.Info{at(`/var/lib/kubelet/plugins/pv/a\040b/globalmount`)},
+			target: "/var/lib/kubelet/plugins/pv/a b/globalmount",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotPath, gotFound := mountPathOtherThan(context.Background(), tc.mnts, tc.target)
+			if gotPath != tc.wantPath || gotFound != tc.wantFound {
+				t.Errorf("mountPathOtherThan() = (%q, %v), want (%q, %v)",
+					gotPath, gotFound, tc.wantPath, tc.wantFound)
 			}
 		})
 	}
