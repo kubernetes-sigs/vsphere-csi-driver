@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	csiconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
@@ -77,9 +78,16 @@ func main() {
 	if *enableProfileServer {
 		go func() {
 			log.Info("Starting the http server to expose profiling metrics..")
-			err := http.ListenAndServe("127.0.0.1:9500", nil)
-			if err != nil {
-				log.Fatalf("Unable to start profiling server: %s", err)
+			// Handler is nil so the net/http/pprof handlers on http.DefaultServeMux are
+			// served. WriteTimeout is left unset so long CPU profiles and traces are not
+			// cut off.
+			srv := &http.Server{
+				Addr:              "127.0.0.1:9500",
+				ReadHeaderTimeout: 10 * time.Second,
+				IdleTimeout:       120 * time.Second,
+			}
+			if err := srv.ListenAndServe(); err != nil {
+				log.Errorf("Unable to start profiling server: %s", err)
 			}
 		}()
 	}

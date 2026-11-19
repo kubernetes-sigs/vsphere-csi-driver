@@ -29,7 +29,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -122,9 +121,16 @@ func main() {
 	if *enableProfileServer {
 		go func() {
 			log.Info("Starting the http server to expose profiling metrics..")
-			err := http.ListenAndServe("127.0.0.1:9501", nil)
-			if err != nil {
-				log.Fatalf("Unable to start profiling server: %s", err)
+			// Handler is nil so the net/http/pprof handlers on http.DefaultServeMux are
+			// served. WriteTimeout is left unset so long CPU profiles and traces are not
+			// cut off.
+			srv := &http.Server{
+				Addr:              "127.0.0.1:9501",
+				ReadHeaderTimeout: 10 * time.Second,
+				IdleTimeout:       120 * time.Second,
+			}
+			if err := srv.ListenAndServe(); err != nil {
+				log.Errorf("Unable to start profiling server: %s", err)
 			}
 		}()
 	}
@@ -167,7 +173,6 @@ func main() {
 		}
 	} else if *operationMode == operationModeMetaDataSync {
 		log.Infof("Starting container with operation mode: %v", operationModeMetaDataSync)
-		var err error
 
 		// run will be executed if this instance is elected as the leader
 		// or if leader election is not enabled.
@@ -199,15 +204,7 @@ func main() {
 				}
 			}()
 			prometheus.SyncerInfo.WithLabelValues(syncer.Version).Set(1)
-			for {
-				log.Info("Starting the http server to expose Prometheus metrics..")
-				http.Handle("/metrics", promhttp.Handler())
-				err = http.ListenAndServe(":2113", nil)
-				if err != nil {
-					log.Warnf("Http server that exposes the Prometheus exited with err: %+v", err)
-				}
-				log.Info("Restarting http server to expose Prometheus metrics..")
-			}
+			prometheus.RunMetricsServer(ctx, ":2113")
 		}()
 
 		// Initialize syncer components that are dependant on the outcome of
