@@ -313,6 +313,16 @@ func TestVMDeleteProtectionAbandonedWhenPvcTerminating(t *testing.T) {
 	require.Equal(t, api.ReasonPvcTerminating, condOf(got, api.ConditionReady).Reason,
 		"Ready must surface why the registration stopped")
 	require.False(t, got.Status.Registered)
+	requireAbandonRecorded(t, r, cr)
+}
+
+// requireAbandonRecorded checks that an abandoned clear is recorded as terminal,
+// so a requeue scheduled before it cannot retry the clear or recreate the PVC.
+func requireAbandonRecorded(t *testing.T, r *ReconcileCnsRegisterVolume, cr *api.CnsRegisterVolume) {
+	t.Helper()
+	got, ok := r.terminalFailures.Load(instanceKey(cr))
+	require.True(t, ok, "the abandon must be recorded in terminalFailures")
+	require.Equal(t, terminalFailure{uid: cr.UID, generation: cr.Generation}, got)
 }
 
 // TestVMDeleteProtectionAbandonedWhenPvcGone covers the 1769149 shape: the clear
@@ -328,6 +338,7 @@ func TestVMDeleteProtectionAbandonedWhenPvcGone(t *testing.T) {
 	require.Zero(t, retry.RequeueAfter, "a deleted PVC must not keep retrying the clear")
 	require.Equal(t, api.ReasonPvcTerminating,
 		condOf(getCondTestInstance(t, c, cr), api.ConditionVMDeleteProtectionConfigured).Reason)
+	requireAbandonRecorded(t, r, cr)
 }
 
 // TestVMDeleteProtectionRetriesWhenPvcLookupFails guards the other side: only
@@ -354,4 +365,6 @@ func TestVMDeleteProtectionRetriesWhenPvcLookupFails(t *testing.T) {
 		"an API blip must not be read as a terminating PVC")
 	require.Equal(t, api.ReasonClearKeepAfterDeleteVmFailed,
 		condOf(getCondTestInstance(t, c, cr), api.ConditionVMDeleteProtectionConfigured).Reason)
+	_, recorded := r.terminalFailures.Load(instanceKey(cr))
+	require.False(t, recorded, "a clear that is still retried must not be recorded as terminal")
 }

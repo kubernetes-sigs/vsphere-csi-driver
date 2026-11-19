@@ -104,6 +104,11 @@ func (r *ReconcileCnsRegisterVolume) reconcileVMDeleteProtection(ctx context.Con
 			setInstanceConditions(ctx, r, instance, falseCondition(api.ConditionVMDeleteProtectionConfigured,
 				api.ReasonPvcTerminating,
 				"The PVC is being deleted with its VirtualMachine, so keepAfterDeleteVm clearing no longer applies"))
+			// Returning without a requeue does not cancel one scheduled earlier.
+			// Record the outcome so such a requeue does not retry the clear or
+			// recreate the PVC before the CR's own deletion arrives.
+			r.terminalFailures.Store(instanceKey(instance),
+				terminalFailure{uid: instance.UID, generation: instance.Generation})
 			return pvc, &reconcile.Result{}
 		}
 		// Use the parent context for reporting, since the attempt's context may

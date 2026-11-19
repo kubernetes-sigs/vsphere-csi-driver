@@ -284,11 +284,14 @@ type ReconcileCnsRegisterVolume struct {
 	// work queue; it is registered as a source.Channel watch in add().
 	taskEvents chan event.GenericEvent
 	// terminalFailures records, per CR, the UID and generation for which a
-	// terminal accessibility failure was published. A requeue scheduled before
-	// that outcome -- the task safety requeue -- is still delivered after it,
-	// and without this would register and clean up the same volume again.
+	// terminal outcome was published: an accessibility failure, or a bound PVC
+	// that went away with its owner (ReasonPvcTerminating). A requeue scheduled
+	// before that outcome -- the task safety requeue -- is still delivered after
+	// it, and without this would register and clean up the same volume again,
+	// retry the keepAfterDeleteVm clear, or recreate the deleted PVC.
 	// It is deliberately not persisted: a restarted syncer evaluates such a CR
-	// once more, as it did before conditions existed.
+	// once more, as it did before conditions existed. For a deleted bound PVC
+	// that evaluation reaches the same outcome from the persisted PvcBound=True.
 	terminalFailures sync.Map
 }
 
@@ -850,6 +853,15 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			instance.Namespace, instance.Spec.PvcName, err))
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
+	// Once the PVC has bound, it belongs to its owner: the VirtualMachine when VM
+	// Operator created it, otherwise the workload that asked for it. If it is now
+	// gone or terminating, that owner is deleting it, and the CR's own deletion
+	// follows. Recreating it here would leave an orphan PVC for a VM that is
+	// being destroyed, and the new, unbound PVC would move PvcBound back to False,
+	// so the delete would then unregister the disk.
+	if isPvcBound(instance) && (pvc == nil || pvc.DeletionTimestamp != nil) {
+		return r.abandonAfterPvcGone(ctx, instance), nil
+	}
 
 	storageClassName, err := resolveStorageClassNameForRegistration(ctx, k8sclient, r.client, instance, pvc,
 		volume.StoragePolicyId, request.Namespace, syncer.IsPodVMOnStretchSupervisorFSSEnabled)
@@ -1200,15 +1212,27 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	}
 	if !isBound {
 		// Later passes take the bind-only fast path at the top of Reconcile.
-		setInstanceConditions(ctx, r, instance, falseCondition(cnsregistervolumev1alpha1.ConditionPvcBound,
-			cnsregistervolumev1alpha1.ReasonWaitingForBind, "Waiting for the PVC to be bound"))
+		// A PvcBound=True already recorded is never moved back: reconcileDelete
+		// relies on it to recognise a registration the workload owns.
+		if !isPvcBound(instance) {
+			setInstanceConditions(ctx, r, instance, falseCondition(cnsregistervolumev1alpha1.ConditionPvcBound,
+				cnsregistervolumev1alpha1.ReasonWaitingForBind, "Waiting for the PVC to be bound"))
+		}
 		log.Infof("PVC %s is not bound yet; will re-check", instance.Spec.PvcName)
 		return reconcile.Result{RequeueAfter: pvcBindPollInterval}, nil
 	}
 	{
 		log.Infof("PVC: %s is bound", instance.Spec.PvcName)
-		setInstanceConditions(ctx, r, instance,
-			trueCondition(cnsregistervolumev1alpha1.ConditionPvcBound, cnsregistervolumev1alpha1.ReasonBound, "PVC is bound"))
+		// PvcBound=True must be durable before any post-bind step runs. If the
+		// VM is deleted while a later step is in flight, reconcileDelete reads
+		// this condition to leave the volume to its PVC; without it, the delete
+		// would unregister a disk that the workload owns.
+		if err := publishConditions(ctx, r, instance, trueCondition(cnsregistervolumev1alpha1.ConditionPvcBound,
+			cnsregistervolumev1alpha1.ReasonBound, "PVC is bound")); err != nil {
+			log.Errorf("PVC %s is bound but PvcBound could not be recorded; will retry before any "+
+				"post-bind step: %v", instance.Spec.PvcName, err)
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
 		// Allow binding before retrying VSLM, but do not declare registration
 		// complete until the flag clear is durable. Keep this before quota writes:
 		// failed clear attempts must not repeatedly add this volume's usage.
@@ -1888,11 +1912,21 @@ func (r *ReconcileCnsRegisterVolume) failVolumeNotAccessible(ctx context.Context
 // bump metadata.generation.
 func setInstanceConditions(ctx context.Context, r *ReconcileCnsRegisterVolume,
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, conds ...*metav1.Condition) {
+	_ = publishConditions(ctx, r, instance, conds...)
+}
+
+// publishConditions is setInstanceConditions for the one caller that must know
+// whether the write landed: the PvcBound=True checkpoint, which reconcileDelete
+// relies on and which therefore has to be durable before any post-bind step
+// runs. It logs and rolls back exactly like setInstanceConditions, and returns
+// nil when nothing changed.
+func publishConditions(ctx context.Context, r *ReconcileCnsRegisterVolume,
+	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, conds ...*metav1.Condition) error {
 	log := logger.GetLogger(ctx)
 	origInstance := instance.DeepCopy()
 	applyConditions(instance, conds...)
 	if apiequality.Semantic.DeepEqual(origInstance.Status.Conditions, instance.Status.Conditions) {
-		return
+		return nil
 	}
 	if err := patchCnsRegisterVolumeStatus(ctx, r.client, origInstance, instance); err != nil {
 		// Roll the in-memory conditions back so they keep matching the server;
@@ -1900,7 +1934,9 @@ func setInstanceConditions(ctx context.Context, r *ReconcileCnsRegisterVolume,
 		instance.Status.Conditions = origInstance.Status.Conditions
 		log.Errorf("Failed to publish conditions on CnsRegisterVolume instance: %q on namespace: %q. err: %v",
 			instance.Name, instance.Namespace, err)
+		return err
 	}
+	return nil
 }
 
 // registrationSteps are the step conditions, in the order a registration passes
@@ -2208,6 +2244,28 @@ func patchCnsRegisterVolumeStatus(ctx context.Context, cnsOperatorClient client.
 			"will retry...", attempt, oldObj.Name, oldObj.Namespace, err)
 		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+// abandonAfterPvcGone stops a registration whose PVC was deleted after it bound.
+//
+// Nothing left to do can succeed: the PVC belongs to its owner, which is
+// deleting it, and the CR's own deletion follows and is handled by
+// reconcileDelete. Ready records why the registration stopped, and the outcome
+// is recorded in terminalFailures so that requeues scheduled before it do not
+// run the pipeline again. After a restart the same check finds the persisted
+// PvcBound=True and the missing PVC again, so the outcome does not depend on
+// that in-memory record.
+func (r *ReconcileCnsRegisterVolume) abandonAfterPvcGone(ctx context.Context,
+	instance *cnsregistervolumev1alpha1.CnsRegisterVolume) reconcile.Result {
+	log := logger.GetLogger(ctx)
+	log.Infof("PVC %s/%s was bound and is now gone or terminating; abandoning the registration of "+
+		"CnsRegisterVolume %s: its owner is deleting it", instance.Namespace, instance.Spec.PvcName, instance.Name)
+	setInstanceConditions(ctx, r, instance, falseCondition(cnsregistervolumev1alpha1.ConditionReady,
+		cnsregistervolumev1alpha1.ReasonPvcTerminating,
+		"The bound PVC is being deleted by its owner, so the registration was abandoned"))
+	r.terminalFailures.Store(instanceKey(instance),
+		terminalFailure{uid: instance.UID, generation: instance.Generation})
+	return reconcile.Result{}
 }
 
 // isPvcBound reports whether this registration got as far as binding its PVC.

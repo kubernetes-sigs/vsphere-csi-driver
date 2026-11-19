@@ -213,11 +213,19 @@ A condition does return to `False` when the fact it reports stops being true, wh
 exactly one place — a terminal accessibility failure deletes the CNS volume, so
 `CnsVolumeRegistered` is republished as `False`.
 
-`PvcBound=True` is the one condition that is **not** purely informational. It is patched as soon
-as the bind is observed, before VM-delete protection and quota bookkeeping, and a `True` value is
-preserved across later retries, so it is the durable record that the registration reached binding.
-`reconcileDelete` reads it (3.6) because by the time a delete is reconciled, owner-reference
-garbage collection has usually removed the PVC and it cannot be consulted directly.
+`PvcBound=True` is the one condition that is **not** purely informational. It is the durable
+record that the registration reached binding. `reconcileDelete` reads it (3.6) because by the time
+a delete is reconciled, owner-reference garbage collection has usually removed the PVC and it
+cannot be consulted directly. Three rules keep it reliable:
+
+- **Persisted before any post-bind step.** The bind is published with an error-returning variant
+  of the condition writer. If that patch fails, the pass requeues without running VM-delete
+  protection, quota or CnsVolumeInfo work. Every other condition write stays best-effort.
+- **Never downgraded.** A later pass that sees the PVC unbound requeues but leaves `True` in place.
+- **The PVC is never recreated after bind.** If `PvcBound=True` and the PVC is gone or terminating,
+  its owner is deleting it. The pipeline stops with `Ready=False, reason=PvcTerminating` instead of
+  creating a new, unbound PVC, which would leak and would move `PvcBound` back to `False`. This
+  check reads only persisted state, so it also holds after a syncer restart.
 
 #### Reasons
 
@@ -259,11 +267,12 @@ The reasons are the diagnostic payload: they are what used to be invisible.
 | | False | `ClearKeepAfterDeleteVmFailed` | A lookup or VSLM call failed; retry after 5s. |
 | | False | `ClearKeepAfterDeleteVmTimedOut` | The attempt exceeded its deadline; retry after 5s. |
 | | False | `PersistClearResultFailed` | The clear succeeded but its PVC annotation could not be persisted; retry the idempotent clear. |
-| | False | `PvcTerminating` | The PVC is gone (`NotFound`) or has a deletion timestamp, so its VirtualMachine is already being destroyed. **Terminal**: the clear is abandoned, not retried. |
+| | False | `PvcTerminating` | The PVC is gone (`NotFound`) or has a deletion timestamp, so its VirtualMachine is already being destroyed. **Terminal**: the clear is abandoned, not retried, and the outcome is recorded in the in-memory terminal guard so earlier-scheduled requeues are absorbed. |
 | | True | `KeepAfterDeleteVmCleared` | The successful clear is recorded on the PVC. |
 | | True | `NotRequired` | The PVC is outside the registration-time clearing rules. |
 | `Ready` | True | `Registered` | Written in the same patch as `registered=true`. |
 | | False | `Finalizing` | The PVC is bound; CnsVolumeInfo and StoragePolicyUsage bookkeeping is in progress. |
+| | False | `PvcTerminating` | The PVC was bound and is now gone or terminating, found at any later step. **Terminal**, recorded in the in-memory terminal guard; the PVC is not recreated. |
 | | False | *the blocking condition's reason* | Mirrors the leftmost condition that is not `True`. |
 
 A `False` condition is not by itself terminal, and a reader must not infer "give up" from `False`.
@@ -455,7 +464,7 @@ flowchart TD
     BIND -->|Yes| PROTECT["mark PvcBound<br/>configure VM-delete protection<br/>(30s attempt deadline)"]
     PROTECT -->|failure| MOOT{"PVC gone or<br/>terminating?"}
     MOOT -->|No| R5["mark VMDeleteProtectionConfigured=False<br/>registered remains false<br/>requeue 5s"]
-    MOOT -->|Yes| ABANDON["VMDeleteProtectionConfigured=False,<br/>reason=PvcTerminating<br/>stop, no requeue"]
+    MOOT -->|Yes| ABANDON["VMDeleteProtectionConfigured=False,<br/>reason=PvcTerminating<br/>record terminal, no requeue"]
     PROTECT -->|cleared or not required| FIN["mark VMDeleteProtectionConfigured=True<br/>metadata and quota bookkeeping<br/>registered=true and Ready"]
 ```
 
@@ -522,6 +531,15 @@ is destroying the VM and a later clear cannot change what vSphere leaves behind.
 step is abandoned with the terminal reason `PvcTerminating` and returns without a
 requeue. Any other read error counts as "still worth trying", so an API blip does
 not abandon a clear that could still land.
+
+Returning without a requeue does not cancel a requeue scheduled earlier, such as the
+task safety requeue. If that requeue arrives before the CR is marked for deletion,
+it would run the pipeline again, retrying the clear or recreating the deleted PVC.
+So the abandon is recorded in `terminalFailures` (UID and generation), the same guard
+a terminal accessibility failure uses, and such a requeue is absorbed. The record is
+in memory only. After a restart, the "never recreated after bind" rule in 2.4 reaches
+the same outcome from the persisted `PvcBound=True`. PVC reads bypass the informer
+cache, so a newly created PVC cannot read as `NotFound` and be abandoned by mistake.
 
 Deletion with a bound PVC and an incomplete protection step releases the finalizer
 without unregistering the volume (3.6). The syncer's owner-reference-based repair
