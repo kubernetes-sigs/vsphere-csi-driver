@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/vmware/govmomi/cns"
@@ -51,6 +52,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
@@ -2601,5 +2603,236 @@ func TestCreateSnapshotWithCnsSnapshotCreatedFault(t *testing.T) {
 		}
 	} else {
 		t.Fatal("expected error was not received for create snapshot operation.")
+	}
+}
+
+// snapshotLockRefCount returns the number of callers holding or waiting on the
+// snapshot lock for the given volume.
+func snapshotLockRefCount(c *controller, volumeID string) int {
+	c.snapshotLockMgr.mapMutex.Lock()
+	defer c.snapshotLockMgr.mapMutex.Unlock()
+	if vLock, ok := c.snapshotLockMgr.locks[volumeID]; ok {
+		return vLock.refCount
+	}
+	return 0
+}
+
+// TestSnapshotLockSerializesPerVolume verifies that acquireSnapshotLock serializes
+// concurrent callers on the same volume and cleans up locks once released.
+func TestSnapshotLockSerializesPerVolume(t *testing.T) {
+	// Initialize the logger before spawning goroutines.
+	ctx := logger.NewContextWithLogger(context.Background())
+	c := &controller{}
+	const (
+		volumeID   = "vol-1"
+		goroutines = 50
+	)
+	var (
+		wg       sync.WaitGroup
+		inside   int
+		maxInner int
+		mu       sync.Mutex
+	)
+	errCh := make(chan error, goroutines)
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := c.acquireSnapshotLock(ctx, volumeID); err != nil {
+				errCh <- err
+				return
+			}
+			defer c.releaseSnapshotLock(ctx, volumeID)
+			mu.Lock()
+			inside++
+			if inside > maxInner {
+				maxInner = inside
+			}
+			mu.Unlock()
+			mu.Lock()
+			inside--
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Fatalf("unexpected error acquiring snapshot lock: %v", err)
+	}
+	if maxInner != 1 {
+		t.Fatalf("expected at most 1 holder of the snapshot lock for volume %q, got %d", volumeID, maxInner)
+	}
+	if n := len(c.snapshotLockMgr.locks); n != 0 {
+		t.Fatalf("expected snapshot locks to be cleaned up after release, %d remaining", n)
+	}
+
+	// Locks on different volumes must not block each other.
+	if err := c.acquireSnapshotLock(ctx, "vol-a"); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error)
+	go func() {
+		err := c.acquireSnapshotLock(ctx, "vol-b")
+		if err == nil {
+			c.releaseSnapshotLock(ctx, "vol-b")
+		}
+		done <- err
+	}()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	c.releaseSnapshotLock(ctx, "vol-a")
+}
+
+// TestSnapshotLockHonorsContext verifies that a caller waiting on a held snapshot
+// lock returns when its context is done and drops its waiter reference.
+func TestSnapshotLockHonorsContext(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	c := &controller{}
+	const volumeID = "vol-1"
+
+	if err := c.acquireSnapshotLock(ctx, volumeID); err != nil {
+		t.Fatal(err)
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	err := c.acquireSnapshotLock(waitCtx, volumeID)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected %v while the snapshot lock is held, got %v", context.DeadlineExceeded, err)
+	}
+	if code := status.FromContextError(err).Code(); code != codes.DeadlineExceeded {
+		t.Fatalf("expected gRPC code %v, got %v", codes.DeadlineExceeded, code)
+	}
+	if n := snapshotLockRefCount(c, volumeID); n != 1 {
+		t.Fatalf("expected only the holder to reference the snapshot lock, got refCount %d", n)
+	}
+
+	c.releaseSnapshotLock(ctx, volumeID)
+	if n := len(c.snapshotLockMgr.locks); n != 0 {
+		t.Fatalf("expected snapshot locks to be cleaned up after release, %d remaining", n)
+	}
+}
+
+// TestCreateSnapshotConcurrentRespectsLimit verifies that concurrent CreateSnapshot
+// calls on the same volume cannot exceed the configured maximum. The test holds the
+// volume's snapshot lock until both calls are waiting on it, so both would pass the
+// limit check if it were not done under the lock.
+func TestCreateSnapshotConcurrentRespectsLimit(t *testing.T) {
+	ct := getControllerTest(t)
+
+	params := make(map[string]string)
+	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
+		params[common.AttributeDatastoreURL] = v
+	}
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters: params,
+		VolumeCapabilities: []*csi.VolumeCapability{
+			{
+				AccessMode: &csi.VolumeCapability_AccessMode{
+					Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+				},
+			},
+		},
+	}
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volID := respCreate.Volume.VolumeId
+	defer func() {
+		if _, err := ct.controller.DeleteVolume(ctx, &csi.DeleteVolumeRequest{VolumeId: volID}); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	var snapIDs []string
+	defer func() {
+		for _, snapID := range snapIDs {
+			if _, err := ct.controller.DeleteSnapshot(ctx,
+				&csi.DeleteSnapshotRequest{SnapshotId: snapID}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}()
+
+	// Leave exactly one snapshot slot on the volume.
+	maxSnapshots := ct.controller.managers.CnsConfig.Snapshot.GlobalMaxSnapshotsPerBlockVolume
+	for i := 0; i < maxSnapshots-1; i++ {
+		resp, err := ct.controller.CreateSnapshot(ctx, &csi.CreateSnapshotRequest{
+			SourceVolumeId: volID,
+			Name:           "snapshot-" + uuid.New().String(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapIDs = append(snapIDs, resp.Snapshot.SnapshotId)
+	}
+
+	// Hold the volume's snapshot lock so that both requests queue up on it.
+	if err := ct.controller.acquireSnapshotLock(ctx, volID); err != nil {
+		t.Fatal(err)
+	}
+	type result struct {
+		resp *csi.CreateSnapshotResponse
+		err  error
+	}
+	const concurrentRequests = 2
+	results := make(chan result, concurrentRequests)
+	for i := 0; i < concurrentRequests; i++ {
+		go func() {
+			resp, err := ct.controller.CreateSnapshot(ctx, &csi.CreateSnapshotRequest{
+				SourceVolumeId: volID,
+				Name:           "snapshot-" + uuid.New().String(),
+			})
+			results <- result{resp: resp, err: err}
+		}()
+	}
+	waited := false
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
+		if snapshotLockRefCount(ct.controller, volID) == 1+concurrentRequests {
+			waited = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	ct.controller.releaseSnapshotLock(ctx, volID)
+
+	// Collect all results before checking them so that every created snapshot is cleaned up.
+	var succeeded, rejected int
+	var unexpectedErrs []error
+	for i := 0; i < concurrentRequests; i++ {
+		r := <-results
+		switch {
+		case r.err == nil:
+			succeeded++
+			snapIDs = append(snapIDs, r.resp.Snapshot.SnapshotId)
+		case status.Code(r.err) == codes.FailedPrecondition:
+			rejected++
+		default:
+			unexpectedErrs = append(unexpectedErrs, r.err)
+		}
+	}
+	if !waited {
+		t.Fatalf("CreateSnapshot requests did not wait on the snapshot lock for volume %q", volID)
+	}
+	if len(unexpectedErrs) > 0 {
+		t.Fatalf("expected %v when the snapshot maximum is reached, got %v", codes.FailedPrecondition, unexpectedErrs)
+	}
+	if succeeded != 1 || rejected != 1 {
+		t.Fatalf("expected 1 CreateSnapshot to succeed and 1 to be rejected, got %d succeeded and %d rejected",
+			succeeded, rejected)
+	}
+
+	respList, err := ct.controller.ListSnapshots(ctx, &csi.ListSnapshotsRequest{SourceVolumeId: volID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(respList.Entries); n > maxSnapshots {
+		t.Fatalf("volume %q has %d snapshots, exceeding the configured maximum (%d)", volID, n, maxSnapshots)
 	}
 }
