@@ -98,6 +98,8 @@ func startCNSCSIWebhookManager(ctx context.Context, enableWebhookClientCertVerif
 				tls.TLS_AES_128_GCM_SHA256,
 				tls.TLS_AES_256_GCM_SHA384}
 			t.MinVersion = tls.VersionTLS12
+			// Restrict key exchange to the (post-quantum) groups of the configured TLS profile.
+			applyServerTLSProfile(ctx, t)
 		},
 	}
 	// This client CA is used to verify the client connections being made to the webhook server and

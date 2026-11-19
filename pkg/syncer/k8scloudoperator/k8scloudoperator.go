@@ -42,6 +42,7 @@ import (
 	api "k8s.io/kubernetes/pkg/apis/core"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/certwatcher"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/tlsprofile"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 
@@ -141,10 +142,17 @@ func InitK8sCloudOperatorService(ctx context.Context) error {
 // identity - not any certificate merely signed by the same CA - may call any
 // RPC on this service.
 func newServerTransportCredentials(ctx context.Context) (credentials.TransportCredentials, error) {
+	return newServerTransportCredentialsFromDir(ctx, DefaultK8sCloudOperatorCertDir)
+}
+
+// newServerTransportCredentialsFromDir is newServerTransportCredentials with the directory holding
+// tls.crt, tls.key and ca.crt made explicit so that tests can point it at generated certificates.
+func newServerTransportCredentialsFromDir(ctx context.Context, certDir string) (credentials.TransportCredentials,
+	error) {
 	log := logger.GetLogger(ctx)
-	certPath := DefaultK8sCloudOperatorCertDir + "/tls.crt"
-	keyPath := DefaultK8sCloudOperatorCertDir + "/tls.key"
-	caPath := DefaultK8sCloudOperatorCertDir + "/ca.crt"
+	certPath := certDir + "/tls.crt"
+	keyPath := certDir + "/tls.key"
+	caPath := certDir + "/ca.crt"
 
 	cw, err := certwatcher.New(certPath, keyPath, caPath)
 	if err != nil {
@@ -156,9 +164,15 @@ func newServerTransportCredentials(ctx context.Context) (credentials.TransportCr
 		}
 	}()
 
+	profile, profileErr := tlsprofile.ProfileFromEnv()
+	if profileErr != nil {
+		log.Warnf("%v; using default TLS profile %q for key exchange groups", profileErr, profile)
+	}
 	baseTLSConfig := func(clientCAs *x509.CertPool) *tls.Config {
 		return &tls.Config{
-			MinVersion: tls.VersionTLS12,
+			// Restrict key exchange to the (post-quantum) groups of the configured TLS profile.
+			CurvePreferences: tlsprofile.ServerCurvePreferences(profile),
+			MinVersion:       tls.VersionTLS12,
 			CipherSuites: []uint16{
 				tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,

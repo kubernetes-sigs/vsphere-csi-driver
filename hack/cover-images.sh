@@ -113,7 +113,7 @@ function build_coverage_binaries() {
   # Build driver coverage binary
   echo "Building vsphere-csi-cover binary..."
   rm -f ./bin/vsphere-csi-cover
-  if ! CGO_ENABLED=0 GOFIPS=1 GOEXPERIMENT=boringcrypto GOOS=linux GOARCH=amd64 \
+  if ! CGO_ENABLED=0 GOFIPS140=v1.26.0 GOOS=linux GOARCH=amd64 \
     go build -cover -coverpkg=./... -o ./bin/vsphere-csi-cover ./cmd/vsphere-csi; then
     fatal "Failed to build vsphere-csi-cover binary"
   fi
@@ -127,7 +127,7 @@ function build_coverage_binaries() {
   # Build syncer coverage binary
   echo "Building vsphere-syncer-cover binary..."
   rm -f ./bin/vsphere-syncer-cover
-  if ! CGO_ENABLED=0 GOFIPS=1 GOEXPERIMENT=boringcrypto GOOS=linux GOARCH=amd64 \
+  if ! CGO_ENABLED=0 GOFIPS140=v1.26.0 GOOS=linux GOARCH=amd64 \
     go build -cover -coverpkg=./... -o ./bin/vsphere-syncer-cover ./cmd/syncer; then
     fatal "Failed to build vsphere-syncer-cover binary"
   fi

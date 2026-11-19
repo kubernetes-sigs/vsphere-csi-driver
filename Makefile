@@ -13,8 +13,10 @@ export BIN_OUT ?= $(BUILD_OUT)/bin
 # DIST_OUT is the directory containting the distribution packages
 export DIST_OUT ?= $(BUILD_OUT)/dist
 
-# Compile Go with boringcrypto. This is required to import crypto/tls/fipsonly package.
-export GOEXPERIMENT=boringcrypto
+# Build with Go's native FIPS 140-3 cryptographic module. Unlike BoringCrypto it supports the
+# ML-KEM hybrid TLS key exchange groups needed for post-quantum TLS, and it also turns on
+# FIPS-only TLS enforcement by default, so crypto/tls/fipsonly is no longer needed.
+export GOFIPS140 ?= v1.26.0
 
 
 ################################################################################

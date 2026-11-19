@@ -36,6 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	cr_log "sigs.k8s.io/controller-runtime/pkg/log"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/tlsprofile"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -282,17 +283,8 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 				cfg.WebHookConfig.Port = defaultWebhookServerPort
 			}
 			server = &http.Server{
-				Addr: fmt.Sprintf(":%v", cfg.WebHookConfig.Port),
-				TLSConfig: &tls.Config{
-					Certificates: []tls.Certificate{certs},
-					CipherSuites: []uint16{
-						tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-						tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-						tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-						tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-					},
-					MinVersion: tls.VersionTLS12,
-				},
+				Addr:      fmt.Sprintf(":%v", cfg.WebHookConfig.Port),
+				TLSConfig: newWebhookTLSConfig(ctx, certs),
 			}
 			// Define http server and server handler.
 			mux := http.NewServeMux()
@@ -414,4 +406,36 @@ func validationHandler(w http.ResponseWriter, r *http.Request) {
 		log.Errorf("Can't write response: %v", err)
 		http.Error(w, fmt.Sprintf("could not write response: %v", err), http.StatusInternalServerError)
 	}
+}
+
+// applyServerTLSProfile restricts the key exchange groups of a webhook server
+// TLS config to those allowed by the TLS profile selected through the
+// TLS_PROFILE environment variable (COMPATIBLE when unset). An invalid value
+// is logged and the default profile is used.
+func applyServerTLSProfile(ctx context.Context, cfg *tls.Config) {
+	log := logger.GetLogger(ctx)
+	profile, err := tlsprofile.ApplyServerFromEnv(cfg)
+	if err != nil {
+		log.Warnf("%v; using default TLS profile %q for key exchange groups", err, profile)
+		return
+	}
+	log.Infof("webhook server TLS key exchange groups set for profile %q", profile)
+}
+
+// newWebhookTLSConfig returns the TLS configuration of the validating webhook server: the TLS 1.2
+// cipher suites recommended by the Security team, a TLS 1.2 minimum, and key exchange groups
+// restricted to those of the configured TLS profile.
+func newWebhookTLSConfig(ctx context.Context, cert tls.Certificate) *tls.Config {
+	cfg := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		},
+		MinVersion: tls.VersionTLS12,
+	}
+	applyServerTLSProfile(ctx, cfg)
+	return cfg
 }
