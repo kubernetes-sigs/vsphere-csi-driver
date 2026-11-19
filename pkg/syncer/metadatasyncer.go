@@ -794,7 +794,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		}
 		// Reconnect when the vCenter credentials change, and reload when the vSAN file volume
 		// settings change. Both are no-ops unless the runtime config FSS is on.
-		err = runtimeconfig.StartReloading(ctx, configInfo.Cfg, syncerReloader{metadataSyncer})
+		err = runtimeconfig.StartReloading(ctx, configInfo.GetCfg(), syncerReloader{metadataSyncer})
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to watch the runtime configuration sources. err=%v", err)
 		}

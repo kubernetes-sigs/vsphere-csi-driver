@@ -25,18 +25,29 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	csiconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/runtimeconfig"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	profile_logger "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils/profile_logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 var (
 	printVersion = flag.Bool("version", false, "Print driver version and exit")
+
+	migrateFileVolumeConfig = flag.Bool("migrate-file-volume-config", false,
+		"Copy the legacy file-volume activation into the runtime ConfigMap and exit. Run by the Supervisor "+
+			"package before it replaces the CSI config Secret")
+	fileVolumeNamespace = flag.String("file-volume-namespace", "vmware-system-csi",
+		"Namespace of the CSI config Secret and the file-volume ConfigMap (used with --migrate-file-volume-config)")
+	migrationSDDCName = flag.String("sddc-name", "",
+		"SDDC whose file-volume activation is migrated (used with --migrate-file-volume-config)")
 
 	supervisorFSSName = flag.String("supervisor-fss-name", "",
 		"Name of the feature state switch configmap in supervisor cluster")
@@ -59,6 +70,15 @@ func main() {
 	logType := logger.LogLevel(os.Getenv(logger.EnvLoggerLevel))
 	logger.SetLoggerLevel(logType)
 	ctx, log := logger.GetNewContextWithLogger()
+	if *migrateFileVolumeConfig {
+		// A one-shot migration that needs no vCenter access, so it exits before any driver startup.
+		if err := runFileVolumeMigration(ctx); err != nil {
+			log.Errorf("File-volume configuration migration failed: %v", err)
+			os.Exit(1)
+		}
+		log.Info("File-volume configuration migration completed")
+		return
+	}
 	log.Infof("Vsphere CSI Driver BuildInfo : %s-%s-%s", service.Version, service.Branch, service.Commit)
 
 	// Log GOMEMLIMIT if set for memory management visibility
@@ -124,6 +144,16 @@ func main() {
 	vSphereCSIDriver := service.NewDriver()
 	vSphereCSIDriver.Run(ctx, CSIEndpoint)
 
+}
+
+func runFileVolumeMigration(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	client, err := k8s.NewClient(ctx)
+	if err != nil {
+		return err
+	}
+	return runtimeconfig.MigrateFileVolumeConfig(ctx, client, *fileVolumeNamespace, *migrationSDDCName)
 }
 
 func cleanupSessions(ctx context.Context, r interface{}) {
