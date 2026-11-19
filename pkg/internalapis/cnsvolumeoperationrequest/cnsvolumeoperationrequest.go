@@ -188,10 +188,11 @@ func (or *operationRequestStore) GetRequestDetails(
 	var quotaDetails *QuotaDetails
 	if isPodVMOnStretchSupervisorFSSEnabled && instance.Status.StorageQuotaDetails != nil {
 		quotaDetails = &QuotaDetails{
-			Reserved:         instance.Status.StorageQuotaDetails.Reserved,
-			StorageClassName: instance.Status.StorageQuotaDetails.StorageClassName,
-			StoragePolicyId:  instance.Status.StorageQuotaDetails.StoragePolicyId,
-			Namespace:        instance.Status.StorageQuotaDetails.Namespace,
+			Reserved:                  instance.Status.StorageQuotaDetails.Reserved,
+			StorageClassName:          instance.Status.StorageQuotaDetails.StorageClassName,
+			VolumeAttributesClassName: instance.Status.StorageQuotaDetails.VolumeAttributesClassName,
+			StoragePolicyId:           instance.Status.StorageQuotaDetails.StoragePolicyId,
+			Namespace:                 instance.Status.StorageQuotaDetails.Namespace,
 		}
 	}
 
@@ -259,6 +260,7 @@ func (or *operationRequestStore) StoreRequestDetails(
 					Reserved:                            operationToStore.QuotaDetails.Reserved,
 					StoragePolicyId:                     operationToStore.QuotaDetails.StoragePolicyId,
 					StorageClassName:                    operationToStore.QuotaDetails.StorageClassName,
+					VolumeAttributesClassName:           operationToStore.QuotaDetails.VolumeAttributesClassName,
 					Namespace:                           operationToStore.QuotaDetails.Namespace,
 					AggregatedSnapshotSize:              operationToStore.QuotaDetails.AggregatedSnapshotSize,
 					SnapshotLatestOperationCompleteTime: operationToStore.QuotaDetails.SnapshotLatestOperationCompleteTime,
@@ -330,9 +332,21 @@ func (or *operationRequestStore) StoreRequestDetails(
 			Reserved:                            operationToStore.QuotaDetails.Reserved,
 			StoragePolicyId:                     operationToStore.QuotaDetails.StoragePolicyId,
 			StorageClassName:                    operationToStore.QuotaDetails.StorageClassName,
+			VolumeAttributesClassName:           operationToStore.QuotaDetails.VolumeAttributesClassName,
 			Namespace:                           operationToStore.QuotaDetails.Namespace,
 			AggregatedSnapshotSize:              operationToStore.QuotaDetails.AggregatedSnapshotSize,
 			SnapshotLatestOperationCompleteTime: operationToStore.QuotaDetails.SnapshotLatestOperationCompleteTime,
+		}
+		// The syncer reserves and releases quota on the StoragePolicyUsage derived from these fields. While a
+		// reservation is outstanding, keep the persisted owner, even if a retry (e.g. resuming a pending task
+		// after a VolumeAttributesClass change or an upgrade) was invoked with a different one, so that the
+		// reservation is released from the StoragePolicyUsage that holds it.
+		if persisted := instance.Status.StorageQuotaDetails; persisted != nil && persisted.Reserved != nil &&
+			!persisted.Reserved.IsZero() {
+			updatedInstance.Status.StorageQuotaDetails.StoragePolicyId = persisted.StoragePolicyId
+			updatedInstance.Status.StorageQuotaDetails.StorageClassName = persisted.StorageClassName
+			updatedInstance.Status.StorageQuotaDetails.VolumeAttributesClassName = persisted.VolumeAttributesClassName
+			updatedInstance.Status.StorageQuotaDetails.Namespace = persisted.Namespace
 		}
 	}
 

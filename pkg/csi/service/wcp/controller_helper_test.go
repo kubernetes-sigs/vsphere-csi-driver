@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 )
 
 func TestIsSharedRawBlockRequest(t *testing.T) {
@@ -741,4 +742,75 @@ func TestGetPodVMUUIDStorageFeatureMatrix(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestGetPVCVolumeAttributesClassName(t *testing.T) {
+	ctx := context.Background()
+	vacName := "vac1"
+	withVAC := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "pvc-vac", Namespace: "ns"},
+		Spec:       v1.PersistentVolumeClaimSpec{VolumeAttributesClassName: &vacName},
+	}
+	withoutVAC := &v1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "pvc-no-vac", Namespace: "ns"}}
+	k8sClient := fake.NewClientset(withVAC, withoutVAC)
+
+	t.Run("PVC with VAC", func(t *testing.T) {
+		got, err := getPVCVolumeAttributesClassName(ctx, k8sClient, "ns", "pvc-vac")
+		assert.NoError(t, err)
+		assert.Equal(t, vacName, got)
+	})
+	t.Run("PVC without VAC", func(t *testing.T) {
+		got, err := getPVCVolumeAttributesClassName(ctx, k8sClient, "ns", "pvc-no-vac")
+		assert.NoError(t, err)
+		assert.Equal(t, "", got)
+	})
+	t.Run("PVC not found", func(t *testing.T) {
+		_, err := getPVCVolumeAttributesClassName(ctx, k8sClient, "ns", "missing")
+		assert.Error(t, err)
+	})
+	t.Run("missing PVC name", func(t *testing.T) {
+		_, err := getPVCVolumeAttributesClassName(ctx, k8sClient, "ns", "")
+		assert.Error(t, err)
+	})
+	t.Run("nil client", func(t *testing.T) {
+		_, err := getPVCVolumeAttributesClassName(ctx, nil, "ns", "pvc-vac")
+		assert.Error(t, err)
+	})
+}
+
+func TestGetPersistedQuotaOwner(t *testing.T) {
+	ctx := context.Background()
+	store, err := unittestcommon.InitFakeVolumeOperationRequestInterface()
+	assert.NoError(t, err)
+	assert.NoError(t, store.StoreRequestDetails(ctx, &cnsvolumeoperationrequest.VolumeOperationRequestDetails{
+		Name: "pvc-vac-a",
+		QuotaDetails: &cnsvolumeoperationrequest.QuotaDetails{
+			StoragePolicyId:           "policy-a",
+			VolumeAttributesClassName: "vac-a",
+		},
+	}))
+	assert.NoError(t, store.StoreRequestDetails(ctx, &cnsvolumeoperationrequest.VolumeOperationRequestDetails{
+		Name: "pvc-no-quota",
+	}))
+
+	t.Run("persisted owner differing from this request wins", func(t *testing.T) {
+		policyID, vacName := getPersistedQuotaOwner(ctx, store, "pvc-vac-a", "policy-b", "vac-b")
+		assert.Equal(t, "policy-a", policyID)
+		assert.Equal(t, "vac-a", vacName)
+	})
+	t.Run("no quota details falls back to this request", func(t *testing.T) {
+		policyID, vacName := getPersistedQuotaOwner(ctx, store, "pvc-no-quota", "policy-b", "vac-b")
+		assert.Equal(t, "policy-b", policyID)
+		assert.Equal(t, "vac-b", vacName)
+	})
+	t.Run("missing operation request falls back to this request", func(t *testing.T) {
+		policyID, vacName := getPersistedQuotaOwner(ctx, store, "pvc-missing", "policy-b", "vac-b")
+		assert.Equal(t, "policy-b", policyID)
+		assert.Equal(t, "vac-b", vacName)
+	})
+	t.Run("nil store falls back to this request", func(t *testing.T) {
+		policyID, vacName := getPersistedQuotaOwner(ctx, nil, "pvc-vac-a", "policy-b", "vac-b")
+		assert.Equal(t, "policy-b", policyID)
+		assert.Equal(t, "vac-b", vacName)
+	})
 }

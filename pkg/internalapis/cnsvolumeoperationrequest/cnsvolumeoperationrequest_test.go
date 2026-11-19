@@ -829,3 +829,117 @@ func TestStoreAndRetrieveChangedBlockTrackingId(t *testing.T) {
 		}
 	})
 }
+
+// TestStoreAndRetrieveVolumeAttributesClassName tests that QuotaDetails.VolumeAttributesClassName
+// is persisted on both the create and update paths and returned by GetRequestDetails, so the
+// syncer can charge an expansion of a VAC-migrated volume to the VAC-keyed StoragePolicyUsage.
+func TestStoreAndRetrieveVolumeAttributesClassName(t *testing.T) {
+	store, ctx := setupTestEnvironment(t, false)
+	origFSS := isPodVMOnStretchSupervisorFSSEnabled
+	isPodVMOnStretchSupervisorFSSEnabled = true
+	t.Cleanup(func() { isPodVMOnStretchSupervisorFSSEnabled = origFSS })
+
+	instanceName := "expand-volume-vac-123"
+	quotaDetails := createTestQuotaDetails(300 * 1024 * 1024) // 300Mi
+	quotaDetails.VolumeAttributesClassName = "test-vac"
+
+	// Create path.
+	err := store.StoreRequestDetails(ctx, createTestVolumeOperationDetails(instanceName, "volume-vac-123", "",
+		"task-1", TaskInvocationStatusInProgress, "", quotaDetails))
+	if err != nil {
+		t.Fatalf("Failed to store operation details: %v", err)
+	}
+	instance, err := getCRDDirectly(ctx, store, instanceName)
+	if err != nil {
+		t.Fatalf("Failed to get CnsVolumeOperationRequest: %v", err)
+	}
+	if got := instance.Status.StorageQuotaDetails.VolumeAttributesClassName; got != "test-vac" {
+		t.Errorf("Expected persisted VolumeAttributesClassName %q on create, got %q", "test-vac", got)
+	}
+
+	// Update path.
+	err = store.StoreRequestDetails(ctx, createTestVolumeOperationDetails(instanceName, "volume-vac-123", "",
+		"task-1", TaskInvocationStatusSuccess, "", quotaDetails))
+	if err != nil {
+		t.Fatalf("Failed to update operation details: %v", err)
+	}
+	instance, err = getCRDDirectly(ctx, store, instanceName)
+	if err != nil {
+		t.Fatalf("Failed to get CnsVolumeOperationRequest: %v", err)
+	}
+	if got := instance.Status.StorageQuotaDetails.VolumeAttributesClassName; got != "test-vac" {
+		t.Errorf("Expected persisted VolumeAttributesClassName %q on update, got %q", "test-vac", got)
+	}
+
+	retrievedDetails, err := store.GetRequestDetails(ctx, instanceName)
+	if err != nil {
+		t.Fatalf("Failed to retrieve operation details: %v", err)
+	}
+	if retrievedDetails.QuotaDetails == nil {
+		t.Fatal("Retrieved QuotaDetails should not be nil")
+	}
+	if got := retrievedDetails.QuotaDetails.VolumeAttributesClassName; got != "test-vac" {
+		t.Errorf("Expected retrieved VolumeAttributesClassName %q, got %q", "test-vac", got)
+	}
+}
+
+// TestStoreRequestDetailsPreservesQuotaOwnerWhileReserved tests that the quota owner fields of an
+// outstanding reservation are not overwritten by a retry carrying a different owner (e.g. resuming
+// a pending ExpandVolume task after a VolumeAttributesClass change), and that a new owner is accepted
+// once the reservation has been released.
+func TestStoreRequestDetailsPreservesQuotaOwnerWhileReserved(t *testing.T) {
+	store, ctx := setupTestEnvironment(t, false)
+	origFSS := isPodVMOnStretchSupervisorFSSEnabled
+	isPodVMOnStretchSupervisorFSSEnabled = true
+	t.Cleanup(func() { isPodVMOnStretchSupervisorFSSEnabled = origFSS })
+
+	instanceName := "expand-volume-owner-123"
+	mkQuota := func(reservedBytes int64, policyID, vacName string) *QuotaDetails {
+		q := createTestQuotaDetails(reservedBytes)
+		q.StoragePolicyId = policyID
+		q.VolumeAttributesClassName = vacName
+		return q
+	}
+	assertOwner := func(t *testing.T, wantPolicyID, wantVAC string) {
+		t.Helper()
+		instance, err := getCRDDirectly(ctx, store, instanceName)
+		if err != nil {
+			t.Fatalf("Failed to get CnsVolumeOperationRequest: %v", err)
+		}
+		got := instance.Status.StorageQuotaDetails
+		if got.StoragePolicyId != wantPolicyID || got.VolumeAttributesClassName != wantVAC ||
+			got.StorageClassName != "test-storage-class" || got.Namespace != "test-namespace" {
+			t.Errorf("Expected owner policy %q VAC %q, got %+v", wantPolicyID, wantVAC, got)
+		}
+	}
+	storeDetails := func(t *testing.T, status string, quota *QuotaDetails) {
+		t.Helper()
+		if err := store.StoreRequestDetails(ctx, createTestVolumeOperationDetails(instanceName, "", "",
+			"task-1", status, "", quota)); err != nil {
+			t.Fatalf("Failed to store operation details: %v", err)
+		}
+	}
+
+	// Reservation made against the StorageClass-keyed owner.
+	storeDetails(t, TaskInvocationStatusInProgress, mkQuota(300*1024*1024, "sc-policy", ""))
+	assertOwner(t, "sc-policy", "")
+
+	// Resumed with a VAC owner while the reservation is outstanding: the persisted owner is kept.
+	storeDetails(t, TaskInvocationStatusInProgress, mkQuota(300*1024*1024, "vac-policy", "test-vac"))
+	assertOwner(t, "sc-policy", "")
+
+	// Completion releasing the reservation still carries the persisted owner.
+	storeDetails(t, TaskInvocationStatusSuccess, mkQuota(0, "vac-policy", "test-vac"))
+	assertOwner(t, "sc-policy", "")
+	instance, err := getCRDDirectly(ctx, store, instanceName)
+	if err != nil {
+		t.Fatalf("Failed to get CnsVolumeOperationRequest: %v", err)
+	}
+	if !instance.Status.StorageQuotaDetails.Reserved.IsZero() {
+		t.Errorf("Expected reserved to be released, got %s", instance.Status.StorageQuotaDetails.Reserved.String())
+	}
+
+	// A new operation after the release is reserved against the current owner.
+	storeDetails(t, TaskInvocationStatusInProgress, mkQuota(300*1024*1024, "vac-policy", "test-vac"))
+	assertOwner(t, "vac-policy", "test-vac")
+}
