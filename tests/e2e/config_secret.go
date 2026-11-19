@@ -94,7 +94,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		nimbusGeneratedK8sVmPwd = GetAndExpectStringEnvVar(nimbusK8sVmPwd)
 
 		sshClientConfig = &ssh.ClientConfig{
-			User: "root",
+			User: gcNodeUser,
 			Auth: []ssh.AuthMethod{
 				ssh.Password(nimbusGeneratedK8sVmPwd),
 			},
