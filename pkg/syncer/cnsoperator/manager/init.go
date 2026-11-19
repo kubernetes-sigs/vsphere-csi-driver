@@ -18,9 +18,11 @@ package manager
 
 import (
 	"context"
-	"fmt"
+	"net"
+	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"sync"
 	"time"
 
@@ -62,8 +64,11 @@ import (
 )
 
 var (
-	// Use localhost and port for metrics
-	metricsHost       = "0.0.0.0"
+	// Serve controller-runtime metrics on loopback only by default. The endpoint is
+	// plain HTTP with no authn/authz, and the Supervisor controller runs with
+	// hostNetwork, so binding all interfaces would expose it on the node IP.
+	// Set metricsBindAddressEnv to override the address, or to "0" to disable it.
+	metricsHost       = "127.0.0.1"
 	metricsPort int32 = 8383
 
 	// Global scheme for thread-safe initialization
@@ -74,6 +79,21 @@ var (
 type cnsOperatorInfo struct {
 	configInfo        *commonconfig.ConfigurationInfo
 	coCommonInterface commonco.COCommonInterface
+}
+
+// metricsBindAddressEnv overrides the controller-runtime metrics bind address.
+const metricsBindAddressEnv = "CNS_OPERATOR_METRICS_BIND_ADDR"
+
+// metricsServerOptions returns the controller-runtime metrics server options
+// for the CNS operator manager.
+func metricsServerOptions() metricsserver.Options {
+	bindAddress := net.JoinHostPort(metricsHost, strconv.Itoa(int(metricsPort)))
+	if addr, ok := os.LookupEnv(metricsBindAddressEnv); ok {
+		bindAddress = addr
+	}
+	return metricsserver.Options{
+		BindAddress: bindAddress,
+	}
 }
 
 // getGlobalScheme initializes and returns a thread-safe global scheme
@@ -430,11 +450,11 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 
 	// Create a new operator to provide shared dependencies and start components
 	// Setting namespace to empty would let operator watch all namespaces.
+	metricsOpts := metricsServerOptions()
+	log.Infof("CNS Operator controller-runtime metrics bind address: %q", metricsOpts.BindAddress)
 	mgr, err := manager.New(restConfig, manager.Options{
-		Scheme: scheme,
-		Metrics: metricsserver.Options{
-			BindAddress: fmt.Sprintf("%s:%d", metricsHost, metricsPort),
-		},
+		Scheme:  scheme,
+		Metrics: metricsOpts,
 		// No controller here watches PVC/PV, only Get()s them, so don't let the manager
 		// cache them — at 120K+ PVC scale that cache alone costs 1GB+.
 		Client: client.Options{
