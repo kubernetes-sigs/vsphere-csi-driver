@@ -1053,7 +1053,7 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 		patches.ApplyFunc(validatePVCTopologyCompatibility,
 			func(ctx context.Context, k8sclient kubernetes.Interface, pvc *corev1.PersistentVolumeClaim,
 				datastoreURL string, topoMgr commoncotypes.ControllerTopologyService,
-				vc *cnsvsphere.VirtualCenter, datastoreAccessibleTopology []map[string]string, isHostLocal bool) error {
+				vc *cnsvsphere.VirtualCenter, datastoreAccessibleTopology []map[string]string, hostLocalHostMoID string) error {
 				return fmt.Errorf("topology conflict: zone mismatch")
 			})
 		patches.ApplyFunc(setInstanceError, func(ctx context.Context, r *ReconcileCnsRegisterVolume,
@@ -1465,7 +1465,7 @@ var _ = Describe("validatePVCTopologyCompatibility", func() {
 			Expect(err).To(BeNil())
 
 			err = validatePVCTopologyCompatibility(ctx, mockK8sClient, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC,
-				datastoreAccessibleTopology, false)
+				datastoreAccessibleTopology, "")
 			Expect(err).To(BeNil())
 		})
 	})
@@ -1483,7 +1483,7 @@ var _ = Describe("validatePVCTopologyCompatibility", func() {
 			Expect(err).To(BeNil())
 
 			err = validatePVCTopologyCompatibility(ctx, mockK8sClient, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC,
-				datastoreAccessibleTopology, false)
+				datastoreAccessibleTopology, "")
 			Expect(err).To(BeNil())
 		})
 	})
@@ -1497,7 +1497,7 @@ var _ = Describe("validatePVCTopologyCompatibility", func() {
 
 		It("should return error for invalid JSON", func() {
 			err := validatePVCTopologyCompatibility(ctx, mockK8sClient, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC,
-				datastoreAccessibleTopology, false)
+				datastoreAccessibleTopology, "")
 			Expect(err).ToNot(BeNil())
 			Expect(err.Error()).To(ContainSubstring("failed to parse topology annotation"))
 		})
@@ -1513,7 +1513,7 @@ var _ = Describe("validatePVCTopologyCompatibility", func() {
 
 		It("should return error from topology manager", func() {
 			err := validatePVCTopologyCompatibility(ctx, mockK8sClient, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC,
-				datastoreAccessibleTopology, false)
+				datastoreAccessibleTopology, "")
 			Expect(err).ToNot(BeNil())
 			Expect(err.Error()).To(ContainSubstring("failed to get topology for volume datastore"))
 		})
@@ -1531,7 +1531,7 @@ var _ = Describe("validatePVCTopologyCompatibility", func() {
 
 		It("should return nil without error", func() {
 			err := validatePVCTopologyCompatibility(ctx, mockK8sClient, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC,
-				datastoreAccessibleTopology, false)
+				datastoreAccessibleTopology, "")
 			Expect(err).To(BeNil())
 		})
 	})
@@ -1548,7 +1548,7 @@ var _ = Describe("validatePVCTopologyCompatibility", func() {
 
 		It("should return error for incompatible zones", func() {
 			err := validatePVCTopologyCompatibility(ctx, mockK8sClient, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC,
-				datastoreAccessibleTopology, false)
+				datastoreAccessibleTopology, "")
 			Expect(err).ToNot(BeNil())
 			Expect(err.Error()).To(ContainSubstring("is not compatible with volume placement"))
 		})
@@ -1586,7 +1586,7 @@ var _ = Describe("validatePVCTopologyCompatibility", func() {
 
 			// Call the function
 			err = validatePVCTopologyCompatibility(ctx, mockK8sClient, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC,
-				datastoreAccessibleTopology, false)
+				datastoreAccessibleTopology, "")
 			Expect(err).To(BeNil())
 
 			// Verify topology annotation was added
@@ -1620,7 +1620,7 @@ var _ = Describe("validatePVCTopologyCompatibility", func() {
 
 			// Call the function
 			err = validatePVCTopologyCompatibility(ctx, mockK8sClient, pvcWithNilAnnotations, volumeDatastoreURL,
-				mockTopologyMgr, mockVC, datastoreAccessibleTopology, false)
+				mockTopologyMgr, mockVC, datastoreAccessibleTopology, "")
 			Expect(err).To(BeNil())
 
 			// Verify annotations map was created and topology annotation was added
@@ -1642,7 +1642,7 @@ var _ = Describe("validatePVCTopologyCompatibility", func() {
 			Expect(err).To(BeNil())
 
 			err = validatePVCTopologyCompatibility(ctx, mockK8sClient, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC,
-				complexTopology, false)
+				complexTopology, "")
 			Expect(err).To(BeNil())
 
 			// Verify the complex topology was properly serialized
@@ -1685,7 +1685,7 @@ var _ = Describe("validatePVCTopologyCompatibility", func() {
 				})
 
 			err = validatePVCTopologyCompatibility(ctx, mockK8sClient, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC,
-				datastoreAccessibleTopology, false)
+				datastoreAccessibleTopology, "")
 			Expect(err).To(BeNil())
 
 			topologyAnnotation, exists := pvc.Annotations["csi.vsphere.volume-accessible-topology"]
@@ -3198,7 +3198,7 @@ func TestPVRecreationWhenVolumeModeIncorrect(t *testing.T) {
 	pvCapacity := *resource.NewQuantity(int64(1024)*common.MbInBytes, resource.BinarySI)
 
 	pvAfter, err := validateAndFixPVVolumeMode(ctx, k8sclient, reconciler, instance,
-		pvBefore, pvName, volumeID, pvCapacity, accessMode, storageClassName, nil, timeout, false)
+		pvBefore, pvName, volumeID, pvCapacity, accessMode, storageClassName, nil, "", timeout, false)
 
 	// Verify the function succeeded
 	assert.NoError(t, err)
@@ -3323,7 +3323,7 @@ func TestPVNotRecreatedWhenClaimedByPVCInOtherNamespace(t *testing.T) {
 	reconciler := &ReconcileCnsRegisterVolume{recorder: record.NewFakeRecorder(100)}
 	pvCapacity := *resource.NewQuantity(int64(1024)*common.MbInBytes, resource.BinarySI)
 	pvAfter, err := validateAndFixPVVolumeMode(ctx, k8sclient, reconciler, instance,
-		pvBefore, pvName, volumeID, pvCapacity, corev1.ReadWriteOnce, storageClassName, nil, time.Second, false)
+		pvBefore, pvName, volumeID, pvCapacity, corev1.ReadWriteOnce, storageClassName, nil, "", time.Second, false)
 
 	assert.Error(t, err)
 	assert.Nil(t, pvAfter)
@@ -3441,7 +3441,7 @@ func TestPVRecreationWithoutSharedDiskEnabled(t *testing.T) {
 	pvCapacity := *resource.NewQuantity(int64(1024)*common.MbInBytes, resource.BinarySI)
 
 	pvAfter, err := validateAndFixPVVolumeMode(ctx, k8sclient, reconciler, instance,
-		existingPV, pvName, volumeID, pvCapacity, accessMode, storageClassName, nil, timeout, false)
+		existingPV, pvName, volumeID, pvCapacity, accessMode, storageClassName, nil, "", timeout, false)
 
 	// Verify the function succeeded
 	assert.NoError(t, err)
@@ -4710,7 +4710,7 @@ func TestClearAndTopologyChain_NoConflict(t *testing.T) {
 	}
 
 	err = validatePVCTopologyCompatibility(ctx, k8sclientFake, updatedPVC, "dummy-datastore-url",
-		mockTopologyMgr, mockVC, datastoreAccessibleTopology, false)
+		mockTopologyMgr, mockVC, datastoreAccessibleTopology, "")
 	assert.NoError(t, err, `chained call must not surface "PVC topology validation failed"`)
 	assert.Equal(t, `[{"topology.kubernetes.io/zone":"zone-1"}]`,
 		updatedPVC.Annotations[common.AnnVolumeAccessibleTopology])
@@ -4886,7 +4886,7 @@ func TestBuildClusterToZoneMap(t *testing.T) {
 }
 
 // newHostLocalDatastoreInfo builds a DatastoreInfo backed by a real object.Datastore so that
-// getHostLocalAccessibleTopology's property-collector calls can be gomonkey-patched.
+// getHostLocalPlacement's property-collector calls can be gomonkey-patched.
 func newHostLocalDatastoreInfo(vc *cnsvsphere.VirtualCenter, url string) *cnsvsphere.DatastoreInfo {
 	dsRef := vim25types.ManagedObjectReference{Type: "Datastore", Value: "ds-1"}
 	return &cnsvsphere.DatastoreInfo{
@@ -4896,9 +4896,8 @@ func newHostLocalDatastoreInfo(vc *cnsvsphere.VirtualCenter, url string) *cnsvsp
 }
 
 // patchDatastoreAndHostProperties patches object.Common.Properties (promoted onto both Datastore
-// and HostSystem) to return a fixed Datastore.host[0] and host.parent cluster.
-func patchDatastoreAndHostProperties(patches *gomonkey.Patches, hostMoID, clusterMoID string,
-	emptyHostMounts bool) {
+// and HostSystem) to return the given Datastore.host mounts and host.parent cluster.
+func patchDatastoreAndHostProperties(patches *gomonkey.Patches, hostMounts []string, clusterMoID string) {
 	patches.ApplyMethod(reflect.TypeOf(object.Common{}), "Properties",
 		func(_ object.Common, _ context.Context, _ vim25types.ManagedObjectReference,
 			ps []string, dst any) error {
@@ -4906,10 +4905,10 @@ func patchDatastoreAndHostProperties(patches *gomonkey.Patches, hostMoID, cluste
 				switch p {
 				case "host":
 					d := dst.(*mo.Datastore)
-					if !emptyHostMounts {
-						d.Host = []vim25types.DatastoreHostMount{
-							{Key: vim25types.ManagedObjectReference{Type: "HostSystem", Value: hostMoID}},
-						}
+					for _, hostMoID := range hostMounts {
+						d.Host = append(d.Host, vim25types.DatastoreHostMount{
+							Key: vim25types.ManagedObjectReference{Type: "HostSystem", Value: hostMoID},
+						})
 					}
 				case "parent":
 					h := dst.(*mo.HostSystem)
@@ -4924,68 +4923,216 @@ func patchDatastoreAndHostProperties(patches *gomonkey.Patches, hostMoID, cluste
 		})
 }
 
-// TestGetHostLocalAccessibleTopology verifies the reworked derivation: host from Datastore.host[0],
-// hostname from the node-name<->host-MoID map, and zone from the host's cluster.
-func TestGetHostLocalAccessibleTopology(t *testing.T) {
+// TestGetHostLocalPlacement verifies that the placement is the datastore's only host, kept as its
+// MoID without resolving it to a Supervisor Node, and the zone of that host's cluster.
+func TestGetHostLocalPlacement(t *testing.T) {
 	ctx := context.Background()
 	commonco.ContainerOrchestratorUtility = &mockCOCommon{}
 	vc := newFakeVCWithClient()
+	clusterToZone := map[string]string{"cluster-a": "zone-a"}
 
-	t.Run("resolves zone+hostname from datastore host[0] and cluster", func(t *testing.T) {
-		nodeNameToHostMoIDMapOverride = map[string]string{"esx-node-2": "host-22"}
-		defer func() { nodeNameToHostMoIDMapOverride = nil }()
-
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
-		patchDatastoreAndHostProperties(patches, "host-22", "cluster-a", false)
-
-		dsInfo := newHostLocalDatastoreInfo(vc, "hl-ds-url")
-		topology, err := getHostLocalAccessibleTopology(ctx, vc, dsInfo,
-			map[string]string{"cluster-a": "zone-a"})
-		assert.NoError(t, err)
-		assert.Len(t, topology, 1)
-		assert.Equal(t, "esx-node-2", topology[0][corev1.LabelHostname])
-		assert.Equal(t, "zone-a", topology[0][corev1.LabelTopologyZone])
-	})
-
-	t.Run("errors when datastore has no host mounts", func(t *testing.T) {
-		nodeNameToHostMoIDMapOverride = map[string]string{"esx-node-2": "host-22"}
-		defer func() { nodeNameToHostMoIDMapOverride = nil }()
-
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
-		patchDatastoreAndHostProperties(patches, "host-22", "cluster-a", true)
-
-		dsInfo := newHostLocalDatastoreInfo(vc, "hl-ds-url")
-		_, err := getHostLocalAccessibleTopology(ctx, vc, dsInfo, map[string]string{"cluster-a": "zone-a"})
-		assert.Error(t, err)
-	})
-
-	t.Run("errors when host has no matching node", func(t *testing.T) {
+	t.Run("resolves host MoID and zone without a Supervisor Node for the host", func(t *testing.T) {
+		// No Node maps to host-22: the host may belong to a VirtualNode, or to no Node yet.
 		nodeNameToHostMoIDMapOverride = map[string]string{"esx-node-1": "host-11"}
 		defer func() { nodeNameToHostMoIDMapOverride = nil }()
 
 		patches := gomonkey.NewPatches()
 		defer patches.Reset()
-		patchDatastoreAndHostProperties(patches, "host-22", "cluster-a", false)
+		patchDatastoreAndHostProperties(patches, []string{"host-22"}, "cluster-a")
 
-		dsInfo := newHostLocalDatastoreInfo(vc, "hl-ds-url")
-		_, err := getHostLocalAccessibleTopology(ctx, vc, dsInfo, map[string]string{"cluster-a": "zone-a"})
+		placement, err := getHostLocalPlacement(ctx, vc, newHostLocalDatastoreInfo(vc, "hl-ds-url"), clusterToZone)
+		assert.NoError(t, err)
+		assert.Equal(t, hostLocalPlacement{HostMoID: "host-22", Zone: "zone-a"}, placement)
+		assert.Equal(t, []map[string]string{{corev1.LabelTopologyZone: "zone-a"}}, placement.topologySegments(),
+			"the topology must hold only the zone, never the hostname")
+	})
+
+	t.Run("errors when datastore has no host mounts", func(t *testing.T) {
+		patches := gomonkey.NewPatches()
+		defer patches.Reset()
+		patchDatastoreAndHostProperties(patches, nil, "cluster-a")
+
+		_, err := getHostLocalPlacement(ctx, vc, newHostLocalDatastoreInfo(vc, "hl-ds-url"), clusterToZone)
+		assert.Error(t, err)
+	})
+
+	t.Run("errors when datastore is mounted by more than one host", func(t *testing.T) {
+		patches := gomonkey.NewPatches()
+		defer patches.Reset()
+		patchDatastoreAndHostProperties(patches, []string{"host-22", "host-23"}, "cluster-a")
+
+		_, err := getHostLocalPlacement(ctx, vc, newHostLocalDatastoreInfo(vc, "hl-ds-url"), clusterToZone)
+		assert.ErrorContains(t, err, "exactly one ESX host")
+	})
+
+	t.Run("errors when host has no parent cluster", func(t *testing.T) {
+		patches := gomonkey.NewPatches()
+		defer patches.Reset()
+		patchDatastoreAndHostProperties(patches, []string{"host-22"}, "")
+
+		_, err := getHostLocalPlacement(ctx, vc, newHostLocalDatastoreInfo(vc, "hl-ds-url"), clusterToZone)
 		assert.Error(t, err)
 	})
 
 	t.Run("errors when host cluster has no zone mapping", func(t *testing.T) {
-		nodeNameToHostMoIDMapOverride = map[string]string{"esx-node-2": "host-22"}
-		defer func() { nodeNameToHostMoIDMapOverride = nil }()
-
 		patches := gomonkey.NewPatches()
 		defer patches.Reset()
-		patchDatastoreAndHostProperties(patches, "host-22", "cluster-a", false)
+		patchDatastoreAndHostProperties(patches, []string{"host-22"}, "cluster-a")
 
-		dsInfo := newHostLocalDatastoreInfo(vc, "hl-ds-url")
 		// clusterToZone does not contain cluster-a -> registration must fail.
-		_, err := getHostLocalAccessibleTopology(ctx, vc, dsInfo, map[string]string{"cluster-x": "zone-x"})
+		_, err := getHostLocalPlacement(ctx, vc, newHostLocalDatastoreInfo(vc, "hl-ds-url"),
+			map[string]string{"cluster-x": "zone-x"})
 		assert.Error(t, err)
+	})
+}
+
+// TestSetHostLocalPVMetadata verifies that a host-local PV spec gets the scheduler's host pin
+// annotation and the CSI volume attribute, without losing existing annotations or attributes.
+func TestSetHostLocalPVMetadata(t *testing.T) {
+	pv := getPersistentVolumeSpec("pv-1", "vol-1", resource.MustParse("1Gi"), corev1.ReadWriteOnce,
+		corev1.PersistentVolumeFilesystem, "sc-1", nil, "ns", "cr")
+	pv.Spec.CSI.VolumeAttributes = map[string]string{"existing": "attr"}
+
+	setHostLocalPVMetadata(pv, "host-22")
+
+	assert.Equal(t, "host-22", pv.Annotations[common.AnnPodVMHostPinned])
+	assert.Equal(t, cnsoperatortypes.VSphereCSIDriverName, pv.Annotations["pv.kubernetes.io/provisioned-by"])
+	assert.Equal(t, "host-22", pv.Spec.CSI.VolumeAttributes[common.AnnESXiHostMoID])
+	assert.Equal(t, "attr", pv.Spec.CSI.VolumeAttributes["existing"])
+}
+
+// TestEnsureHostLocalPinOnPV verifies that a missing pin on an existing PV is added with a patch, a
+// matching pin is left alone, and a pin naming a different host is rejected rather than moved.
+func TestEnsureHostLocalPinOnPV(t *testing.T) {
+	ctx := context.Background()
+	newPV := func(annotations map[string]string) *corev1.PersistentVolume {
+		return &corev1.PersistentVolume{ObjectMeta: metav1.ObjectMeta{Name: "pv-1", Annotations: annotations}}
+	}
+
+	t.Run("adds a missing pin", func(t *testing.T) {
+		pv := newPV(map[string]string{"keep": "me"})
+		client := k8sfake.NewClientset(pv)
+
+		got, err := ensureHostLocalPinOnPV(ctx, client, pv, "host-22")
+		assert.NoError(t, err)
+		assert.Equal(t, "host-22", got.Annotations[common.AnnPodVMHostPinned])
+		stored, err := client.CoreV1().PersistentVolumes().Get(ctx, "pv-1", metav1.GetOptions{})
+		assert.NoError(t, err)
+		assert.Equal(t, "host-22", stored.Annotations[common.AnnPodVMHostPinned])
+		assert.Equal(t, "me", stored.Annotations["keep"])
+	})
+
+	t.Run("leaves a matching pin untouched", func(t *testing.T) {
+		pv := newPV(map[string]string{common.AnnPodVMHostPinned: "host-22"})
+		client := k8sfake.NewClientset(pv)
+
+		_, err := ensureHostLocalPinOnPV(ctx, client, pv, "host-22")
+		assert.NoError(t, err)
+		for _, action := range client.Actions() {
+			assert.NotEqual(t, "patch", action.GetVerb(), "a matching pin must not be rewritten")
+		}
+	})
+
+	t.Run("rejects a pin naming a different host", func(t *testing.T) {
+		pv := newPV(map[string]string{common.AnnPodVMHostPinned: "host-99"})
+		client := k8sfake.NewClientset(pv)
+
+		_, err := ensureHostLocalPinOnPV(ctx, client, pv, "host-22")
+		assert.Error(t, err)
+		stored, getErr := client.CoreV1().PersistentVolumes().Get(ctx, "pv-1", metav1.GetOptions{})
+		assert.NoError(t, getErr)
+		assert.Equal(t, "host-99", stored.Annotations[common.AnnPodVMHostPinned])
+	})
+}
+
+// TestValidatePVCTopologyCompatibilityHostLocalMirror verifies how a reused PVC gets the host
+// mirror annotation of a host-local volume.
+func TestValidatePVCTopologyCompatibilityHostLocalMirror(t *testing.T) {
+	ctx := context.Background()
+	zoneOnly := []map[string]string{{corev1.LabelTopologyZone: "zone-a"}}
+	newPVC := func(annotations map[string]string) *corev1.PersistentVolumeClaim {
+		return &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: "pvc-1", Namespace: "ns", Annotations: annotations},
+		}
+	}
+	patchCount := func(client *k8sfake.Clientset) int {
+		n := 0
+		for _, action := range client.Actions() {
+			if action.GetVerb() == "patch" {
+				n++
+			}
+		}
+		return n
+	}
+
+	t.Run("writes topology and host mirror in one patch when both are missing", func(t *testing.T) {
+		pvc := newPVC(nil)
+		client := k8sfake.NewClientset(pvc)
+
+		err := validatePVCTopologyCompatibility(ctx, client, pvc, "ds-url", nil, nil, zoneOnly, "host-22")
+		assert.NoError(t, err)
+		assert.Equal(t, 1, patchCount(client))
+		stored, err := client.CoreV1().PersistentVolumeClaims("ns").Get(ctx, "pvc-1", metav1.GetOptions{})
+		assert.NoError(t, err)
+		assert.Equal(t, `[{"topology.kubernetes.io/zone":"zone-a"}]`, stored.Annotations[common.AnnVolumeAccessibleTopology])
+		assert.Equal(t, "host-22", stored.Annotations[common.AnnESXiHostMoID])
+	})
+
+	t.Run("adds only the host mirror when a compatible topology is present", func(t *testing.T) {
+		topology := `[{"topology.kubernetes.io/zone":"zone-a"}]`
+		pvc := newPVC(map[string]string{common.AnnVolumeAccessibleTopology: topology})
+		client := k8sfake.NewClientset(pvc)
+
+		err := validatePVCTopologyCompatibility(ctx, client, pvc, "ds-url", nil, nil, zoneOnly, "host-22")
+		assert.NoError(t, err)
+		assert.Equal(t, 1, patchCount(client))
+		stored, err := client.CoreV1().PersistentVolumeClaims("ns").Get(ctx, "pvc-1", metav1.GetOptions{})
+		assert.NoError(t, err)
+		assert.Equal(t, topology, stored.Annotations[common.AnnVolumeAccessibleTopology])
+		assert.Equal(t, "host-22", stored.Annotations[common.AnnESXiHostMoID])
+	})
+
+	t.Run("does not patch when topology and mirror are already set", func(t *testing.T) {
+		pvc := newPVC(map[string]string{
+			common.AnnVolumeAccessibleTopology: `[{"topology.kubernetes.io/zone":"zone-a"}]`,
+			common.AnnESXiHostMoID:             "host-22",
+		})
+		client := k8sfake.NewClientset(pvc)
+
+		err := validatePVCTopologyCompatibility(ctx, client, pvc, "ds-url", nil, nil, zoneOnly, "host-22")
+		assert.NoError(t, err)
+		assert.Equal(t, 0, patchCount(client))
+	})
+
+	t.Run("accepts a PVC with the earlier zone and hostname topology", func(t *testing.T) {
+		pvc := newPVC(map[string]string{
+			common.AnnVolumeAccessibleTopology: `[{"topology.kubernetes.io/zone":"zone-a",` +
+				`"kubernetes.io/hostname":"esx-node-2"}]`,
+		})
+		client := k8sfake.NewClientset(pvc)
+
+		err := validatePVCTopologyCompatibility(ctx, client, pvc, "ds-url", nil, nil, zoneOnly, "host-22")
+		assert.NoError(t, err)
+	})
+
+	t.Run("rejects a PVC that records a different host", func(t *testing.T) {
+		pvc := newPVC(map[string]string{common.AnnESXiHostMoID: "host-99"})
+		client := k8sfake.NewClientset(pvc)
+
+		err := validatePVCTopologyCompatibility(ctx, client, pvc, "ds-url", nil, nil, zoneOnly, "host-22")
+		assert.Error(t, err)
+		assert.Equal(t, 0, patchCount(client))
+	})
+
+	t.Run("rejects a PVC in a different zone without adding the mirror", func(t *testing.T) {
+		pvc := newPVC(map[string]string{
+			common.AnnVolumeAccessibleTopology: `[{"topology.kubernetes.io/zone":"zone-b"}]`,
+		})
+		client := k8sfake.NewClientset(pvc)
+
+		err := validatePVCTopologyCompatibility(ctx, client, pvc, "ds-url", nil, nil, zoneOnly, "host-22")
+		assert.Error(t, err)
+		assert.Equal(t, 0, patchCount(client))
 	})
 }
 
@@ -5214,16 +5361,13 @@ func TestReconcileHostLocalDetectedFromNewSchemaPolicy(t *testing.T) {
 	}
 	defer func() { checkDatastorePolicyCompatibilityFn = checkDatastorePolicyCompatibility }()
 
-	var resolvedTopology []map[string]string
-	getHostLocalAccessibleTopologyFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
-		_ *cnsvsphere.DatastoreInfo, _ map[string]string) ([]map[string]string, error) {
-		resolvedTopology = []map[string]string{{
-			corev1.LabelTopologyZone: "zone-a",
-			corev1.LabelHostname:     "host-1",
-		}}
-		return resolvedTopology, nil
+	placementResolved := false
+	getHostLocalPlacementFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
+		_ *cnsvsphere.DatastoreInfo, _ map[string]string) (hostLocalPlacement, error) {
+		placementResolved = true
+		return hostLocalPlacement{HostMoID: "host-1", Zone: "zone-a"}, nil
 	}
-	defer func() { getHostLocalAccessibleTopologyFn = getHostLocalAccessibleTopology }()
+	defer func() { getHostLocalPlacementFn = getHostLocalPlacement }()
 
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "test-volume", Namespace: "test-ns"}}
 	_, err := reconcileUntilSettled(ctx, r, req)
@@ -5231,12 +5375,68 @@ func TestReconcileHostLocalDetectedFromNewSchemaPolicy(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, compatChecked,
 		"host-local branch should PBM-check the datastore against the StorageLocality policy")
-	assert.NotEmpty(t, resolvedTopology,
+	assert.True(t, placementResolved,
 		"host-local branch should derive the PV topology from the datastore's host")
 	// The reconcile continues past the host-local block and stops at the storage class lookup (no
 	// StorageClass exists in the fixture), which requeues without cleanup. So a cleanup here would
 	// mean the host-local block itself rejected the volume.
 	assert.False(t, *cleanupCalled, "host-local block should accept the volume and not clean it up")
+}
+
+// TestReconcileHostLocalCreatesPinnedPVAndPVC verifies the objects a host-local registration
+// creates: a PV with zone-only node affinity, the scheduler's host pin annotation and the host
+// volume attribute, and a PVC whose zone-only topology annotation comes with the host mirror.
+func TestReconcileHostLocalCreatesPinnedPVAndPVC(t *testing.T) {
+	ctx := context.Background()
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+
+	r, _, cleanupCalled := newHostLocalReconcileFixture(patches, "HostLocalStorage")
+	defer wireAsyncCnsTaskSuccess(r)()
+	defer func() { fssEnabledOverride = nil }()
+
+	checkDatastorePolicyCompatibilityFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
+		_ *cnsvsphere.DatastoreInfo, _ string) (bool, error) {
+		return true, nil
+	}
+	defer func() { checkDatastorePolicyCompatibilityFn = checkDatastorePolicyCompatibility }()
+	getHostLocalPlacementFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
+		_ *cnsvsphere.DatastoreInfo, _ map[string]string) (hostLocalPlacement, error) {
+		return hostLocalPlacement{HostMoID: "host-22", Zone: "zone-a"}, nil
+	}
+	defer func() { getHostLocalPlacementFn = getHostLocalPlacement }()
+
+	k8sclient := k8sfake.NewClientset(&storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "hl-sc"}})
+	r.k8sclient = k8sclient
+	patches.ApplyFunc(resolveStorageClassNameForRegistration, func(_ context.Context, _ kubernetes.Interface,
+		_ ctrlclient.Client, _ *cnsregistervolumev1alpha1.CnsRegisterVolume, _ *corev1.PersistentVolumeClaim,
+		_, _ string, _ bool) (string, error) {
+		return "hl-sc", nil
+	})
+
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "test-volume", Namespace: "test-ns"}}
+	_, err := reconcileUntilSettled(ctx, r, req)
+	assert.NoError(t, err)
+	assert.False(t, *cleanupCalled, "a valid host-local registration must not be cleaned up")
+
+	pvs, err := k8sclient.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
+	assert.NoError(t, err)
+	if !assert.Len(t, pvs.Items, 1) {
+		return
+	}
+	pv := pvs.Items[0]
+	assert.Equal(t, "host-22", pv.Annotations[common.AnnPodVMHostPinned])
+	assert.Equal(t, "host-22", pv.Spec.CSI.VolumeAttributes[common.AnnESXiHostMoID])
+	if assert.NotNil(t, pv.Spec.NodeAffinity) && assert.NotNil(t, pv.Spec.NodeAffinity.Required) {
+		assert.Equal(t, []corev1.NodeSelectorTerm{{MatchExpressions: []corev1.NodeSelectorRequirement{{
+			Key: corev1.LabelTopologyZone, Operator: corev1.NodeSelectorOpIn, Values: []string{"zone-a"},
+		}}}}, pv.Spec.NodeAffinity.Required.NodeSelectorTerms, "PV affinity must hold only the zone")
+	}
+
+	pvc, err := k8sclient.CoreV1().PersistentVolumeClaims("test-ns").Get(ctx, "test-pvc", metav1.GetOptions{})
+	assert.NoError(t, err)
+	assert.Equal(t, `[{"topology.kubernetes.io/zone":"zone-a"}]`, pvc.Annotations[common.AnnVolumeAccessibleTopology])
+	assert.Equal(t, "host-22", pvc.Annotations[common.AnnESXiHostMoID])
 }
 
 // TestReconcileHostLocalNotDetectedForStorageLocalityNone verifies that StorageLocality = None (the
@@ -5273,12 +5473,12 @@ func TestReconcileHostLocalNotDetectedForStorageLocalityNone(t *testing.T) {
 	defer func() { checkDatastorePolicyCompatibilityFn = checkDatastorePolicyCompatibility }()
 
 	topologyResolved := false
-	getHostLocalAccessibleTopologyFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
-		_ *cnsvsphere.DatastoreInfo, _ map[string]string) ([]map[string]string, error) {
+	getHostLocalPlacementFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
+		_ *cnsvsphere.DatastoreInfo, _ map[string]string) (hostLocalPlacement, error) {
 		topologyResolved = true
-		return nil, nil
+		return hostLocalPlacement{}, nil
 	}
-	defer func() { getHostLocalAccessibleTopologyFn = getHostLocalAccessibleTopology }()
+	defer func() { getHostLocalPlacementFn = getHostLocalPlacement }()
 
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "test-volume", Namespace: "test-ns"}}
 	_, err := reconcileUntilSettled(ctx, r, req)
@@ -5307,11 +5507,11 @@ func TestReconcileHostLocalTopologyError(t *testing.T) {
 	}
 	defer func() { checkDatastorePolicyCompatibilityFn = checkDatastorePolicyCompatibility }()
 
-	getHostLocalAccessibleTopologyFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
-		_ *cnsvsphere.DatastoreInfo, _ map[string]string) ([]map[string]string, error) {
-		return nil, fmt.Errorf("no zone mapping found for the host's cluster")
+	getHostLocalPlacementFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
+		_ *cnsvsphere.DatastoreInfo, _ map[string]string) (hostLocalPlacement, error) {
+		return hostLocalPlacement{}, fmt.Errorf("no zone mapping found for the host's cluster")
 	}
-	defer func() { getHostLocalAccessibleTopologyFn = getHostLocalAccessibleTopology }()
+	defer func() { getHostLocalPlacementFn = getHostLocalPlacement }()
 
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "test-volume", Namespace: "test-ns"}}
 	result, err := reconcileUntilSettled(ctx, r, req)

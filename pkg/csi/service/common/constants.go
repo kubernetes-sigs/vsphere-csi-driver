@@ -374,6 +374,16 @@ const (
 	// AnnVolumeAccessibleTopology is the annotation set by the supervisor cluster on PVC
 	AnnVolumeAccessibleTopology = "csi.vsphere.volume-accessible-topology"
 
+	// AnnESXiHostMoID holds the MoID of the ESX host backing a host-local volume. It is a CSI
+	// volume attribute on the Supervisor PV, and is mirrored as an annotation on the Supervisor
+	// PVC so that PVCSI, which can only read objects in its Supervisor namespace, can see it.
+	AnnESXiHostMoID = "cns.vmware.com/esxi-host-moid"
+
+	// AnnPodVMHostPinned is set on a Supervisor host-local PV to the MoID of its backing ESX host.
+	// The PV node affinity holds only the zone, so the scheduler reads this annotation to keep the
+	// volume's consumers on that host.
+	AnnPodVMHostPinned = "cns.vmware.com/podvm-host-pinned"
+
 	// PVtoBackingDiskObjectIdSupportedVCenterMajor is the minimum major version of vCenter
 	// on which PV to BackingDiskObjectId mapping feature is supported.
 	PVtoBackingDiskObjectIdSupportedVCenterMajor int = 7
