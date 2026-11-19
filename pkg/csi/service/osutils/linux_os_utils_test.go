@@ -8,8 +8,12 @@ import (
 	"errors"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
+	"github.com/akutz/gofsutil"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"k8s.io/mount-utils"
 	utilexec "k8s.io/utils/exec"
 	testingexec "k8s.io/utils/exec/testing"
@@ -302,6 +306,87 @@ func TestExtFormatAndMount_Errors(t *testing.T) {
 			t.Fatal("expected an error, got nil")
 		}
 	})
+}
+
+func TestDeviceMountedElsewhere(t *testing.T) {
+	ctx := context.Background()
+	staging := "/var/lib/kubelet/plugins/kubernetes.io/csi/pv/pvc-abc/globalmount"
+	podMount := "/var/lib/kubelet/pods/pod-1/volumes/kubernetes.io~csi/pvc-abc/mount"
+	volID := "pvc-abc"
+
+	tests := []struct {
+		name      string
+		target    string
+		mnts      []gofsutil.Info
+		wantError bool
+	}{
+		{
+			name: "duplicate staging path from shared propagation is one mount",
+			mnts: []gofsutil.Info{
+				{Path: staging, Device: "/dev/sdb"},
+				{Path: staging, Device: "/dev/sdb"},
+			},
+		},
+		{
+			name: "single staging mount",
+			mnts: []gofsutil.Info{
+				{Path: staging, Device: "/dev/sdb"},
+			},
+		},
+		{
+			name: "no mount entries",
+		},
+		{
+			name:   "escaped duplicate of the staging path",
+			target: "/var/lib/kubelet/plugins/kubernetes.io/csi/pv/Workload Datastore/globalmount",
+			mnts: []gofsutil.Info{
+				{Path: `/var/lib/kubelet/plugins/kubernetes.io/csi/pv/Workload\040Datastore/globalmount`, Device: "/dev/sdb"},
+				{Path: `/var/lib/kubelet/plugins/kubernetes.io/csi/pv/Workload\040Datastore/globalmount`, Device: "/dev/sdb"},
+			},
+		},
+		{
+			name: "staging mount plus a pod mount",
+			mnts: []gofsutil.Info{
+				{Path: staging, Device: "/dev/sdb"},
+				{Path: staging, Device: "/dev/sdb"},
+				{Path: podMount, Device: "/dev/sdb"},
+				{Path: podMount, Device: "/dev/sdb"},
+			},
+			wantError: true,
+		},
+		{
+			name: "only a mount at a different path",
+			mnts: []gofsutil.Info{
+				{Path: podMount, Device: "/dev/sdb"},
+			},
+			wantError: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			target := test.target
+			if target == "" {
+				target = staging
+			}
+			err := deviceMountedElsewhere(ctx, volID, target, test.mnts)
+			if test.wantError {
+				if err == nil {
+					t.Fatal("expected an error, got nil")
+				}
+				if status.Code(err) != codes.Internal {
+					t.Errorf("status code = %s, want Internal", status.Code(err))
+				}
+				if !strings.Contains(err.Error(), "appears mounted in multiple places") {
+					t.Errorf("error = %q, want the multiple-mount message", err.Error())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("deviceMountedElsewhere returned unexpected error: %v", err)
+			}
+		})
+	}
 }
 
 func TestUnescape(t *testing.T) {
