@@ -35,7 +35,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -179,21 +178,35 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return err
 	}
 
-	// eventBroadcaster broadcasts events on cnsregistervolume instances to the
-	// event sink.
-	eventBroadcaster := record.NewBroadcaster()
-	eventBroadcaster.StartRecordingToSink(
-		&typedcorev1.EventSinkImpl{
-			Interface: k8sclient.CoreV1().Events(""),
-		},
-	)
-	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: apis.GroupName})
+	recorder, _ := newEventRecorder(k8sclient, mgr.GetScheme())
 	reconciler, err := newReconciler(mgr, configInfo, volumeManager, recorder, volumeInfoService)
 	if err != nil {
 		log.Errorf("Failed to create reconciler. Err: %v", err)
 		return err
 	}
 	return add(mgr, reconciler)
+}
+
+// newEventRecorder returns a recorder that publishes events on CnsRegisterVolume
+// instances to the API server, and the broadcaster behind it.
+//
+// The scheme must be one that registers CnsRegisterVolume, which in the syncer
+// is the manager's. The recorder builds the event's involvedObject from the
+// object's TypeMeta, and falls back to the scheme when TypeMeta is empty. It is
+// empty whenever the instance was last written by the controller-runtime client:
+// Update and Patch decode the response without its GVK, and
+// patchCnsRegisterVolumeStatus adopts that response into the working instance.
+// client-go's kubernetes scheme does not know CnsRegisterVolume, so with it every
+// event recorded after a status patch was dropped with "no kind is registered".
+func newEventRecorder(k8sclient clientset.Interface, s *runtime.Scheme) (record.EventRecorder,
+	record.EventBroadcaster) {
+	eventBroadcaster := record.NewBroadcaster()
+	eventBroadcaster.StartRecordingToSink(
+		&typedcorev1.EventSinkImpl{
+			Interface: k8sclient.CoreV1().Events(""),
+		},
+	)
+	return eventBroadcaster.NewRecorder(s, v1.EventSource{Component: apis.GroupName}), eventBroadcaster
 }
 
 // newReconciler returns a new reconcile.Reconciler.

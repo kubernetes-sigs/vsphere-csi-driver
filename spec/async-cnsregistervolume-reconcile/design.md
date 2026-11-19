@@ -534,6 +534,12 @@ causing conflicts with the controller's own writes. Only the resourceVersion is 
 fresh version on stale spec or metadata would let a later full update silently revert another
 writer's change. Every status field is part of the patch, so no local status is lost.
 
+The adopted object has an empty TypeMeta: the controller-runtime client decodes typed responses
+without their GVK. The event recorder therefore must be built with the manager's scheme, which
+registers `CnsRegisterVolume`, so it can resolve the kind for `involvedObject`. With client-go's
+kubernetes scheme, every event recorded after a status patch is dropped with "no kind is
+registered" (for example the `AccessMode ... is not supported` warning).
+
 Regression coverage must verify binding before clearing; retry, timeout and
 annotation-persistence failure conditions; stable transition times; recovery with
 a fresh reconciler; annotation-based skipping; `NotRequired`; and success only
