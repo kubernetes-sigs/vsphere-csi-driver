@@ -52,6 +52,9 @@ const (
 	// ReasonDetachFailed reflects that the volume failed to get detached.
 	// In case of successful detach, the volume's entry is removed from the CR.
 	ReasonDetachFailed = "DetachFailed"
+	// ReasonDetachFailedTerminal reflects that the volume failed to get detached with a fault
+	// which cannot be resolved by retrying, so the detach is not retried.
+	ReasonDetachFailedTerminal = "DetachFailedTerminal"
 	// ReasonFailed reflects that the CR instance is not yet ready.
 	ReasonFailed = "Failed"
 )

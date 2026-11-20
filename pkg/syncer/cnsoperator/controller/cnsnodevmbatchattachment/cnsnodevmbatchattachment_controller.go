@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -80,6 +81,9 @@ var (
 const (
 	workerThreadsEnvVar     = "WORKER_THREADS_NODEVM_BATCH_ATTACH"
 	defaultMaxWorkerThreads = 20
+	// terminalFaultEventReason is the reason of the event recorded when a reconcile
+	// fails only with terminal faults and is therefore not requeued.
+	terminalFaultEventReason = "NodeVmBatchAttachTerminalFault"
 )
 
 var newClientFunc = func(ctx context.Context) (kubernetes.Interface, error) {
@@ -406,7 +410,7 @@ func (r *Reconciler) reconcileInstanceWithDeletionTimestamp(ctx context.Context,
 	vm *cnsvsphere.VirtualMachine) error {
 	log := logger.GetLogger(ctx)
 
-	err := r.processDetach(ctx, k8sClient, vm, instance, volumesToDetach)
+	_, err := r.processDetach(ctx, k8sClient, vm, instance, volumesToDetach)
 	if err != nil {
 		log.Errorf("failed to detach all volumes. Err: %s", err)
 		return err
@@ -429,11 +433,26 @@ func (r *Reconciler) reconcileInstanceWithoutDeletionTimestamp(ctx context.Conte
 	var detachErr error
 	// Call detach if there are some volumes which need to be detached.
 	if len(volumesToDetach) != 0 {
-		detachErr = r.processDetach(ctx, k8sClient, vm, instance, volumesToDetach)
+		var failedDetaches map[string]bool
+		failedDetaches, detachErr = r.processDetach(ctx, k8sClient, vm, instance, volumesToDetach)
 		if detachErr != nil {
 			log.Errorf("failed to detach all volumes. Err: %s", detachErr)
 		} else {
 			log.Infof("Successfully detached all volumes %+v", volumesToDetach)
+		}
+		// A PVC is in both lists when its device backing changed, and it has to be detached
+		// before it can be attached with the new backing. If its detach failed for any reason,
+		// the disk is still attached with the old backing, so the attach cannot apply the new
+		// backing. This also holds for multi-writer disks, as a disk cannot be attached twice
+		// to the same VM. So the attach is skipped for every failed detach.
+		// For a non-terminal failure the instance is requeued, and the attach is attempted
+		// once a later detach succeeds. For a terminal failure the instance is not requeued,
+		// so neither is retried until the spec changes or the syncer restarts.
+		for pvc := range failedDetaches {
+			if _, ok := volumesToAttach[pvc]; ok {
+				log.Infof("Skipping attach for PVC %s as its detach failed", pvc)
+				delete(volumesToAttach, pvc)
+			}
 		}
 	}
 
@@ -447,15 +466,17 @@ func (r *Reconciler) reconcileInstanceWithoutDeletionTimestamp(ctx context.Conte
 }
 
 // processDetach detaches each of the volumes in volumesToDetach by calling CNS DetachVolume API.
+// It returns the PVCs whose detach failed. If a failed detach was terminal,
+// the returned error is a volumes.TerminalError.
 func (r *Reconciler) processDetach(ctx context.Context,
 	k8sClient kubernetes.Interface,
 	vm *cnsvsphere.VirtualMachine,
-	instance *v1alpha1.CnsNodeVMBatchAttachment, volumesToDetach map[string]string) error {
+	instance *v1alpha1.CnsNodeVMBatchAttachment, volumesToDetach map[string]string) (map[string]bool, error) {
 	log := logger.GetLogger(ctx)
 
 	if len(volumesToDetach) == 0 {
 		log.Infof("No volumes to detach from VM %q", instance.Spec.InstanceUUID)
-		return nil
+		return nil, nil
 	}
 
 	// Validate if the VM is present in the same namespace as the batchattach instance/volumes.
@@ -463,17 +484,17 @@ func (r *Reconciler) processDetach(ctx context.Context,
 	isPresentInSameNamespace, err := isVmInSameNamespace(ctx, r.vmOperatorClient, instance.Name,
 		instance.Spec.InstanceUUID, instance.Namespace)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if !isPresentInSameNamespace {
-		return fmt.Errorf("failed to find VM with instance UUID %s in namespace %s", instance.Spec.InstanceUUID,
+		return nil, fmt.Errorf("failed to find VM with instance UUID %s in namespace %s", instance.Spec.InstanceUUID,
 			instance.Namespace)
 	}
 
 	log.Debugf("Calling detach volume for PVC %+v", volumesToDetach)
 
-	volumesThatFailedToDetach := r.detachVolumes(ctx, k8sClient, vm, volumesToDetach, instance)
+	volumesThatFailedToDetach, terminalCauses := r.detachVolumes(ctx, k8sClient, vm, volumesToDetach, instance)
 
 	var overallErr error
 	if len(volumesThatFailedToDetach) != 0 {
@@ -481,20 +502,56 @@ func (r *Reconciler) processDetach(ctx context.Context,
 		failedVolumes := strings.Join(volumesThatFailedToDetach, ",")
 		msg += failedVolumes
 		overallErr = errors.New(msg)
+		if len(terminalCauses) == len(volumesThatFailedToDetach) {
+			// None of the failed detaches can succeed on a retry.
+			overallErr = &volumes.TerminalError{Cause: joinDistinctCauses(terminalCauses), Err: overallErr}
+		}
 		log.Error(overallErr)
 	}
 
-	return overallErr
+	failed := make(map[string]bool, len(volumesThatFailedToDetach))
+	for _, pvc := range volumesThatFailedToDetach {
+		failed[pvc] = true
+	}
+	return failed, overallErr
+}
+
+// joinDistinctCauses returns the distinct causes in causesByPVC, sorted and comma separated.
+func joinDistinctCauses(causesByPVC map[string]string) string {
+	seen := make(map[string]bool, len(causesByPVC))
+	causes := make([]string, 0, len(causesByPVC))
+	for _, cause := range causesByPVC {
+		if !seen[cause] {
+			seen[cause] = true
+			causes = append(causes, cause)
+		}
+	}
+	sort.Strings(causes)
+	return strings.Join(causes, ", ")
+}
+
+// terminalErrorCause returns the cause of err and true if err is a terminal error.
+func terminalErrorCause(err error) (string, bool) {
+	if !volumes.IsTerminalError(err) {
+		return "", false
+	}
+	var terminalErr *volumes.TerminalError
+	if errors.As(err, &terminalErr) {
+		return terminalErr.Cause, true
+	}
+	return "", true
 }
 
 // detachVolumes calls Cns DetachVolume for every PVC in volumesToDetach.
 func (r *Reconciler) detachVolumes(ctx context.Context,
 	k8sClient kubernetes.Interface,
 	vm *cnsvsphere.VirtualMachine, volumesToDetach map[string]string,
-	instance *v1alpha1.CnsNodeVMBatchAttachment) []string {
+	instance *v1alpha1.CnsNodeVMBatchAttachment) ([]string, map[string]string) {
 	log := logger.GetLogger(ctx)
 
 	volumesThatFailedToDetach := make([]string, 0)
+	// terminalCauses maps the PVCs whose detach failed with a terminal fault to the fault's cause.
+	terminalCauses := make(map[string]string)
 
 	for pvc, volumeId := range volumesToDetach {
 		log.Infof("Detach call started for PVC %s with volumeID %s in namespace %s for instance %s",
@@ -512,9 +569,14 @@ func (r *Reconciler) detachVolumes(ctx context.Context,
 			} else {
 				log.Errorf("failed to detach volume %s from VM %s. Fault: %s Err: %s",
 					pvc, instance.Spec.InstanceUUID, faulttype, detachErr)
+				reason := v1alpha1.ReasonDetachFailed
+				if cause, terminal := terminalErrorCause(detachErr); terminal {
+					reason = v1alpha1.ReasonDetachFailedTerminal
+					terminalCauses[pvc] = cause
+				}
 				// Update the instance with error for this PVC.
 				updateInstanceVolumeStatus(ctx, instance, "", pvc, "", "", detachErr,
-					v1alpha1.ConditionDetached, v1alpha1.ReasonDetachFailed)
+					v1alpha1.ConditionDetached, reason)
 
 				volumesThatFailedToDetach = append(volumesThatFailedToDetach, pvc)
 			}
@@ -527,8 +589,8 @@ func (r *Reconciler) detachVolumes(ctx context.Context,
 			pvc, instance.Namespace, instance.Name)
 	}
 
-	// Send back list of volumes which failed to attach.
-	return volumesThatFailedToDetach
+	// Send back list of volumes which failed to detach, and the causes of the terminal failures.
+	return volumesThatFailedToDetach, terminalCauses
 }
 
 // removeFinalizerAndStatusEntry removes finalizer from the given PVC and
@@ -750,6 +812,8 @@ func (r *Reconciler) completeReconciliationWithError(ctx context.Context, instan
 	namespaceName types.NamespacedName, timeout time.Duration, err error) (reconcile.Result, error) {
 	log := logger.GetLogger(ctx)
 
+	// Read before the status update, which overwrites instance with the object returned by the API server.
+	isBeingDeleted := instance.DeletionTimestamp != nil
 	trimmedError := trimMessage(err)
 	conditions.MarkError(instance, v1alpha1.ConditionReady, v1alpha1.ReasonFailed, trimmedError)
 
@@ -758,6 +822,19 @@ func (r *Reconciler) completeReconciliationWithError(ctx context.Context, instan
 		recordEvent(ctx, r, instance, v1.EventTypeWarning, updateErr.Error())
 		log.Errorf("failed to update CnsNodeVMBatchAttachment %s. Err: %s", namespaceName, updateErr)
 		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+	if volumes.IsTerminalError(err) && !isBeingDeleted {
+		// Retrying would only issue the same failing operations again. The instance is
+		// reconciled again when its spec changes or when the syncer restarts.
+		// An instance being deleted is still requeued: its spec is not expected to change,
+		// so without a requeue its finalizer would stay until the syncer restarts.
+		log.Warnf("Reconcile for instance %s failed with terminal faults. Not requeueing. Err: %s",
+			namespaceName, err)
+		backOffDurationMapMutex.Lock()
+		delete(backOffDuration, namespaceName)
+		backOffDurationMapMutex.Unlock()
+		r.recorder.Event(instance, v1.EventTypeWarning, terminalFaultEventReason, trimmedError.Error())
+		return reconcile.Result{}, nil
 	}
 	recordEvent(ctx, r, instance, v1.EventTypeWarning, err.Error())
 	return reconcile.Result{RequeueAfter: timeout}, nil
