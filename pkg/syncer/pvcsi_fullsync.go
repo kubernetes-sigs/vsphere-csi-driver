@@ -41,6 +41,7 @@ import (
 	ccV1beta2 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 
@@ -179,8 +180,10 @@ func PvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) er
 	}
 	// Set csi.vsphere-volume label and CNS finalizer (SVPVCSnapshotProtectionFinalizer FSS) on the
 	// Supervisor VolumeSnapshot which is requested from the TKC Cluster.
+	// The finalizer is added only if the supervisor removes it on guest cluster deletion.
 	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.SVPVCSnapshotProtectionFinalizer) {
-		err = setGuestClusterDetailsOnSupervisorSnapshot(ctx, metadataSyncer, supervisorNamespace)
+		err = setGuestClusterDetailsOnSupervisorSnapshot(ctx, metadataSyncer, supervisorNamespace,
+			commonco.IsSVPVCSnapshotFinalizerAddEnabled(ctx, metadataSyncer.coCommonInterface))
 		if err != nil {
 			log.Warnf("FullSync: Failed to set Guest Cluster label/finalizer on SupervisorSnapshot. Err: %v", err)
 		}
@@ -639,10 +642,11 @@ func setGuestClusterDetailsOnSupervisorPVC(ctx context.Context, metadataSyncer *
 					continue
 				}
 			}
-			// If SVPVCSnapshotProtectionFinalizer FSS is enabled, add finalizer "cns.vmware.com/pvc-protection"
-			// to Supervisor PVC, if not present already, to prevent accidental deletion from supervisor cluster.
+			// If SVPVCSnapshotProtectionFinalizer FSS is enabled and the supervisor removes CNS finalizers on
+			// guest cluster deletion, add finalizer "cns.vmware.com/pvc-protection" to Supervisor PVC, if not
+			// present already, to prevent accidental deletion from supervisor cluster.
 			// This is to handle upgrade case, where finalizer gets applied to existing PVCs from earlier TKR release.
-			if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.SVPVCSnapshotProtectionFinalizer) {
+			if commonco.IsSVPVCSnapshotFinalizerAddEnabled(ctx, metadataSyncer.coCommonInterface) {
 				cnsFinalizerPresent := slices.Contains(svPVC.ObjectMeta.Finalizers, cnsoperatortypes.CNSVolumeFinalizer)
 				if !cnsFinalizerPresent {
 					original := svPVC.DeepCopy()
@@ -948,13 +952,15 @@ func clearSupervisorSnapshotAnnotation(ctx context.Context, svVS *snapv1.VolumeS
 // setGuestClusterDetailsOnSupervisorSnapshot adds the guest-cluster ownership label and the
 // CNSSnapshotFinalizer to supervisor VolumeSnapshots created by this guest cluster. It walks the
 // guest cluster's VolumeSnapshotContents and patches the corresponding supervisor VolumeSnapshot.
-// It is gated by the SVPVCSnapshotProtectionFinalizer FSS by its caller.
+// It is gated by the SVPVCSnapshotProtectionFinalizer FSS by its caller. The finalizer is added only
+// when addFinalizer is true, i.e. the supervisor removes it on guest cluster deletion
+// (see commonco.IsSVPVCSnapshotFinalizerAddEnabled); the label is always added.
 //
 // NOTE: the guest-cluster-snapshot annotation (ImprovedVolumeVisibility FSS) is intentionally NOT
 // handled here; that lives in reconcileSupervisorSnapshotAnnotations so the annotation add/remove
 // logic stays self-contained and decoupled from the label/finalizer protection workflow.
 func setGuestClusterDetailsOnSupervisorSnapshot(ctx context.Context, metadataSyncer *metadataSyncInformer,
-	supervisorNamespace string) error {
+	supervisorNamespace string, addFinalizer bool) error {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Fullsync: Querying guest cluster API server for all VSC objects.")
 	snapshotterClient, supervisorSnapshotterClient, supervisorRuntimeClient, err :=
@@ -982,7 +988,7 @@ func setGuestClusterDetailsOnSupervisorSnapshot(ctx context.Context, metadataSyn
 		}
 		// Add finalizer "cns.vmware.com/volumesnapshot-protection" to Supervisor snapshot, if not present
 		// already, to prevent accidental deletion from supervisor cluster.
-		if !slices.Contains(svVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer) {
+		if addFinalizer && !slices.Contains(svVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer) {
 			svVS.ObjectMeta.Finalizers = append(svVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer)
 			patchNeeded = true
 		}

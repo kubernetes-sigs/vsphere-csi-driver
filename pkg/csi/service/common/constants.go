@@ -642,6 +642,12 @@ const (
 	// SVPVCSnapshotProtectionFinalizer is FSS that controls add/remove
 	// CNS finalizer on supervisor PVC/Snapshots from PVCSI
 	SVPVCSnapshotProtectionFinalizer = "sv-pvc-snapshot-protection-finalizer"
+	// SVPVCSnapshotFinalizerClusterDeletionCleanup is a supervisor (cns-csi) FSS that tells pvCSI
+	// the supervisor removes CNS finalizers from a guest cluster's supervisor PVCs/VolumeSnapshots
+	// when that guest cluster is deleted. Supervisors released before that cleanup also have
+	// SVPVCSnapshotProtectionFinalizer enabled, so that FSS alone cannot tell them apart; pvCSI
+	// adds the finalizers only when this key is enabled too, and they never get stuck on old supervisors.
+	SVPVCSnapshotFinalizerClusterDeletionCleanup = "sv-pvc-snapshot-finalizer-cluster-deletion-cleanup"
 	// FileVolumesWithVmService is an FSS to support file volumes with VM service VMs.
 	FileVolumesWithVmService = "supports_file_volumes_with_VM_service_VMs"
 	// SharedDiskFss is an FSS that tells whether shared disks are supported or not
