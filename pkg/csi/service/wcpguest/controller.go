@@ -691,10 +691,10 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 					}
 				}
 
-				// Add CnsVolumeFinalizer to Supervisor PVC if SVPVCSnapshotProtectionFinalizer FSS is enabled
+				// Add CnsVolumeFinalizer to Supervisor PVC only if the supervisor also removes it on
+				// guest cluster deletion (see IsSVPVCSnapshotFinalizerAddEnabled).
 				finalizers := []string{}
-				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-					common.SVPVCSnapshotProtectionFinalizer) {
+				if commonco.IsSVPVCSnapshotFinalizerAddEnabled(ctx, commonco.ContainerOrchestratorUtility) {
 					finalizers = append(finalizers, cnsoperatortypes.CNSVolumeFinalizer)
 				}
 
@@ -931,33 +931,33 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 		if isFileVolumeAccessMode(svPVC.Spec.AccessModes) {
 			volumeType = prometheus.PrometheusFileVolumeType
 		}
-		// Remove the finalizer before deleting the Supervisor PVC if SVPVCSnapshotProtectionFinalizer FSS is enabled
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SVPVCSnapshotProtectionFinalizer) {
-			for i, finalizer := range svPVC.ObjectMeta.Finalizers {
-				if finalizer == cnsoperatortypes.CNSVolumeFinalizer {
-					log.Infof("Removing %q finalizer from PersistentVolumeClaim with name: %q on namespace: %q",
-						cnsoperatortypes.CNSVolumeFinalizer, svPVC.Name, svPVC.Namespace)
-					original := svPVC.DeepCopy()
-					svPVC.ObjectMeta.Finalizers = slices.Delete(svPVC.ObjectMeta.Finalizers, i, i+1)
+		// Always remove the CNS finalizer before deleting the Supervisor PVC, if present.
+		// This is not gated by FSS: the finalizer may have been added earlier (older TKR, or before
+		// an FSS change), and leaving it would block the delete.
+		for i, finalizer := range svPVC.ObjectMeta.Finalizers {
+			if finalizer == cnsoperatortypes.CNSVolumeFinalizer {
+				log.Infof("Removing %q finalizer from PersistentVolumeClaim with name: %q on namespace: %q",
+					cnsoperatortypes.CNSVolumeFinalizer, svPVC.Name, svPVC.Namespace)
+				original := svPVC.DeepCopy()
+				svPVC.ObjectMeta.Finalizers = slices.Delete(svPVC.ObjectMeta.Finalizers, i, i+1)
 
-					// Create controller-runtime client for patching
-					supervisorRuntimeClient, err := client.New(c.restClientConfig, client.Options{})
-					if err != nil {
-						msg := fmt.Sprintf("failed to create controller-runtime client for supervisor cluster. Error: %+v", err)
-						log.Error(msg)
-						return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
-					}
-
-					// Patch the instance after removing finalizer
-					err = k8s.PatchObject(ctx, supervisorRuntimeClient, original, svPVC)
-					if err != nil {
-						msg := fmt.Sprintf("failed to patch supervisor PVC %q in %q namespace. Error: %+v",
-							req.VolumeId, c.supervisorNamespace, err)
-						log.Error(msg)
-						return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
-					}
-					break
+				// Create controller-runtime client for patching
+				supervisorRuntimeClient, err := client.New(c.restClientConfig, client.Options{})
+				if err != nil {
+					msg := fmt.Sprintf("failed to create controller-runtime client for supervisor cluster. Error: %+v", err)
+					log.Error(msg)
+					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 				}
+
+				// Patch the instance after removing finalizer
+				err = k8s.PatchObject(ctx, supervisorRuntimeClient, original, svPVC)
+				if err != nil {
+					msg := fmt.Sprintf("failed to patch supervisor PVC %q in %q namespace. Error: %+v",
+						req.VolumeId, c.supervisorNamespace, err)
+					log.Error(msg)
+					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+				}
+				break
 			}
 		}
 
@@ -2250,13 +2250,16 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 				}
 				labels := make(map[string]string)
 				finalizers := []string{}
-				// Add CnsSnapshotFinalizer and TKC label to Supervisor snapshot
-				// if SVPVCSnapshotProtectionFinalizer FSS is enabled
+				// Add TKC label to Supervisor snapshot if SVPVCSnapshotProtectionFinalizer FSS is enabled.
+				// Add CnsSnapshotFinalizer only if the supervisor also removes it on guest cluster
+				// deletion (see IsSVPVCSnapshotFinalizerAddEnabled).
 				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 					common.SVPVCSnapshotProtectionFinalizer) {
 					key := fmt.Sprintf("%s/%s", c.tanzukubernetesClusterName, c.guestClusterDist)
 					labels[key] = c.tanzukubernetesClusterUID
-					finalizers = append(finalizers, cnsoperatortypes.CNSSnapshotFinalizer)
+					if commonco.IsSVPVCSnapshotFinalizerAddEnabled(ctx, commonco.ContainerOrchestratorUtility) {
+						finalizers = append(finalizers, cnsoperatortypes.CNSSnapshotFinalizer)
+					}
 				}
 				supVolumeSnapshot := constructVolumeSnapshotWithVolumeSnapshotClass(supervisorVolumeSnapshotName,
 					c.supervisorNamespace, supervisorVolumeSnapshotClass, supervisorPVCName, annotation,
@@ -2385,26 +2388,25 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 				return nil, status.Error(codes.Internal, msg)
 			}
 		}
-		// Remove the finalizer before deleting the Supervisor VolumeSnapshot,
-		// if SVPVCSnapshotProtectionFinalizer FSS is enabled
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SVPVCSnapshotProtectionFinalizer) {
-			for i, finalizer := range supervisorVolumeSnapshot.ObjectMeta.Finalizers {
-				if finalizer == cnsoperatortypes.CNSSnapshotFinalizer {
-					log.Infof("Removing %q finalizer from VolumeSnapshot with name: %q on namespace: %q",
-						cnsoperatortypes.CNSSnapshotFinalizer, supervisorVolumeSnapshotName, c.supervisorNamespace)
-					supervisorVolumeSnapshot.ObjectMeta.Finalizers =
-						slices.Delete(supervisorVolumeSnapshot.ObjectMeta.Finalizers, i, i+1)
-					// Update the instance after removing finalizer
-					_, err = c.supervisorSnapshotterClient.SnapshotV1().VolumeSnapshots(c.supervisorNamespace).
-						Update(ctx, supervisorVolumeSnapshot, metav1.UpdateOptions{})
-					if err != nil {
-						msg := fmt.Sprintf("failed to update supervisor VolumeSnapshot %q in %q namespace. Error: %+v",
-							supervisorVolumeSnapshotName, c.supervisorNamespace, err)
-						log.Error(msg)
-						return nil, status.Error(codes.Internal, msg)
-					}
-					break
+		// Always remove the CNS finalizer before deleting the Supervisor VolumeSnapshot, if present.
+		// This is not gated by FSS: the finalizer may have been added earlier (older TKR, or before
+		// an FSS change), and leaving it would block the delete.
+		for i, finalizer := range supervisorVolumeSnapshot.ObjectMeta.Finalizers {
+			if finalizer == cnsoperatortypes.CNSSnapshotFinalizer {
+				log.Infof("Removing %q finalizer from VolumeSnapshot with name: %q on namespace: %q",
+					cnsoperatortypes.CNSSnapshotFinalizer, supervisorVolumeSnapshotName, c.supervisorNamespace)
+				supervisorVolumeSnapshot.ObjectMeta.Finalizers =
+					slices.Delete(supervisorVolumeSnapshot.ObjectMeta.Finalizers, i, i+1)
+				// Update the instance after removing finalizer
+				_, err = c.supervisorSnapshotterClient.SnapshotV1().VolumeSnapshots(c.supervisorNamespace).
+					Update(ctx, supervisorVolumeSnapshot, metav1.UpdateOptions{})
+				if err != nil {
+					msg := fmt.Sprintf("failed to update supervisor VolumeSnapshot %q in %q namespace. Error: %+v",
+						supervisorVolumeSnapshotName, c.supervisorNamespace, err)
+					log.Error(msg)
+					return nil, status.Error(codes.Internal, msg)
 				}
+				break
 			}
 		}
 		log.Infof("Found the supervisor volumesnapshot %s/%s on the supervisor cluster",
