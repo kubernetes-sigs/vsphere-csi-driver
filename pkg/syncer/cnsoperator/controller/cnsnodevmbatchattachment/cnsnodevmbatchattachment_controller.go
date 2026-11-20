@@ -37,6 +37,7 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
@@ -295,6 +296,9 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 	if instance.Status.VolumeStatus == nil {
 		instance.Status.VolumeStatus = make([]v1alpha1.VolumeStatus, 0)
 	}
+	// Repair duplicate status entries left behind by an earlier build. A duplicate name
+	// makes the API server reject every status update for the instance.
+	dedupeVolumeStatus(batchAttachCtx, instance)
 
 	// Get the VM object for the given UUID.
 	vm, err := getVmObject(batchAttachCtx, r.client, r.configInfo, instance)
@@ -406,7 +410,7 @@ func (r *Reconciler) reconcileInstanceWithDeletionTimestamp(ctx context.Context,
 	vm *cnsvsphere.VirtualMachine) error {
 	log := logger.GetLogger(ctx)
 
-	err := r.processDetach(ctx, k8sClient, vm, instance, volumesToDetach)
+	_, err := r.processDetach(ctx, k8sClient, vm, instance, volumesToDetach)
 	if err != nil {
 		log.Errorf("failed to detach all volumes. Err: %s", err)
 		return err
@@ -427,15 +431,21 @@ func (r *Reconciler) reconcileInstanceWithoutDeletionTimestamp(ctx context.Conte
 	log := logger.GetLogger(ctx)
 
 	var detachErr error
+	var volumesThatFailedToDetach []string
 	// Call detach if there are some volumes which need to be detached.
 	if len(volumesToDetach) != 0 {
-		detachErr = r.processDetach(ctx, k8sClient, vm, instance, volumesToDetach)
+		volumesThatFailedToDetach, detachErr = r.processDetach(ctx, k8sClient, vm, instance, volumesToDetach)
 		if detachErr != nil {
 			log.Errorf("failed to detach all volumes. Err: %s", detachErr)
 		} else {
 			log.Infof("Successfully detached all volumes %+v", volumesToDetach)
 		}
 	}
+
+	// A volume that is in both lists must be re-attached with a new backing, which is only
+	// possible after it has been detached from its current backing. If that detach failed,
+	// the attach cannot succeed either, so it is not attempted in this reconcile.
+	volumesToAttach = excludeVolumesPendingDetach(ctx, instance, volumesToAttach, volumesThatFailedToDetach)
 
 	// Call batch attach for volumes.
 	attachErr := r.processBatchAttach(ctx, k8sClient, vm, instance, volumesToAttach)
@@ -446,16 +456,100 @@ func (r *Reconciler) reconcileInstanceWithoutDeletionTimestamp(ctx context.Conte
 	return errors.Join(attachErr, detachErr)
 }
 
+// detachBlockedBySnapshotError is returned by processDetach when every volume that failed
+// to detach is blocked because its disk is part of a VM snapshot. Retrying sooner cannot
+// help, so the reconcile is requeued at the maximum backoff.
+type detachBlockedBySnapshotError struct {
+	pvcs []string
+}
+
+func (e *detachBlockedBySnapshotError) Error() string {
+	return fmt.Sprintf("failed to detach volumes: %s. The disks are part of a VM snapshot. "+
+		"Delete the VM snapshots to let the detach proceed", strings.Join(e.pvcs, ","))
+}
+
+func (e *detachBlockedBySnapshotError) Unwrap() error {
+	return volumes.ErrDiskInVMSnapshot
+}
+
+// isOnlyDetachBlockedBySnapshot returns true if err consists only of
+// detachBlockedBySnapshotError, so no other failure needs a faster retry.
+func isOnlyDetachBlockedBySnapshot(err error) bool {
+	var blocked *detachBlockedBySnapshotError
+	if !errors.As(err, &blocked) {
+		return false
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, e := range joined.Unwrap() {
+			if !errors.As(e, &blocked) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// isDetachBlockedBySnapshot returns true if the status entry of the given PVC records that
+// its last detach was refused because the disk is part of a VM snapshot.
+func isDetachBlockedBySnapshot(instance *v1alpha1.CnsNodeVMBatchAttachment, pvc string) bool {
+	for _, volumeStatus := range instance.Status.VolumeStatus {
+		if volumeStatus.PersistentVolumeClaim.ClaimName != pvc {
+			continue
+		}
+		for _, cond := range volumeStatus.PersistentVolumeClaim.Conditions {
+			if cond.Type == v1alpha1.ConditionDetached && cond.Status == metav1.ConditionFalse &&
+				cond.Reason == v1alpha1.ReasonDetachBlockedBySnapshot {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// excludeVolumesPendingDetach returns volumesToAttach without the PVCs whose detach failed
+// in this reconcile, and marks those PVCs as waiting for the detach. Such a PVC is still
+// attached with its old backing, so re-attaching it with the new backing cannot succeed.
+func excludeVolumesPendingDetach(ctx context.Context, instance *v1alpha1.CnsNodeVMBatchAttachment,
+	volumesToAttach map[string]string, volumesThatFailedToDetach []string) map[string]string {
+	log := logger.GetLogger(ctx)
+
+	if len(volumesThatFailedToDetach) == 0 || len(volumesToAttach) == 0 {
+		return volumesToAttach
+	}
+	remaining := make(map[string]string, len(volumesToAttach))
+	for pvc, volumeID := range volumesToAttach {
+		remaining[pvc] = volumeID
+	}
+	for _, pvc := range volumesThatFailedToDetach {
+		if _, ok := remaining[pvc]; !ok {
+			continue
+		}
+		delete(remaining, pvc)
+		log.Infof("Skipping attach of PVC %s to VM %s until it is detached from its current backing",
+			pvc, instance.Spec.InstanceUUID)
+		updateInstanceVolumeStatus(ctx, instance, "", pvc, "", "",
+			fmt.Errorf("volume %s will be re-attached after it is detached from its current backing", pvc),
+			v1alpha1.ConditionAttached, v1alpha1.ReasonAttachPendingDetach)
+	}
+	return remaining
+}
+
 // processDetach detaches each of the volumes in volumesToDetach by calling CNS DetachVolume API.
+// It returns the PVCs that are still attached after the call, together with the error.
 func (r *Reconciler) processDetach(ctx context.Context,
 	k8sClient kubernetes.Interface,
 	vm *cnsvsphere.VirtualMachine,
-	instance *v1alpha1.CnsNodeVMBatchAttachment, volumesToDetach map[string]string) error {
+	instance *v1alpha1.CnsNodeVMBatchAttachment, volumesToDetach map[string]string) ([]string, error) {
 	log := logger.GetLogger(ctx)
 
 	if len(volumesToDetach) == 0 {
 		log.Infof("No volumes to detach from VM %q", instance.Spec.InstanceUUID)
-		return nil
+		return nil, nil
+	}
+
+	allVolumes := make([]string, 0, len(volumesToDetach))
+	for pvc := range volumesToDetach {
+		allVolumes = append(allVolumes, pvc)
 	}
 
 	// Validate if the VM is present in the same namespace as the batchattach instance/volumes.
@@ -463,28 +557,38 @@ func (r *Reconciler) processDetach(ctx context.Context,
 	isPresentInSameNamespace, err := isVmInSameNamespace(ctx, r.vmOperatorClient, instance.Name,
 		instance.Spec.InstanceUUID, instance.Namespace)
 	if err != nil {
-		return err
+		return allVolumes, err
 	}
 
 	if !isPresentInSameNamespace {
-		return fmt.Errorf("failed to find VM with instance UUID %s in namespace %s", instance.Spec.InstanceUUID,
-			instance.Namespace)
+		return allVolumes, fmt.Errorf("failed to find VM with instance UUID %s in namespace %s",
+			instance.Spec.InstanceUUID, instance.Namespace)
 	}
 
 	log.Debugf("Calling detach volume for PVC %+v", volumesToDetach)
 
 	volumesThatFailedToDetach := r.detachVolumes(ctx, k8sClient, vm, volumesToDetach, instance)
 
-	var overallErr error
-	if len(volumesThatFailedToDetach) != 0 {
-		msg := "failed to detach volumes: "
-		failedVolumes := strings.Join(volumesThatFailedToDetach, ",")
-		msg += failedVolumes
-		overallErr = errors.New(msg)
-		log.Error(overallErr)
+	if len(volumesThatFailedToDetach) == 0 {
+		return nil, nil
 	}
 
-	return overallErr
+	allBlockedBySnapshot := true
+	for _, pvc := range volumesThatFailedToDetach {
+		if !isDetachBlockedBySnapshot(instance, pvc) {
+			allBlockedBySnapshot = false
+			break
+		}
+	}
+
+	var overallErr error
+	if allBlockedBySnapshot {
+		overallErr = &detachBlockedBySnapshotError{pvcs: volumesThatFailedToDetach}
+	} else {
+		overallErr = errors.New("failed to detach volumes: " + strings.Join(volumesThatFailedToDetach, ","))
+	}
+	log.Error(overallErr)
+	return volumesThatFailedToDetach, overallErr
 }
 
 // detachVolumes calls Cns DetachVolume for every PVC in volumesToDetach.
@@ -496,7 +600,33 @@ func (r *Reconciler) detachVolumes(ctx context.Context,
 
 	volumesThatFailedToDetach := make([]string, 0)
 
+	// The VM's snapshot property is read at most once per reconcile, and only when a
+	// volume is already known to be blocked by a VM snapshot.
+	snapshotChecked, hasSnapshot := false, false
+	vmStillHasSnapshot := func() bool {
+		if snapshotChecked {
+			return hasSnapshot
+		}
+		snapshotChecked = true
+		var err error
+		hasSnapshot, err = vmHasSnapshotFn(ctx, vm)
+		if err != nil {
+			// Keep the detach gated. Retrying a detach that is known to be blocked would
+			// only add another failed vCenter task.
+			log.Warnf("failed to check whether VM %s has snapshots. Err: %s", instance.Spec.InstanceUUID, err)
+			hasSnapshot = true
+		}
+		return hasSnapshot
+	}
+
 	for pvc, volumeId := range volumesToDetach {
+		if isDetachBlockedBySnapshot(instance, pvc) && vmStillHasSnapshot() {
+			log.Infof("Skipping detach of PVC %s from VM %s: the disk is part of a VM snapshot and "+
+				"the VM still has snapshots", pvc, instance.Spec.InstanceUUID)
+			volumesThatFailedToDetach = append(volumesThatFailedToDetach, pvc)
+			continue
+		}
+
 		log.Infof("Detach call started for PVC %s with volumeID %s in namespace %s for instance %s",
 			pvc, volumeId, instance.Namespace, instance.Name)
 
@@ -509,6 +639,18 @@ func (r *Reconciler) detachVolumes(ctx context.Context,
 				// VM not found, so marking detach as Success and removing finalizer from PVC
 				volumesThatFailedToDetach = removeFinalizerAndStatusEntry(ctx, r.client, k8sClient,
 					r.cnsOperatorClient, instance, pvc, volumesThatFailedToDetach)
+			} else if errors.Is(detachErr, volumes.ErrDiskInVMSnapshot) {
+				log.Errorf("failed to detach volume %s from VM %s because the disk is part of a VM snapshot. "+
+					"Fault: %s Err: %s", pvc, instance.Spec.InstanceUUID, faulttype, detachErr)
+				msg := fmt.Sprintf("Volume %s cannot be detached from VM %s because the disk is part of a "+
+					"VM snapshot. The detach is retried after the VM snapshots are deleted.",
+					pvc, instance.Spec.InstanceUUID)
+				updateInstanceVolumeStatus(ctx, instance, "", pvc, "", "",
+					fmt.Errorf("%s Err: %w", msg, detachErr),
+					v1alpha1.ConditionDetached, v1alpha1.ReasonDetachBlockedBySnapshot)
+				r.recorder.Event(instance, v1.EventTypeWarning, v1alpha1.ReasonDetachBlockedBySnapshot, msg)
+
+				volumesThatFailedToDetach = append(volumesThatFailedToDetach, pvc)
 			} else {
 				log.Errorf("failed to detach volume %s from VM %s. Fault: %s Err: %s",
 					pvc, instance.Spec.InstanceUUID, faulttype, detachErr)
@@ -755,11 +897,21 @@ func (r *Reconciler) completeReconciliationWithError(ctx context.Context, instan
 
 	updateErr := updateInstanceStatus(ctx, r.client, instance)
 	if updateErr != nil {
-		recordEvent(ctx, r, instance, v1.EventTypeWarning, updateErr.Error())
+		// Report the reconcile error as well. Otherwise the reason the reconcile failed is
+		// lost whenever the status cannot be saved.
+		recordEvent(ctx, r, instance, v1.EventTypeWarning,
+			fmt.Sprintf("%s. Failed to update the instance status: %s", err, updateErr))
 		log.Errorf("failed to update CnsNodeVMBatchAttachment %s. Err: %s", namespaceName, updateErr)
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 	recordEvent(ctx, r, instance, v1.EventTypeWarning, err.Error())
+	if isOnlyDetachBlockedBySnapshot(err) {
+		// Nothing can change until the VM snapshots are deleted, so there is no point in
+		// retrying sooner than the maximum backoff.
+		log.Infof("All failures for instance %s are detaches blocked by a VM snapshot. Requeueing after %s",
+			namespaceName, cnsoperatortypes.MaxBackOffDurationForReconciler)
+		return reconcile.Result{RequeueAfter: cnsoperatortypes.MaxBackOffDurationForReconciler}, nil
+	}
 	return reconcile.Result{RequeueAfter: timeout}, nil
 
 }

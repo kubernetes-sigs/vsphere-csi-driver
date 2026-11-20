@@ -1551,6 +1551,10 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 			}
 			log.Errorf("failed to detach cns volume: %q from node vm: %+v. fault: %+v, opId: %q",
 				volumeID, vm, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+			if IsDiskInVMSnapshotFault(volumeOperationRes.Fault) {
+				return faultType, fmt.Errorf("failed to detach cns volume: %q, Error: %s: %w",
+					volumeID, volumeOperationRes.Fault.LocalizedMessage, ErrDiskInVMSnapshot)
+			}
 			return faultType, fmt.Errorf("failed to detach cns volume: %q, Error: %s,",
 				volumeID, volumeOperationRes.Fault.LocalizedMessage)
 		}

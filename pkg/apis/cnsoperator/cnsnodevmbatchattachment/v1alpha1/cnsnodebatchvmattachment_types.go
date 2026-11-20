@@ -52,6 +52,12 @@ const (
 	// ReasonDetachFailed reflects that the volume failed to get detached.
 	// In case of successful detach, the volume's entry is removed from the CR.
 	ReasonDetachFailed = "DetachFailed"
+	// ReasonDetachBlockedBySnapshot reflects that vCenter refused to detach the volume because
+	// the disk is part of a VM snapshot. The detach is not retried while the VM has snapshots.
+	ReasonDetachBlockedBySnapshot = "DetachBlockedBySnapshot"
+	// ReasonAttachPendingDetach reflects that the volume must be re-attached with a new backing,
+	// but its detach from the old backing has not succeeded yet.
+	ReasonAttachPendingDetach = "AttachPendingDetach"
 	// ReasonFailed reflects that the CR instance is not yet ready.
 	ReasonFailed = "Failed"
 )
