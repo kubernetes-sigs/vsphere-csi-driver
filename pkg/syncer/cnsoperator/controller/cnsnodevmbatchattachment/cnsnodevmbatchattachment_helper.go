@@ -435,8 +435,6 @@ func getVolumesToDetachForVmFromVC(ctx context.Context,
 		log.Errorf("failed to find volumes to attach and volumes to detach from instance spec. Err: %s", err)
 		return pvcsToDetach, err
 	}
-	log.Infof("Obtained volumes to detach %+v for instance %s", pvcsToDetach, instance.Name)
-
 	updatePvcStatusEntryName(ctx, instance, pvcsToDetach)
 
 	// Ensure that there are no extra entries in instance status from a previous detach call.
@@ -460,8 +458,23 @@ func updatePvcStatusEntryName(ctx context.Context,
 	instance *v1alpha1.CnsNodeVMBatchAttachment, pvcsToDetach map[string]string) {
 	log := logger.GetLogger(ctx)
 
+	// Collect PVCs which already have a detaching entry from a previous attempt.
+	// Renaming another entry of the same PVC would create duplicate names in the status.
+	alreadyDetaching := make(map[string]bool)
+	for _, volume := range instance.Status.VolumeStatus {
+		if strings.HasSuffix(volume.Name, detachSuffix) {
+			alreadyDetaching[volume.PersistentVolumeClaim.ClaimName] = true
+		}
+	}
+
 	for i, volume := range instance.Status.VolumeStatus {
 		if _, ok := pvcsToDetach[volume.PersistentVolumeClaim.ClaimName]; !ok {
+			continue
+		}
+		if alreadyDetaching[volume.PersistentVolumeClaim.ClaimName] &&
+			!strings.HasSuffix(volume.Name, detachSuffix) {
+			log.Infof("PVC %s already has a status entry with suffix %s. Not renaming entry %s.",
+				volume.PersistentVolumeClaim.ClaimName, detachSuffix, volume.Name)
 			continue
 		}
 		if strings.HasSuffix(instance.Status.VolumeStatus[i].Name, detachSuffix) {
@@ -774,7 +787,6 @@ func getVolumesToAttachAndDetach(ctx context.Context, instance *v1alpha1.CnsNode
 		log.Errorf("failed to find volumes to attach from the vCenter for instance %s", instance.Name)
 		return pvcsToAttach, pvcsToDetach, err
 	}
-	log.Debugf("Volumes to attach list %+v for instance %s", pvcsToAttach, instance.Name)
 	return pvcsToAttach, pvcsToDetach, nil
 }
 
@@ -795,8 +807,6 @@ func getVolumesToDetach(ctx context.Context, client client.Client,
 		log.Errorf("failed to find volumes to attach and detach. Err: %s", err)
 		return map[string]string{}, err
 	}
-
-	log.Infof("Volumes to be detached %+v for instance %s", volumesToDetach, instance.Name)
 
 	return volumesToDetach, nil
 }
