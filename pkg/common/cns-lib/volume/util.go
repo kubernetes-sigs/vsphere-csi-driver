@@ -668,6 +668,39 @@ func IsCnsVolumeAlreadyExistsFault(ctx context.Context, faultType string) bool {
 	return faultType == "vim.fault.CnsVolumeAlreadyExistsFault"
 }
 
+// ErrDiskInVMSnapshot is wrapped into the error returned by DetachVolume when vCenter
+// refuses to remove the disk because it, or one of its parent disks, is part of a VM
+// snapshot. The fault is permanent until the VM snapshots are deleted, so callers
+// should not keep retrying the detach while the VM still has snapshots.
+var ErrDiskInVMSnapshot = errors.New("disk is part of a virtual machine snapshot")
+
+// diskInVMSnapshotMarkers are substrings vCenter and CNS use to report that a disk
+// cannot be removed because it belongs to a VM snapshot.
+var diskInVMSnapshotMarkers = []string{"removeDiskAfterVMSnapshot", "InvalidDeviceSpec"}
+
+// IsDiskInVMSnapshotFault returns true if the fault reports that a disk could not be
+// removed from a VM because the disk is part of a VM snapshot. CNS reports this as a
+// CnsFault whose reason names the inner vim.fault.InvalidDeviceSpec, so the check
+// covers both the bare vim fault and the CnsFault wrapper.
+func IsDiskInVMSnapshotFault(fault *types.LocalizedMethodFault) bool {
+	if fault == nil || fault.Fault == nil {
+		return false
+	}
+	if _, ok := fault.Fault.(*types.InvalidDeviceSpec); ok {
+		return true
+	}
+	cnsFault, ok := fault.Fault.(*cnstypes.CnsFault)
+	if !ok {
+		return false
+	}
+	for _, marker := range diskInVMSnapshotMarkers {
+		if strings.Contains(cnsFault.Reason, marker) || strings.Contains(fault.LocalizedMessage, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // IsCnsNotRegisteredFault checks if the fault is CnsNotRegisteredFault
 func IsCnsNotRegisteredFault(ctx context.Context, fault *types.LocalizedMethodFault) bool {
 	log := logger.GetLogger(ctx)

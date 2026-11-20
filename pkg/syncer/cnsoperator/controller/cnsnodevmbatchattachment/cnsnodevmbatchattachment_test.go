@@ -478,7 +478,7 @@ func TestProcessDetachRejectsVmNotInSameNamespace(t *testing.T) {
 			vm := &cnsvsphere.VirtualMachine{}
 			clientset := getClientSetWithPvc()
 
-			err := r.processDetach(context.TODO(), clientset, vm, &testCnsNodeVMBatchAttachment, volumesToDetach)
+			_, err := r.processDetach(context.TODO(), clientset, vm, &testCnsNodeVMBatchAttachment, volumesToDetach)
 			expectedError := fmt.Errorf("failed to find VM with instance UUID %s in namespace %s",
 				tt.instanceUUID, testNamespace)
 			assert.EqualError(t, err, expectedError.Error())
@@ -495,7 +495,7 @@ func TestProcessDetachWithNoVolumesSkipsNamespaceCheck(t *testing.T) {
 	mockVolumeManager := &detachTrackingMockVolumeManager{}
 	r.volumeManager = mockVolumeManager
 
-	err := r.processDetach(context.TODO(), getClientSetWithPvc(), &cnsvsphere.VirtualMachine{},
+	_, err := r.processDetach(context.TODO(), getClientSetWithPvc(), &cnsvsphere.VirtualMachine{},
 		&testCnsNodeVMBatchAttachment, map[string]string{})
 	assert.NoError(t, err)
 	assert.Empty(t, mockVolumeManager.detachedIDs)

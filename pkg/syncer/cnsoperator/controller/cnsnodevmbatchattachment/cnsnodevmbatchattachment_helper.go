@@ -34,6 +34,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 
+	"github.com/vmware/govmomi/vim25/mo"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -57,6 +58,11 @@ var (
 	// removePvcFinalizerFn is a package-level function variable so tests can
 	// inject a fake implementation without architecture-specific monkey patching.
 	removePvcFinalizerFn = removePvcFinalizer
+
+	// vmHasSnapshotFn and listAttachedFcdsForVMFn are package-level function variables
+	// so tests can inject fake vCenter responses.
+	vmHasSnapshotFn         = vmHasSnapshot
+	listAttachedFcdsForVMFn = listAttachedFcdsForVM
 )
 
 const (
@@ -456,10 +462,24 @@ func getVolumesToDetachForVmFromVC(ctx context.Context,
 // This means, PVC-1 should get detached and PVC-2 should get attached to the VM.
 // But they both have the same entry in the status which is wrong. By adding the suffix,
 // the volume name entry for the PVC getting detached becomes unique.
+//
+// If the suffixed entry already exists for the same PVC, the un-suffixed twin is removed
+// instead of renamed. Renaming it would create a second entry with the same name, and
+// status.volumes is a map keyed by name, so the API server would reject every later
+// status update for the instance.
 func updatePvcStatusEntryName(ctx context.Context,
 	instance *v1alpha1.CnsNodeVMBatchAttachment, pvcsToDetach map[string]string) {
 	log := logger.GetLogger(ctx)
 
+	// Names already in use by a detaching entry, keyed by name, valued by PVC.
+	detachingNames := make(map[string]string)
+	for _, volume := range instance.Status.VolumeStatus {
+		if strings.HasSuffix(volume.Name, detachSuffix) {
+			detachingNames[volume.Name] = volume.PersistentVolumeClaim.ClaimName
+		}
+	}
+
+	twinsToRemove := make(map[int]bool)
 	for i, volume := range instance.Status.VolumeStatus {
 		if _, ok := pvcsToDetach[volume.PersistentVolumeClaim.ClaimName]; !ok {
 			continue
@@ -471,10 +491,71 @@ func updatePvcStatusEntryName(ctx context.Context,
 			continue
 		}
 		newVolumeName := instance.Status.VolumeStatus[i].Name + detachSuffix
+		if claim, exists := detachingNames[newVolumeName]; exists &&
+			claim == volume.PersistentVolumeClaim.ClaimName {
+			log.Infof("Status entry %s for detaching PVC %s already exists. Removing duplicate entry %s.",
+				newVolumeName, claim, volume.Name)
+			twinsToRemove[i] = true
+			continue
+		}
 		instance.Status.VolumeStatus[i].Name = newVolumeName
+		detachingNames[newVolumeName] = volume.PersistentVolumeClaim.ClaimName
 		log.Infof("Updating status name entry to %s for detaching PVC %s",
 			newVolumeName,
 			volume.PersistentVolumeClaim.ClaimName)
+	}
+
+	if len(twinsToRemove) == 0 {
+		return
+	}
+	kept := make([]v1alpha1.VolumeStatus, 0, len(instance.Status.VolumeStatus)-len(twinsToRemove))
+	for i, volume := range instance.Status.VolumeStatus {
+		if !twinsToRemove[i] {
+			kept = append(kept, volume)
+		}
+	}
+	instance.Status.VolumeStatus = kept
+}
+
+// latestConditionTransition returns the most recent LastTransitionTime across the
+// conditions of a volume status entry, or the zero time if it has no conditions.
+func latestConditionTransition(volume v1alpha1.VolumeStatus) metav1.Time {
+	var latest metav1.Time
+	for _, cond := range volume.PersistentVolumeClaim.Conditions {
+		if latest.Before(&cond.LastTransitionTime) {
+			latest = cond.LastTransitionTime
+		}
+	}
+	return latest
+}
+
+// dedupeVolumeStatus collapses status.volumes entries that share the same name.
+// status.volumes is a map keyed by name, so a single duplicate makes the API server
+// reject every status update for the instance. Of the duplicates, the entry with the
+// most recent condition transition is kept; on a tie, the first one is kept.
+// The order of the remaining entries is preserved.
+func dedupeVolumeStatus(ctx context.Context, instance *v1alpha1.CnsNodeVMBatchAttachment) {
+	log := logger.GetLogger(ctx)
+
+	indexByName := make(map[string]int, len(instance.Status.VolumeStatus))
+	deduped := make([]v1alpha1.VolumeStatus, 0, len(instance.Status.VolumeStatus))
+	for _, volume := range instance.Status.VolumeStatus {
+		idx, seen := indexByName[volume.Name]
+		if !seen {
+			indexByName[volume.Name] = len(deduped)
+			deduped = append(deduped, volume)
+			continue
+		}
+		log.Infof("Removing duplicate status entry %s for PVC %s from instance %s/%s",
+			volume.Name, volume.PersistentVolumeClaim.ClaimName, instance.Namespace, instance.Name)
+		current := latestConditionTransition(deduped[idx])
+		candidate := latestConditionTransition(volume)
+		if current.Before(&candidate) {
+			deduped[idx] = volume
+		}
+	}
+	if len(deduped) != len(instance.Status.VolumeStatus) {
+		instance.Status.VolumeStatus = deduped
 	}
 }
 
@@ -482,6 +563,7 @@ func updatePvcStatusEntryName(ctx context.Context,
 func updateInstanceStatus(ctx context.Context, cnsoperatorclient client.Client,
 	instance *v1alpha1.CnsNodeVMBatchAttachment) error {
 	log := logger.GetLogger(ctx)
+	dedupeVolumeStatus(ctx, instance)
 	err := cnsoperatorclient.Status().Update(ctx, instance)
 	if err != nil {
 		log.Errorf("failed to update CnsNodeVMBatchAttachment instance: %q on namespace: %q. Error: %+v",
@@ -595,12 +677,10 @@ func listAttachedFcdsForVM(ctx context.Context,
 			unitNumber = *device.UnitNumber
 		}
 
-		var diskMode, sharingMode string
-		if backing, ok := virtualDisk.Backing.(*vimtypes.VirtualDiskFlatVer2BackingInfo); ok {
-			diskMode = backing.DiskMode
-			sharingMode = backing.Sharing
-		} else {
-			log.Debugf("failed to get diskMode and sharingMode for virtual disk")
+		diskMode, sharingMode := diskBackingModes(virtualDisk)
+		if diskMode == "" {
+			log.Debugf("failed to get diskMode and sharingMode for virtual disk with backing %T",
+				virtualDisk.Backing)
 		}
 
 		log.Debugf("Adding volume with ID %s to attachedFCDs list", virtualDisk.VDiskId.Id)
@@ -612,6 +692,42 @@ func listAttachedFcdsForVM(ctx context.Context,
 
 	}
 	return attachedFCDs, nil
+}
+
+// diskBackingModes returns the disk mode and sharing mode of a virtual disk, for every
+// disk backing type that carries a disk mode. Backing types that have no sharing field
+// cannot be shared, so their sharing mode is reported as sharingNone. An unknown backing
+// type returns empty strings.
+func diskBackingModes(virtualDisk *vimtypes.VirtualDisk) (diskMode string, sharingMode string) {
+	sharingNone := string(v1alpha1.SharingNone)
+	switch backing := virtualDisk.Backing.(type) {
+	case *vimtypes.VirtualDiskFlatVer2BackingInfo:
+		return backing.DiskMode, backing.Sharing
+	case *vimtypes.VirtualDiskRawDiskMappingVer1BackingInfo:
+		return backing.DiskMode, backing.Sharing
+	case *vimtypes.VirtualDiskSeSparseBackingInfo:
+		return backing.DiskMode, sharingNone
+	case *vimtypes.VirtualDiskSparseVer2BackingInfo:
+		return backing.DiskMode, sharingNone
+	case *vimtypes.VirtualDiskFlatVer1BackingInfo:
+		return backing.DiskMode, sharingNone
+	case *vimtypes.VirtualDiskSparseVer1BackingInfo:
+		return backing.DiskMode, sharingNone
+	case *vimtypes.VirtualDiskLocalPMemBackingInfo:
+		return backing.DiskMode, sharingNone
+	}
+	return "", ""
+}
+
+// vmHasSnapshot returns true if the VM has at least one VM snapshot. It reads only the
+// VM's snapshot property, which does not create a vCenter task.
+func vmHasSnapshot(ctx context.Context, vm *cnsvsphere.VirtualMachine) (bool, error) {
+	var moVM mo.VirtualMachine
+	err := vm.Properties(ctx, vm.Reference(), []string{"snapshot"}, &moVM)
+	if err != nil {
+		return false, err
+	}
+	return moVM.Snapshot != nil && len(moVM.Snapshot.RootSnapshotList) > 0, nil
 }
 
 // constructBatchAttachRequest goes through all volumes in volumes to attach list and
@@ -737,7 +853,7 @@ func getVolumesToAttachAndDetach(ctx context.Context, instance *v1alpha1.CnsNode
 	pvcsToDetach := make(map[string]string, 0)
 
 	// Query vCenter to find the list of FCDs which are attached to the VM.
-	attachedFcdList, err := listAttachedFcdsForVM(ctx, vm)
+	attachedFcdList, err := listAttachedFcdsForVMFn(ctx, vm)
 	if err != nil {
 		log.Errorf("failed to find the FCDs attached to VM %s. Err: %s", vm, err)
 		return map[string]string{}, map[string]string{}, err
@@ -1143,6 +1259,25 @@ func updateInstanceVolumeStatusByVolumeName(
 		instance.Status.VolumeStatus[i] = volumeStatus
 		return
 	}
+	// A failed attach must not add a second entry for a PVC whose detach is still pending.
+	// The detaching entry for the same PVC records the attach failure instead, so that the
+	// next rename of this PVC for detach cannot produce a duplicate status name.
+	if trimmedError != nil {
+		for i, volumeStatus := range instance.Status.VolumeStatus {
+			if volumeStatus.Name != volumeName+detachSuffix || volumeStatus.PersistentVolumeClaim.ClaimName != pvc {
+				continue
+			}
+			if volumeStatus.PersistentVolumeClaim.Conditions == nil {
+				volumeStatus.PersistentVolumeClaim.Conditions = []metav1.Condition{}
+			}
+			conditions.MarkError(&volumeStatus.PersistentVolumeClaim, conditionType, reason, trimmedError)
+			instance.Status.VolumeStatus[i] = volumeStatus
+			log.Infof("Recorded attach failure for PVC %s on its detaching entry %s",
+				pvc, volumeStatus.Name)
+			return
+		}
+	}
+
 	log.Infof("Adding a new entry for volumeName %s with PVC %s", volumeName, pvc)
 
 	// Not found — create a new entry

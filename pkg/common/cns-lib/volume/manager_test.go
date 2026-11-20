@@ -1039,3 +1039,64 @@ func TestClearExpiredTaskInfoObjects(t *testing.T) {
 	assert.False(t, expiredSnap, "expired snapshot task should have been removed")
 	assert.True(t, liveSnap, "unexpired snapshot task should be kept")
 }
+
+// TestIsDiskInVMSnapshotFault tests detection of the fault vCenter returns when a disk
+// cannot be detached because it is part of a VM snapshot (UBMCNS-2764).
+func TestIsDiskInVMSnapshotFault(t *testing.T) {
+	tests := []struct {
+		name     string
+		fault    *vim25types.LocalizedMethodFault
+		expected bool
+	}{
+		{name: "nil fault", fault: nil, expected: false},
+		{name: "nil inner fault", fault: &vim25types.LocalizedMethodFault{LocalizedMessage: "x"}, expected: false},
+		{
+			name: "CnsFault with InvalidDeviceSpec reason, as seen in the field",
+			fault: &vim25types.LocalizedMethodFault{
+				LocalizedMessage: "CnsFault error: Task failed with fault vim.fault.InvalidDeviceSpec",
+				Fault:            &cnstypes.CnsFault{Reason: "Task failed with fault vim.fault.InvalidDeviceSpec"},
+			},
+			expected: true,
+		},
+		{
+			name: "CnsFault with removeDiskAfterVMSnapshot in the localized message",
+			fault: &vim25types.LocalizedMethodFault{
+				LocalizedMessage: "com.vmware.vim.vm.error.removeDiskAfterVMSnapshot",
+				Fault:            &cnstypes.CnsFault{Reason: "Task failed"},
+			},
+			expected: true,
+		},
+		{
+			name:     "bare InvalidDeviceSpec",
+			fault:    &vim25types.LocalizedMethodFault{Fault: &vim25types.InvalidDeviceSpec{}},
+			expected: true,
+		},
+		{
+			name: "CnsFault with an unrelated reason",
+			fault: &vim25types.LocalizedMethodFault{
+				LocalizedMessage: "Generic CNS fault",
+				Fault:            &cnstypes.CnsFault{Reason: "Task failed with fault vim.fault.InvalidState"},
+			},
+			expected: false,
+		},
+		{
+			name: "ResourceInUse",
+			fault: &vim25types.LocalizedMethodFault{
+				LocalizedMessage: "The resource is in use",
+				Fault:            &vim25types.ResourceInUse{},
+			},
+			expected: false,
+		},
+		{
+			name:     "CnsNotRegisteredFault",
+			fault:    &vim25types.LocalizedMethodFault{Fault: &cnstypes.CnsNotRegisteredFault{}},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, IsDiskInVMSnapshotFault(tt.fault))
+		})
+	}
+}
