@@ -2034,6 +2034,11 @@ func (c *K8sOrchestrator) GetVolumeAttachment(ctx context.Context, volumeId stri
 // This will not return VCP-CSI migrated volumes.
 func (c *K8sOrchestrator) GetAllVolumes() []string {
 	volumeIDs := make([]string, 0)
+	if c.volumeIDToPvcMap == nil {
+		return volumeIDs
+	}
+	c.volumeIDToPvcMap.RLock()
+	defer c.volumeIDToPvcMap.RUnlock()
 	for volumeID := range c.volumeIDToPvcMap.items {
 		volumeIDs = append(volumeIDs, volumeID)
 	}
