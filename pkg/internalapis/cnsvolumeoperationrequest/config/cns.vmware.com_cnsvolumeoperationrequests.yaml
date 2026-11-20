@@ -75,6 +75,10 @@ spec:
                     description: StorageClassName is the name of K8s storage class
                       associated with the given storage policy.
                     type: string
+                  volumeAttributesClassName:
+                    description: VolumeAttributesClassName is the name of the K8s volume
+                      attributes class the volume's quota is tracked under, if any.
+                    type: string
                   storagePolicyId:
                     description: StoragePolicyId is the ID associated with the storage
                       policy.

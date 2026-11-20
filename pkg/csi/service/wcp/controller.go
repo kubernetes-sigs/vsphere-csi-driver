@@ -759,10 +759,36 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	// storagePolicyID (sourced from the VolumeAttributesClass), use it in place of the
 	// StorageClass storagePolicyID. Per the CSI spec, mutable_parameters take precedence
 	// over parameters.
+	// The quota of such a volume is tracked under the VAC-keyed StoragePolicyUsage, so the VAC name
+	// (not part of the CSI request) is read from the PVC.
+	vacName := ""
 	if isVMPVCStoragePolicyMutabilityEnabled {
 		if mutableStoragePolicyID := getStoragePolicyIDFromMutableParameters(
 			req.GetMutableParameters()); mutableStoragePolicyID != "" {
 			storagePolicyID = mutableStoragePolicyID
+			vacName, err = getPVCVolumeAttributesClassName(ctx, c.k8sClient, pvcNamespace, pvcName)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get VolumeAttributesClass of PVC %s/%s. Error: %+v", pvcNamespace, pvcName, err)
+			}
+			// The PVC's VAC may have changed since the request's mutable_parameters were resolved. Make sure
+			// the quota owner is the VAC whose policy the volume is created under; otherwise let the caller
+			// retry with up-to-date mutable_parameters.
+			if vacName == "" {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Aborted,
+					"PVC %s/%s has no VolumeAttributesClass for the requested mutable policy; retry CreateVolume",
+					pvcNamespace, pvcName)
+			}
+			vac, err := c.k8sClient.StorageV1().VolumeAttributesClasses().Get(ctx, vacName, metav1.GetOptions{})
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get VolumeAttributesClass %q. Error: %+v", vacName, err)
+			}
+			if getStoragePolicyIDFromMutableParameters(vac.Parameters) != mutableStoragePolicyID {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Aborted,
+					"VolumeAttributesClass %q of PVC %s/%s does not match requested storage policy %q; "+
+						"retry CreateVolume", vacName, pvcNamespace, pvcName, mutableStoragePolicyID)
+			}
 		}
 	}
 	log.Infof("createBlockVolume: using StoragePolicyID %q for volume %s", storagePolicyID, req.Name)
@@ -1238,6 +1264,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			&cnsvolume.CreateVolumeExtraParams{
 				VolSizeBytes:                            volSizeBytes,
 				StorageClassName:                        req.Parameters[common.AttributeStorageClassName],
+				VolumeAttributesClassName:               vacName,
 				Namespace:                               req.Parameters[common.AttributePvcNamespace],
 				IsPodVMOnStretchSupervisorFSSEnabled:    isPodVMOnStretchSupervisorFSSEnabled,
 				IsMultipleClustersPerVsphereZoneEnabled: IsMultipleClustersPerVsphereZoneFSSEnabled,
@@ -1252,6 +1279,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 					&cnsvolume.CreateVolumeExtraParams{
 						VolSizeBytes:                            volSizeBytes,
 						StorageClassName:                        req.Parameters[common.AttributeStorageClassName],
+						VolumeAttributesClassName:               vacName,
 						Namespace:                               req.Parameters[common.AttributePvcNamespace],
 						IsPodVMOnStretchSupervisorFSSEnabled:    isPodVMOnStretchSupervisorFSSEnabled,
 						IsMultipleClustersPerVsphereZoneEnabled: IsMultipleClustersPerVsphereZoneFSSEnabled,
@@ -1469,7 +1497,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				// Create CNSVolumeInfo CR for the volume ID.
 				capacity := resource.NewQuantity(volSizeBytes, resource.BinarySI)
 				err = volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeInfo.VolumeID.Id, pvcNamespace,
-					storagePolicyID, scName, vc.Config.Host.String(), capacity, isLinkedCloneRequest)
+					storagePolicyID, scName, vacName, vc.Config.Host.String(), capacity, isLinkedCloneRequest)
 				if err != nil {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to store volumeID %q pvcNamespace %q StoragePolicyID %q StorageClassName %q "+
@@ -3110,9 +3138,15 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to retrieve cnsVolumeInfo for volume: %s Error: %+v", volumeID, err)
 			}
+			// Reserve the snapshot against the VAC-keyed StoragePolicyUsage once the volume has one.
+			vacName := ""
+			if isVMPVCStoragePolicyMutabilityEnabled {
+				vacName = cnsVolumeInfo.Spec.VolumeAttributeClassName
+			}
 			snapshotID, cnsSnapshotInfo, err = common.CreateSnapshotUtil(ctx, c.manager.VolumeManager,
 				volumeID, req.Name, &cnsvolume.CreateSnapshotExtraParams{
 					StorageClassName:               cnsVolumeInfo.Spec.StorageClassName,
+					VolumeAttributesClassName:      vacName,
 					StoragePolicyID:                cnsVolumeInfo.Spec.StoragePolicyID,
 					Namespace:                      cnsVolumeInfo.Spec.Namespace,
 					Capacity:                       cnsVolumeInfo.Spec.Capacity,
@@ -3210,9 +3244,14 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to retrieve cnsVolumeInfo for volume: %s Error: %+v", volumeID, err)
 			}
+			vacName := ""
+			if isVMPVCStoragePolicyMutabilityEnabled {
+				vacName = cnsVolumeInfo.Spec.VolumeAttributeClassName
+			}
 			cnsSnapshotInfo, err := common.DeleteSnapshotUtil(ctx, c.manager.VolumeManager, csiSnapshotID,
 				&cnsvolume.DeletesnapshotExtraParams{
 					StorageClassName:           cnsVolumeInfo.Spec.StorageClassName,
+					VolumeAttributesClassName:  vacName,
 					StoragePolicyID:            cnsVolumeInfo.Spec.StoragePolicyID,
 					Capacity:                   resource.NewQuantity(0, resource.BinarySI),
 					Namespace:                  cnsVolumeInfo.Spec.Namespace,
@@ -3375,10 +3414,18 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to retrieve cnsVolumeInfo for volume: %s Error: %+v", req.VolumeId, err)
 			}
+			// Once a volume's storage policy has been changed via a VolumeAttributesClass, its quota
+			// is tracked under the VAC-keyed StoragePolicyUsage, so the expansion delta must be charged
+			// there rather than to the (immutable) StorageClass-keyed one.
+			vacName := ""
+			if isVMPVCStoragePolicyMutabilityEnabled {
+				vacName = cnsVolumeInfo.Spec.VolumeAttributeClassName
+			}
 			faultType, err = common.ExpandVolumeUtil(ctx, c.manager.VcenterManager,
 				c.manager.VcenterConfig.Host, c.manager.VolumeManager, volumeID, volSizeMB,
 				&cnsvolume.ExpandVolumeExtraParams{
 					StorageClassName:                     cnsVolumeInfo.Spec.StorageClassName,
+					VolumeAttributesClassName:            vacName,
 					StoragePolicyID:                      cnsVolumeInfo.Spec.StoragePolicyID,
 					Namespace:                            cnsVolumeInfo.Spec.Namespace,
 					Capacity:                             cnsVolumeInfo.Spec.Capacity,

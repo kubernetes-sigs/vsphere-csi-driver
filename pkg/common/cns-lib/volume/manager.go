@@ -210,6 +210,7 @@ type CnsSnapshotInfo struct {
 // are not present in the CNS CreateVolume spec.
 type CreateVolumeExtraParams struct {
 	StorageClassName                        string
+	VolumeAttributesClassName               string
 	Namespace                               string
 	VolSizeBytes                            int64
 	IsPodVMOnStretchSupervisorFSSEnabled    bool
@@ -221,6 +222,7 @@ type CreateVolumeExtraParams struct {
 type CreateSnapshotExtraParams struct {
 	Capacity                       *resource.Quantity
 	StorageClassName               string
+	VolumeAttributesClassName      string
 	StoragePolicyID                string
 	Namespace                      string
 	IsStorageQuotaM2FSSEnabled     bool
@@ -232,6 +234,7 @@ type CreateSnapshotExtraParams struct {
 type DeletesnapshotExtraParams struct {
 	Capacity                   *resource.Quantity
 	StorageClassName           string
+	VolumeAttributesClassName  string
 	StoragePolicyID            string
 	Namespace                  string
 	IsStorageQuotaM2FSSEnabled bool
@@ -243,6 +246,7 @@ type ExpandVolumeExtraParams struct {
 	// Capacity stores the original volume size which is from CNSVolumeInfo
 	Capacity                             *resource.Quantity
 	StorageClassName                     string
+	VolumeAttributesClassName            string
 	StoragePolicyID                      string
 	Namespace                            string
 	IsPodVMOnStretchSupervisorFSSEnabled bool
@@ -613,10 +617,11 @@ func (m *defaultManager) createVolumeWithImprovedIdempotency(ctx context.Context
 			}
 			reservedQty := resource.NewQuantity(createVolParams.VolSizeBytes, resource.BinarySI)
 			quotaInfo = &cnsvolumeoperationrequest.QuotaDetails{
-				Reserved:         reservedQty,
-				StoragePolicyId:  storagePolicyID,
-				StorageClassName: createVolParams.StorageClassName,
-				Namespace:        createVolParams.Namespace,
+				Reserved:                  reservedQty,
+				StoragePolicyId:           storagePolicyID,
+				StorageClassName:          createVolParams.StorageClassName,
+				VolumeAttributesClassName: createVolParams.VolumeAttributesClassName,
+				Namespace:                 createVolParams.Namespace,
 			}
 			log.Infof("QuotaInfo during CreateVolume call: %+v", *quotaInfo)
 		}
@@ -794,10 +799,11 @@ func (m *defaultManager) createVolumeWithTransaction(ctx context.Context, spec *
 			}
 			reservedQty := resource.NewQuantity(createVolParams.VolSizeBytes, resource.BinarySI)
 			quotaInfo = &cnsvolumeoperationrequest.QuotaDetails{
-				Reserved:         reservedQty,
-				StoragePolicyId:  storagePolicyID,
-				StorageClassName: createVolParams.StorageClassName,
-				Namespace:        createVolParams.Namespace,
+				Reserved:                  reservedQty,
+				StoragePolicyId:           storagePolicyID,
+				StorageClassName:          createVolParams.StorageClassName,
+				VolumeAttributesClassName: createVolParams.VolumeAttributesClassName,
+				Namespace:                 createVolParams.Namespace,
 			}
 			log.Infof("QuotaInfo during CreateVolume call: %+v", *quotaInfo)
 		}
@@ -2228,10 +2234,11 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 			reservedQty := resource.NewQuantity(sizeInBytes, resource.BinarySI)
 			reservedQty.Sub(*expandVolParams.Capacity)
 			quotaInfo = &cnsvolumeoperationrequest.QuotaDetails{
-				Reserved:         reservedQty,
-				StoragePolicyId:  expandVolParams.StoragePolicyID,
-				StorageClassName: expandVolParams.StorageClassName,
-				Namespace:        expandVolParams.Namespace,
+				Reserved:                  reservedQty,
+				StoragePolicyId:           expandVolParams.StoragePolicyID,
+				StorageClassName:          expandVolParams.StorageClassName,
+				VolumeAttributesClassName: expandVolParams.VolumeAttributesClassName,
+				Namespace:                 expandVolParams.Namespace,
 			}
 			log.Infof("QuotaInfo during ExpandVolume call: %+v", *quotaInfo)
 		}
@@ -2917,10 +2924,11 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 		isStorageQuotaM2FSSEnabled = createSnapParams.IsStorageQuotaM2FSSEnabled
 		if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 			quotaInfo = &cnsvolumeoperationrequest.QuotaDetails{
-				Reserved:         createSnapParams.Capacity,
-				StoragePolicyId:  createSnapParams.StoragePolicyID,
-				StorageClassName: createSnapParams.StorageClassName,
-				Namespace:        createSnapParams.Namespace,
+				Reserved:                  createSnapParams.Capacity,
+				StoragePolicyId:           createSnapParams.StoragePolicyID,
+				StorageClassName:          createSnapParams.StorageClassName,
+				VolumeAttributesClassName: createSnapParams.VolumeAttributesClassName,
+				Namespace:                 createSnapParams.Namespace,
 			}
 			log.Infof("QuotaInfo during CreateSnapshot call: %+v", *quotaInfo)
 		}
@@ -3267,10 +3275,11 @@ func (m *defaultManager) createSnapshotWithTransaction(ctx context.Context, volu
 		isStorageQuotaM2FSSEnabled = createSnapParams.IsStorageQuotaM2FSSEnabled
 		if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 			quotaInfo = &cnsvolumeoperationrequest.QuotaDetails{
-				Reserved:         createSnapParams.Capacity,
-				StoragePolicyId:  createSnapParams.StoragePolicyID,
-				StorageClassName: createSnapParams.StorageClassName,
-				Namespace:        createSnapParams.Namespace,
+				Reserved:                  createSnapParams.Capacity,
+				StoragePolicyId:           createSnapParams.StoragePolicyID,
+				StorageClassName:          createSnapParams.StorageClassName,
+				VolumeAttributesClassName: createSnapParams.VolumeAttributesClassName,
+				Namespace:                 createSnapParams.Namespace,
 			}
 			log.Infof("QuotaInfo during CreateSnapshot call: %+v", *quotaInfo)
 		}
@@ -3495,10 +3504,11 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 		isStorageQuotaM2FSSEnabled = deleteSnapParams.IsStorageQuotaM2FSSEnabled
 		if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 			quotaInfo = &cnsvolumeoperationrequest.QuotaDetails{
-				Reserved:         deleteSnapParams.Capacity,
-				StoragePolicyId:  deleteSnapParams.StoragePolicyID,
-				StorageClassName: deleteSnapParams.StorageClassName,
-				Namespace:        deleteSnapParams.Namespace,
+				Reserved:                  deleteSnapParams.Capacity,
+				StoragePolicyId:           deleteSnapParams.StoragePolicyID,
+				StorageClassName:          deleteSnapParams.StorageClassName,
+				VolumeAttributesClassName: deleteSnapParams.VolumeAttributesClassName,
+				Namespace:                 deleteSnapParams.Namespace,
 			}
 			log.Infof("QuotaInfo during DeleteSnapshot call: %+v", *quotaInfo)
 		}

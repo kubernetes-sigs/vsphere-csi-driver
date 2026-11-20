@@ -1532,6 +1532,8 @@ func calculatePVCReservedForNamespace(ctx context.Context, volumeMap map[string]
 		return nil, err
 	}
 	storagePolicyToReservedMap := make(map[string]*resource.Quantity)
+	// vacToStoragePolicyIDMap is fetched lazily, only when a pending PVC has a VolumeAttributesClass.
+	var vacToStoragePolicyIDMap map[string]string
 	for _, pvc := range pvcList {
 		log.Debugf("calculatePVCReservedForNamespace: Processing PersistentVolumeClaim Name: %q, Namespace: %q",
 			pvc.Name, pvc.Namespace)
@@ -1555,6 +1557,22 @@ func calculatePVCReservedForNamespace(ctx context.Context, volumeMap map[string]
 				storagePolicyToReservedMap[storagePolicyID] = resource.NewQuantity(0, resource.BinarySI)
 			}
 		}
+		// A PVC with a VolumeAttributesClass is provisioned on, and reserved against, the VAC's storage
+		// policy. Report that policy too, so that its stale reserved value can be corrected.
+		vacPolicyID := ""
+		if IsVMPVCStoragePolicyMutabilityEnabled && pvc.Spec.VolumeAttributesClassName != nil &&
+			*pvc.Spec.VolumeAttributesClassName != "" {
+			if vacToStoragePolicyIDMap == nil {
+				vacToStoragePolicyIDMap, err = fetchVACToStoragePolicyMapping(ctx)
+				if err != nil {
+					return nil, err
+				}
+			}
+			vacPolicyID = vacToStoragePolicyIDMap[*pvc.Spec.VolumeAttributesClassName]
+			if vacPolicyID != "" && storagePolicyToReservedMap[vacPolicyID] == nil {
+				storagePolicyToReservedMap[vacPolicyID] = resource.NewQuantity(0, resource.BinarySI)
+			}
+		}
 		if pvc.Spec.Resources.Requests == nil {
 			log.Debugf("calculatePVCReservedForNamespace: pvc resources not populated, continuing processing others"+
 				" Name: %q, Namespace: %q", pvc.Name, pvc.Namespace)
@@ -1563,7 +1581,11 @@ func calculatePVCReservedForNamespace(ctx context.Context, volumeMap map[string]
 		// check if pvc is in pending state
 		pvcSize := pvc.Spec.Resources.Requests[v1.ResourceStorage]
 		if pvc.Status.Phase == v1.ClaimPending {
-			if storagePolicyID, ok := scToStoragePolicyIDMap[*pvc.Spec.StorageClassName]; ok {
+			storagePolicyID, ok := scToStoragePolicyIDMap[*pvc.Spec.StorageClassName]
+			if vacPolicyID != "" {
+				storagePolicyID, ok = vacPolicyID, true
+			}
+			if ok {
 				log.Debugf("calculatePVCReservedForNamespace: pvc is in pending state,"+
 					" Name: %q, Namespace: %q adding pvc capacity to reserved", pvc.Name, pvc.Namespace)
 				storagePolicyToReservedMap[storagePolicyID].Add(pvcSize)
@@ -1579,7 +1601,20 @@ func calculatePVCReservedForNamespace(ctx context.Context, volumeMap map[string]
 			if pvcSize.Cmp(pvSize) > 0 {
 				log.Debugf("calculatePVCReservedForNamespace: pvc size being expanded"+
 					" Name: %q, Namespace: %q adding pvc capacity to reserved", pvc.Name, pvc.Namespace)
-				if storagePolicyID, ok := scToStoragePolicyIDMap[*pvc.Spec.StorageClassName]; ok {
+				storagePolicyID, ok := scToStoragePolicyIDMap[*pvc.Spec.StorageClassName]
+				// Once a volume's quota is tracked under a VolumeAttributesClass, the expansion is
+				// reserved against the VAC's storage policy, not the StorageClass's.
+				vacPolicyID, found, err := getVACStoragePolicyIDForPV(ctx, pvc, pv)
+				if err != nil {
+					return nil, err
+				}
+				if found {
+					storagePolicyID, ok = vacPolicyID, true
+					if storagePolicyToReservedMap[storagePolicyID] == nil {
+						storagePolicyToReservedMap[storagePolicyID] = resource.NewQuantity(0, resource.BinarySI)
+					}
+				}
+				if ok {
 					// get accurate expected reserved value
 					pvcSize.Sub(pvSize)
 					storagePolicyToReservedMap[storagePolicyID].Add(pvcSize)
@@ -1659,7 +1694,25 @@ func calculateVolumeSnapshotReservedForNamespace(ctx context.Context,
 						" Name: %q, Namespace: %q", volumeClaim.Name, volumeClaim.Namespace)
 					continue
 				}
-				if spu, ok := scToStoragPolicyIdMap[*volumeClaim.Spec.StorageClassName]; ok {
+				spu, ok := scToStoragPolicyIdMap[*volumeClaim.Spec.StorageClassName]
+				// Once the source volume's quota is tracked under a VolumeAttributesClass, the snapshot
+				// is reserved against the VAC's storage policy, not the StorageClass's.
+				if IsVMPVCStoragePolicyMutabilityEnabled && volumeClaim.Spec.VolumeName != "" &&
+					pvcHasVolumeAttributesClass(volumeClaim) {
+					pv, err := metadataSyncer.pvLister.Get(volumeClaim.Spec.VolumeName)
+					if err != nil {
+						return nil, fmt.Errorf("failed to get PV %q of PVC %s/%s with a VolumeAttributesClass: %w",
+							volumeClaim.Spec.VolumeName, volumeClaim.Namespace, volumeClaim.Name, err)
+					}
+					vacPolicyID, found, err := getVACStoragePolicyIDForPV(ctx, volumeClaim, pv)
+					if err != nil {
+						return nil, err
+					}
+					if found {
+						spu, ok = vacPolicyID, true
+					}
+				}
+				if ok {
 					if storagePolicyIdToReservedMap[spu] == nil {
 						storagePolicyIdToReservedMap[spu] = resource.NewQuantity(0, resource.BinarySI)
 					}
@@ -1669,6 +1722,39 @@ func calculateVolumeSnapshotReservedForNamespace(ctx context.Context,
 		}
 	}
 	return storagePolicyIdToReservedMap, nil
+}
+
+// pvcHasVolumeAttributesClass returns true if the PVC requests or currently has a VolumeAttributesClass.
+func pvcHasVolumeAttributesClass(pvc *v1.PersistentVolumeClaim) bool {
+	return (pvc.Spec.VolumeAttributesClassName != nil && *pvc.Spec.VolumeAttributesClassName != "") ||
+		(pvc.Status.CurrentVolumeAttributesClassName != nil && *pvc.Status.CurrentVolumeAttributesClassName != "")
+}
+
+// getVACStoragePolicyIDForPV returns the storage policy ID recorded in the CNSVolumeInfo of the PV bound to
+// the given PVC, and true, if the VM/PVC storage policy mutability FSS is enabled and the volume's quota is
+// tracked under a VolumeAttributesClass. It returns false, and the StorageClass's policy should be used, if
+// the PVC has no VolumeAttributesClass or its CNSVolumeInfo records none. A failed CNSVolumeInfo lookup is
+// returned as an error rather than as false: the record may not be visible in the informer cache yet, so it
+// is no evidence that the volume belongs to its StorageClass, and the caller must retry instead.
+func getVACStoragePolicyIDForPV(ctx context.Context, pvc *v1.PersistentVolumeClaim,
+	pv *v1.PersistentVolume) (string, bool, error) {
+	if !IsVMPVCStoragePolicyMutabilityEnabled || volumeInfoService == nil || pv == nil || pv.Spec.CSI == nil ||
+		!pvcHasVolumeAttributesClass(pvc) {
+		return "", false, nil
+	}
+	cnsVolumeInfo, err := volumeInfoService.GetVolumeInfoForVolumeID(ctx, pv.Spec.CSI.VolumeHandle)
+	if err != nil {
+		return "", false, fmt.Errorf("failed to get CNSVolumeInfo of PVC %s/%s with a VolumeAttributesClass: %w",
+			pvc.Namespace, pvc.Name, err)
+	}
+	if cnsVolumeInfo.Spec.VolumeAttributeClassName == "" {
+		return "", false, nil
+	}
+	if cnsVolumeInfo.Spec.StoragePolicyID == "" {
+		return "", false, fmt.Errorf("CNSVolumeInfo of PVC %s/%s has VolumeAttributesClass %q but no storage policy",
+			pvc.Namespace, pvc.Name, cnsVolumeInfo.Spec.VolumeAttributeClassName)
+	}
+	return cnsVolumeInfo.Spec.StoragePolicyID, true, nil
 }
 
 // calculateModifyVolumeReservedForNamespace calculates the expected reserved value for PVCs that are
@@ -2196,14 +2282,18 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 			// Fetch StoragePolicyUsage instance for storageClass associated with the snapshot.
 			log.Infof("Received a CR added event for snapshot operation on volumeID: %s CnsVolumeOperationRequest: %s",
 				cnsvolumeoperationrequestObj.Status.VolumeID, cnsVolumeOperationRequestName)
-			storagePolicyUsageInstanceName = cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.
-				StorageClassName + "-" + storagepolicyv1alpha3.NameSuffixForSnapshot
+			storagePolicyUsageInstanceName = deriveStoragePolicyUsageKeyForDeletion(
+				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName,
+				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.VolumeAttributesClassName) + "-" +
+				storagepolicyv1alpha3.NameSuffixForSnapshot
 		} else {
-			// Fetch StoragePolicyUsage instance for storageClass associated with the volume.
+			// Fetch StoragePolicyUsage instance owning this volume's quota.
 			log.Infof("Received a CR added event for pvc operation with volumeID: %s CnsVolumeOperationRequest: %s",
 				cnsvolumeoperationrequestObj.Status.VolumeID, cnsVolumeOperationRequestName)
-			storagePolicyUsageInstanceName = cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.
-				StorageClassName + "-" + storagepolicyv1alpha3.NameSuffixForPVC
+			storagePolicyUsageInstanceName = deriveStoragePolicyUsageKeyForDeletion(
+				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName,
+				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.VolumeAttributesClassName) + "-" +
+				storagepolicyv1alpha3.NameSuffixForPVC
 		}
 		restConfig, err := config.GetConfig()
 		if err != nil {
@@ -2314,14 +2404,18 @@ func cnsvolumeoperationrequestCRDeleted(obj interface{}) {
 			log.Infof("cnsvolumeoperationrequestCRDeleted: Delete event receieved for snapshot operation "+
 				"with snapshoID %s CnsVolumeOperationRequest: %s",
 				cnsvolumeoperationrequestObj.Status.SnapshotID, cnsVolumeOperationRequestName)
-			storagePolicyUsageInstanceName = cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.
-				StorageClassName + "-" + storagepolicyv1alpha3.NameSuffixForSnapshot
+			storagePolicyUsageInstanceName = deriveStoragePolicyUsageKeyForDeletion(
+				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName,
+				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.VolumeAttributesClassName) + "-" +
+				storagepolicyv1alpha3.NameSuffixForSnapshot
 		} else {
 			log.Infof("cnsvolumeoperationrequestCRDeleted: Delete event receieved for PVC operation "+
 				"with volumeID %s CnsVolumeOperationRequest: %s",
 				cnsvolumeoperationrequestObj.Status.VolumeID, cnsVolumeOperationRequestName)
-			// Fetch StoragePolicyUsage instance for storageClass associated with the volume.
-			storagePolicyUsageInstanceName = cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName + "-" +
+			// Fetch StoragePolicyUsage instance owning this volume's quota.
+			storagePolicyUsageInstanceName = deriveStoragePolicyUsageKeyForDeletion(
+				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName,
+				cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.VolumeAttributesClassName) + "-" +
 				storagepolicyv1alpha3.NameSuffixForPVC
 		}
 		storagePolicyUsageCR := &storagepolicyv1alpha3.StoragePolicyUsage{}
@@ -2401,31 +2495,40 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 		}
 		cnsVolumeOperationRequestName := newcnsvolumeoperationrequestObj.Name
 		isSnapshot := checkOperationRequestCRForSnapshot(ctx, cnsVolumeOperationRequestName)
+		// A reservation is released from the StoragePolicyUsage it was made against, i.e. the owner recorded
+		// with it in the old object; a new reservation is made against the owner in the new object.
+		quotaOwner := newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails
+		if newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value() <
+			oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value() {
+			quotaOwner = oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails
+		}
 		storagePolicyUsageInstanceName := ""
 		if isSnapshot {
 			log.Infof("Update event receieved for snapshot operation on volumeID %s CnsVolumeOperationRequest: %s",
 				newcnsvolumeoperationrequestObj.Status.VolumeID, cnsVolumeOperationRequestName)
 			// Fetch StoragePolicyUsage instance for storageClass associated with the snapshot.
-			storagePolicyUsageInstanceName = newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.
-				StorageClassName + "-" + storagepolicyv1alpha3.NameSuffixForSnapshot
+			storagePolicyUsageInstanceName = deriveStoragePolicyUsageKeyForDeletion(
+				quotaOwner.StorageClassName, quotaOwner.VolumeAttributesClassName) + "-" +
+				storagepolicyv1alpha3.NameSuffixForSnapshot
 
 		} else {
 			log.Infof("Update event receieved for volume operation on volumeID %s CnsVolumeOperationRequest: %s",
 				newcnsvolumeoperationrequestObj.Status.VolumeID, cnsVolumeOperationRequestName)
-			// Fetch StoragePolicyUsage instance for storageClass associated with the volume.
-			storagePolicyUsageInstanceName = newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.StorageClassName + "-" +
+			// Fetch StoragePolicyUsage instance holding this operation's reservation.
+			storagePolicyUsageInstanceName = deriveStoragePolicyUsageKeyForDeletion(
+				quotaOwner.StorageClassName, quotaOwner.VolumeAttributesClassName) + "-" +
 				storagepolicyv1alpha3.NameSuffixForPVC
 		}
 
 		storagePolicyUsageCR := &storagepolicyv1alpha3.StoragePolicyUsage{}
 		err = cnsOperatorClient.Get(ctx, k8stypes.NamespacedName{
-			Namespace: newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace,
+			Namespace: quotaOwner.Namespace,
 			Name:      storagePolicyUsageInstanceName},
 			storagePolicyUsageCR)
 		if err != nil {
 			log.Errorf("failed to fetch %s instance with name %s from supervisor namespace %s. Error: %+v",
 				storagepolicyv1alpha3.CRDSingular, storagePolicyUsageInstanceName,
-				newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Namespace, err)
+				quotaOwner.Namespace, err)
 			return
 		}
 		log.Infof("Fetched storagePolicyUsage CR %s", storagePolicyUsageCR.Name)
@@ -2468,6 +2571,9 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 			patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Sub(
 				*oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved)
 			var increaseUsed bool
+			// usedTransferKey is set when "used" must be charged to a StoragePolicyUsage other than the one
+			// holding the reservation.
+			var usedTransferKey string
 			if !isSnapshot {
 				// Fetch the latest task of the CNSVolumeOperationRequest instance and increment
 				// "used" only when the task is successful.
@@ -2487,6 +2593,18 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 							storagePolicyUsageCR.Name,
 							newcnsvolumeoperationrequestObj.Status.VolumeID,
 							cnsVolumeOperationRequestName, latestOp.TaskID)
+					} else if currentKey, ok := getCurrentStoragePolicyUsageKeyForExpansion(ctx,
+						cnsVolumeOperationRequestName); ok &&
+						currentKey+"-"+storagepolicyv1alpha3.NameSuffixForPVC != storagePolicyUsageInstanceName {
+						// The volume's quota has moved to another StoragePolicyUsage (e.g. a VolumeAttributesClass
+						// change) since the expansion was reserved. Release the reservation from the
+						// StoragePolicyUsage holding it and charge "used" to the one owning the volume now.
+						log.Infof("Increase the used value in storagePolicyUsage CR %s-%s instead of %s by %s "+
+							"since the volume's quota is now tracked under it. CnsVolumeOperationRequest: %s",
+							currentKey, storagepolicyv1alpha3.NameSuffixForPVC, storagePolicyUsageCR.Name,
+							oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.String(),
+							cnsVolumeOperationRequestName)
+						usedTransferKey = currentKey
 					} else {
 						log.Debugf("Latest task %s in %s instance %s succeeded. Incrementing \"used\" "+
 							"field in storagepolicyusage CR", latestOp.TaskID,
@@ -2523,8 +2641,29 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 					patchedStoragePolicyUsageCR.Name, patchedStoragePolicyUsageCR.Namespace,
 					cnsVolumeOperationRequestName)
 			}
+			if usedTransferKey != "" {
+				updateStoragePolicyUsageQuota(ctx, cnsOperatorClient, usedTransferKey, quotaOwner.Namespace,
+					storagepolicyv1alpha3.NameSuffixForPVC, oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved,
+					false)
+			}
 		}
 	}
+}
+
+// getCurrentStoragePolicyUsageKeyForExpansion returns the key (see deriveStoragePolicyUsageKeyForDeletion) of
+// the StoragePolicyUsage currently owning the quota of the volume expanded by the given CnsVolumeOperationRequest,
+// from the volume's CNSVolumeInfo. It returns false for other operations or if the CNSVolumeInfo is unavailable.
+func getCurrentStoragePolicyUsageKeyForExpansion(ctx context.Context, operationRequestName string) (string, bool) {
+	volumeID, ok := strings.CutPrefix(operationRequestName, "expand-")
+	if !ok || volumeID == "" || volumeInfoService == nil {
+		return "", false
+	}
+	cnsVolumeInfo, err := volumeInfoService.GetVolumeInfoForVolumeID(ctx, volumeID)
+	if err != nil {
+		return "", false
+	}
+	return deriveStoragePolicyUsageKeyForDeletion(cnsVolumeInfo.Spec.StorageClassName,
+		cnsVolumeInfo.Spec.VolumeAttributeClassName), true
 }
 
 // hasPriorSuccessForVolume returns true if latestOps contains a successful
@@ -3965,7 +4104,9 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 // storage-policy migration via ModifyVolume); otherwise it stays on the
 // StorageClass-keyed SPU. This must stay consistent with the key derivation in
 // handleVACChangeForVolumeInfo, or a migrated volume's usage will be decremented
-// from the wrong (stale) SPU on deletion.
+// from the wrong (stale) SPU on deletion. It is also used by the
+// CnsVolumeOperationRequest handlers so that an expansion of a migrated volume
+// is reserved and charged against the same VAC-keyed SPU.
 func deriveStoragePolicyUsageKeyForDeletion(storageClassName, vacName string) string {
 	if IsVMPVCStoragePolicyMutabilityEnabled && vacName != "" {
 		return "vac-" + vacName
@@ -5093,8 +5234,11 @@ func syncStoragePolicyUsageUsedValues(ctx context.Context, cnsOperatorClient cli
 					// Check if this volume matches the SPU - either StorageClass-based or VAC-based
 					var matches bool
 					if storagePolicyUsage.Spec.StorageClassName != "" {
-						// StorageClass-based SPU: match by StorageClassName
-						matches = cnsVolumeInfo.Spec.StorageClassName == storagePolicyUsage.Spec.StorageClassName
+						// StorageClass-based SPU: match by StorageClassName, unless the volume's quota is
+						// tracked under a VAC-based SPU, which may share the same storage policy ID.
+						matches = cnsVolumeInfo.Spec.StorageClassName == storagePolicyUsage.Spec.StorageClassName &&
+							deriveStoragePolicyUsageKeyForDeletion(cnsVolumeInfo.Spec.StorageClassName,
+								cnsVolumeInfo.Spec.VolumeAttributeClassName) == cnsVolumeInfo.Spec.StorageClassName
 					} else if storagePolicyUsage.Spec.VolumeAttributesClassName != "" {
 						// VAC-based SPU: match by VolumeAttributeClassName
 						matches = cnsVolumeInfo.Spec.VolumeAttributeClassName == storagePolicyUsage.Spec.VolumeAttributesClassName

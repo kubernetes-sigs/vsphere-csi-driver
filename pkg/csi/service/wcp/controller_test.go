@@ -35,6 +35,7 @@ import (
 	"github.com/vmware/govmomi/pbm"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
@@ -3689,6 +3690,34 @@ func TestCreateBlockVolumeVACPolicyOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The controller reads the PVC's VolumeAttributesClass name, which is not part of the CSI request, and
+	// validates that the VAC's policy matches the requested mutable policy.
+	vacName := "test-vac-" + uuid.New().String()
+	vac := &storagev1.VolumeAttributesClass{
+		ObjectMeta: metav1.ObjectMeta{Name: vacName},
+		DriverName: "csi.vsphere.vmware.com",
+		Parameters: map[string]string{common.AttributeStoragePolicyID: vacPolicyID},
+	}
+	if _, err := ct.controller.k8sClient.StorageV1().VolumeAttributesClasses().Create(ctx, vac,
+		metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = ct.controller.k8sClient.StorageV1().VolumeAttributesClasses().Delete(ctx, vac.Name, metav1.DeleteOptions{})
+	}()
+	pvc := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "pvc-block-vac-" + uuid.New().String(), Namespace: "default"},
+		Spec:       v1.PersistentVolumeClaimSpec{VolumeAttributesClassName: &vacName},
+	}
+	if _, err := ct.controller.k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Create(ctx, pvc,
+		metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = ct.controller.k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Delete(ctx, pvc.Name,
+			metav1.DeleteOptions{})
+	}()
+
 	// parameters carries a fake SC policy; mutable_parameters carries the real
 	// VAC policy. With FSS enabled the mutable policy must win, so the volume
 	// is created under vacPolicyID.
@@ -3697,6 +3726,8 @@ func TestCreateBlockVolumeVACPolicyOverride(t *testing.T) {
 		CapacityRange: &csi.CapacityRange{RequiredBytes: 1 * common.GbInBytes},
 		Parameters: map[string]string{
 			common.AttributeStoragePolicyID: "sc-storage-policy-id",
+			common.AttributePvcName:         pvc.Name,
+			common.AttributePvcNamespace:    pvc.Namespace,
 		},
 		MutableParameters: map[string]string{
 			common.AttributeStoragePolicyID: vacPolicyID,
@@ -3736,4 +3767,75 @@ func TestCreateBlockVolumeVACPolicyOverride(t *testing.T) {
 		t.Fatalf("expected storage policy %q (VAC policy from mutable_parameters), got %q",
 			vacPolicyID, queryResult.Volumes[0].StoragePolicyId)
 	}
+
+	// copyCreateVolumeRequest returns a copy of req whose Parameters can be modified independently.
+	copyCreateVolumeRequest := func(req *csi.CreateVolumeRequest) *csi.CreateVolumeRequest {
+		params := make(map[string]string, len(req.Parameters))
+		for k, v := range req.Parameters {
+			params[k] = v
+		}
+		return &csi.CreateVolumeRequest{
+			CapacityRange:             req.CapacityRange,
+			Parameters:                params,
+			MutableParameters:         req.MutableParameters,
+			VolumeCapabilities:        req.VolumeCapabilities,
+			AccessibilityRequirements: req.AccessibilityRequirements,
+		}
+	}
+
+	t.Run("PVC's VAC changed to one with a different policy is aborted", func(t *testing.T) {
+		otherVAC := &storagev1.VolumeAttributesClass{
+			ObjectMeta: metav1.ObjectMeta{Name: "other-vac-" + uuid.New().String()},
+			DriverName: "csi.vsphere.vmware.com",
+			Parameters: map[string]string{common.AttributeStoragePolicyID: "other-policy-id"},
+		}
+		if _, err := ct.controller.k8sClient.StorageV1().VolumeAttributesClasses().Create(ctx, otherVAC,
+			metav1.CreateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			_ = ct.controller.k8sClient.StorageV1().VolumeAttributesClasses().Delete(ctx, otherVAC.Name,
+				metav1.DeleteOptions{})
+		}()
+		otherPVC := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: "pvc-other-vac-" + uuid.New().String(), Namespace: "default"},
+			Spec:       v1.PersistentVolumeClaimSpec{VolumeAttributesClassName: &otherVAC.Name},
+		}
+		if _, err := ct.controller.k8sClient.CoreV1().PersistentVolumeClaims(otherPVC.Namespace).Create(ctx,
+			otherPVC, metav1.CreateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			_ = ct.controller.k8sClient.CoreV1().PersistentVolumeClaims(otherPVC.Namespace).Delete(ctx,
+				otherPVC.Name, metav1.DeleteOptions{})
+		}()
+		req := copyCreateVolumeRequest(reqCreate)
+		req.Name = testVolumeName + "-block-vac-mismatch-" + uuid.New().String()
+		req.Parameters[common.AttributePvcName] = otherPVC.Name
+		_, err := ct.controller.CreateVolume(ctx, req)
+		if status.Code(err) != codes.Aborted {
+			t.Fatalf("expected Aborted for a VAC policy mismatch, got: %v", err)
+		}
+	})
+
+	t.Run("PVC without a VAC is aborted", func(t *testing.T) {
+		noVACPVC := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: "pvc-no-vac-" + uuid.New().String(), Namespace: "default"},
+		}
+		if _, err := ct.controller.k8sClient.CoreV1().PersistentVolumeClaims(noVACPVC.Namespace).Create(ctx,
+			noVACPVC, metav1.CreateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			_ = ct.controller.k8sClient.CoreV1().PersistentVolumeClaims(noVACPVC.Namespace).Delete(ctx,
+				noVACPVC.Name, metav1.DeleteOptions{})
+		}()
+		req := copyCreateVolumeRequest(reqCreate)
+		req.Name = testVolumeName + "-block-no-vac-" + uuid.New().String()
+		req.Parameters[common.AttributePvcName] = noVACPVC.Name
+		_, err := ct.controller.CreateVolume(ctx, req)
+		if status.Code(err) != codes.Aborted {
+			t.Fatalf("expected Aborted for a PVC without a VAC, got: %v", err)
+		}
+	})
 }
