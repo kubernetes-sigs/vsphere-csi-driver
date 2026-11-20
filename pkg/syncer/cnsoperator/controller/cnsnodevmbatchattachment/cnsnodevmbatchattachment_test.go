@@ -954,6 +954,34 @@ func TestUpdatePvcStatusEntryName_SkipsNonTargetPVC(t *testing.T) {
 	}
 }
 
+func TestUpdatePvcStatusEntryName_NoDuplicateWhenDetachingEntryExists(t *testing.T) {
+	ctx := context.TODO()
+
+	instance := &v1alpha1.CnsNodeVMBatchAttachment{
+		Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+			VolumeStatus: []v1alpha1.VolumeStatus{
+				{
+					Name:                  "vol1" + detachSuffix,
+					PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{ClaimName: "pvc-1"},
+				},
+				{
+					Name:                  "vol1",
+					PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{ClaimName: "pvc-1"},
+				},
+			},
+		},
+	}
+
+	updatePvcStatusEntryName(ctx, instance, map[string]string{"pvc-1": ""})
+
+	if got := instance.Status.VolumeStatus[0].Name; got != "vol1"+detachSuffix {
+		t.Fatalf("expected first entry %q, got %q", "vol1"+detachSuffix, got)
+	}
+	if got := instance.Status.VolumeStatus[1].Name; got != "vol1" {
+		t.Fatalf("expected second entry to remain %q, got %q", "vol1", got)
+	}
+}
+
 func findVolumeDetachedCondition(vol v1alpha1.VolumeStatus) *metav1.Condition {
 	for i := range vol.PersistentVolumeClaim.Conditions {
 		if vol.PersistentVolumeClaim.Conditions[i].Type == v1alpha1.ConditionDetached {

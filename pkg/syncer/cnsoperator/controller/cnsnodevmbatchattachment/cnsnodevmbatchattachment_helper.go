@@ -460,8 +460,23 @@ func updatePvcStatusEntryName(ctx context.Context,
 	instance *v1alpha1.CnsNodeVMBatchAttachment, pvcsToDetach map[string]string) {
 	log := logger.GetLogger(ctx)
 
+	// Collect PVCs which already have a detaching entry from a previous attempt.
+	// Renaming another entry of the same PVC would create duplicate names in the status.
+	alreadyDetaching := make(map[string]bool)
+	for _, volume := range instance.Status.VolumeStatus {
+		if strings.HasSuffix(volume.Name, detachSuffix) {
+			alreadyDetaching[volume.PersistentVolumeClaim.ClaimName] = true
+		}
+	}
+
 	for i, volume := range instance.Status.VolumeStatus {
 		if _, ok := pvcsToDetach[volume.PersistentVolumeClaim.ClaimName]; !ok {
+			continue
+		}
+		if alreadyDetaching[volume.PersistentVolumeClaim.ClaimName] &&
+			!strings.HasSuffix(volume.Name, detachSuffix) {
+			log.Infof("PVC %s already has a status entry with suffix %s. Not renaming entry %s.",
+				volume.PersistentVolumeClaim.ClaimName, detachSuffix, volume.Name)
 			continue
 		}
 		if strings.HasSuffix(instance.Status.VolumeStatus[i].Name, detachSuffix) {
