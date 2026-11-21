@@ -96,7 +96,8 @@ var fvsZonesForNamespace = func(ns string) map[string]struct{} {
 }
 
 // isVsanFileServicePolicyStorageClass returns true for supervisor storage classes that route
-// volume provisioning through the FVS FileVolume CR workflow when NSX_VPC and capability match.
+// volume provisioning through the FVS FileVolume CR workflow when the network provider (NSX_VPC or
+// VSPHERE_NETWORK) and capability match.
 func isVsanFileServicePolicyStorageClass(storageClassName string) bool {
 	switch storageClassName {
 	case common.StorageClassVsanFileServicePolicy,
@@ -158,17 +159,124 @@ func (c *controller) getVPCPathForNamespace(ctx context.Context, namespace strin
 	return p, nil
 }
 
-// listFVSCandidateInstanceNamespaces returns supervisor namespaces that may host the FVS FileVolume CR:
+// listFVSCandidateInstanceNamespaces returns the supervisor namespaces that may host the FVS FileVolume
+// CR for a PVC in pvcNamespace, as candidate groups in priority order. Callers must prefer every
+// namespace of an earlier group over any namespace of a later group; namespaces within a group are
+// equivalent.
+//
+//   - NSX_VPC: a single group of instance namespaces on the consumer's VPC path.
+//   - VSPHERE_NETWORK (VDS): up to two groups — Tier 1 (same portgroup as the consumer), then
+//     Tier 2 (same VDS, different portgroup). Empty groups are omitted.
+//
+// An error is returned when no namespace qualifies.
+func (c *controller) listFVSCandidateInstanceNamespaces(ctx context.Context, pvcNamespace string,
+	requestedZones []string, networkProvider string) ([][]string, error) {
+	if len(requestedZones) == 0 {
+		return nil, fmt.Errorf("requested zones must be non-empty to select FVS instance namespaces")
+	}
+	if c.namespaceLister == nil {
+		return nil, fmt.Errorf("namespace lister is not initialized")
+	}
+	switch networkProvider {
+	case cnsoperatorutil.VPCNetworkProvider:
+		vpcCandidates, err := c.listFVSCandidateInstanceNamespacesVPC(ctx, pvcNamespace, requestedZones)
+		if err != nil {
+			return nil, err
+		}
+		return [][]string{vpcCandidates}, nil
+	case cnsoperatorutil.VDSNetworkProvider:
+		return c.listFVSCandidateInstanceNamespacesVDS(ctx, pvcNamespace, requestedZones)
+	default:
+		return nil, fmt.Errorf("unsupported network provider %q for FVS instance namespace selection",
+			networkProvider)
+	}
+}
+
+// listFVSCandidateInstanceNamespacesVDS returns the FVS instance namespaces reachable from pvcNamespace
+// on a VDS-backed supervisor, grouped by match tier: [Tier 1, Tier 2] with empty tiers omitted.
+//
+// The consumer side considers every vsphere-distributed Network in pvcNamespace (a VKS cluster may be
+// attached to more than the default network). The instance side considers only the instance
+// namespace's default Network, which the FVS Protocol Pods attach to. A namespace is:
+//   - Tier 1 when its default Network is on the same portgroup as any consumer Network;
+//   - Tier 2 when it is on a different portgroup of the same VDS as any consumer Network;
+//   - skipped otherwise (no fallback to unrelated portgroups / switches).
+//
+// The PVC namespace itself is excluded, and namespaces without any requested zone are skipped before
+// any network lookup.
+func (c *controller) listFVSCandidateInstanceNamespacesVDS(ctx context.Context, pvcNamespace string,
+	requestedZones []string) ([][]string, error) {
+	log := logger.GetLogger(ctx)
+
+	consumerNets, err := cnsoperatorutil.GetVDSNetworksForNamespace(ctx, c.dynamicClient, pvcNamespace, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve VDS networks for namespace %q: %w", pvcNamespace, err)
+	}
+	if len(consumerNets) == 0 {
+		return nil, fmt.Errorf("namespace %q has no %s Network backed by a VSphereDistributedNetwork",
+			pvcNamespace, cnsoperatorutil.NetworkTypeVSphereDistributed)
+	}
+	log.Infof("listFVSCandidateInstanceNamespacesVDS: consumer namespace %q networks %v, requested zones %v",
+		pvcNamespace, consumerNets, requestedZones)
+
+	nsObjs, err := c.namespaceLister.List(labels.SelectorFromSet(labels.Set{
+		NamespaceLabelFVSInstance: "true",
+	}))
+	if err != nil {
+		return nil, fmt.Errorf("list namespaces from informer cache: %w", err)
+	}
+
+	var tier1, tier2 []string
+	for _, ns := range nsObjs {
+		if ns.Name == pvcNamespace {
+			continue
+		}
+		if !namespaceHasAnyRequestedZone(ns.Name, requestedZones) {
+			log.Infof("listFVSCandidateInstanceNamespacesVDS: skipping namespace %q: "+
+				"no overlap with requested zones %v", ns.Name, requestedZones)
+			continue
+		}
+		instanceNets, err := cnsoperatorutil.GetVDSNetworksForNamespace(ctx, c.dynamicClient, ns.Name, true)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve VDS network for FVS instance namespace %q: %w",
+				ns.Name, err)
+		}
+		tier := cnsoperatorutil.MatchVDSNetworks(consumerNets, instanceNets)
+		switch tier {
+		case cnsoperatorutil.FVSNetworkTierPortgroup:
+			tier1 = append(tier1, ns.Name)
+		case cnsoperatorutil.FVSNetworkTierVDS:
+			tier2 = append(tier2, ns.Name)
+		default:
+			log.Infof("listFVSCandidateInstanceNamespacesVDS: skipping namespace %q: default network %v "+
+				"shares neither portgroup nor VDS with consumer namespace %q", ns.Name, instanceNets, pvcNamespace)
+			continue
+		}
+		log.Infof("listFVSCandidateInstanceNamespacesVDS: adding namespace %q as %s candidate "+
+			"(default network %v)", ns.Name, tier, instanceNets)
+	}
+
+	var groups [][]string
+	for _, g := range [][]string{tier1, tier2} {
+		if len(g) > 0 {
+			groups = append(groups, g)
+		}
+	}
+	if len(groups) == 0 {
+		return nil, fmt.Errorf("no FVS candidate namespace on the same portgroup or VDS as namespace %q "+
+			"(networks %v) for zones %v", pvcNamespace, consumerNets, requestedZones)
+	}
+	return groups, nil
+}
+
+// listFVSCandidateInstanceNamespacesVPC returns supervisor namespaces that may host the FVS FileVolume CR:
 // same VPC path as the consumer (status.vpcs[0].vpcPath on VPCNetworkConfiguration), excluding the PVC namespace,
 // and with at least one requested zone present on the namespace (zone CRs).
 // Each namespace must have AnnotationVPCNetworkConfig pointing at its cluster-scoped VPCNetworkConfiguration;
 // namespaces without the annotation are skipped.
-func (c *controller) listFVSCandidateInstanceNamespaces(ctx context.Context, pvcNamespace string,
+func (c *controller) listFVSCandidateInstanceNamespacesVPC(ctx context.Context, pvcNamespace string,
 	requestedZones []string) ([]string, error) {
 	log := logger.GetLogger(ctx)
-	if len(requestedZones) == 0 {
-		return nil, fmt.Errorf("requested zones must be non-empty to select FVS instance namespaces")
-	}
 
 	vpcPath, err := c.getVPCPathForNamespace(ctx, pvcNamespace)
 	if err != nil {
@@ -177,9 +285,6 @@ func (c *controller) listFVSCandidateInstanceNamespaces(ctx context.Context, pvc
 	log.Infof("listFVSCandidateInstanceNamespaces: consumer namespace %q uses VPC path %q, requested zones %v",
 		pvcNamespace, vpcPath, requestedZones)
 
-	if c.namespaceLister == nil {
-		return nil, fmt.Errorf("namespace lister is not initialized")
-	}
 	instanceNSSelector := labels.SelectorFromSet(labels.Set{
 		NamespaceLabelFVSInstance: "true",
 	})
@@ -373,8 +478,10 @@ func summarizeFileVolumeConditions(fv *fvv1alpha1.FileVolume) string {
 }
 
 // createFileVolumeViaFVS provisions a file volume by creating a FileVolume CR in the FVS instance namespace.
-func (c *controller) createFileVolumeViaFVS(ctx context.Context, req *csi.CreateVolumeRequest) (
-	*csi.CreateVolumeResponse, string, error) {
+// networkProvider is the PVC namespace's resolved network provider (NSX_VPC or VSPHERE_NETWORK) and selects
+// how candidate instance namespaces are matched to the consumer.
+func (c *controller) createFileVolumeViaFVS(ctx context.Context, req *csi.CreateVolumeRequest,
+	networkProvider string) (*csi.CreateVolumeResponse, string, error) {
 	log := logger.GetLogger(ctx)
 	pvcNamespace := req.Parameters[common.AttributePvcNamespace]
 	pvcName := req.Parameters[common.AttributePvcName]
@@ -407,15 +514,21 @@ func (c *controller) createFileVolumeViaFVS(ctx context.Context, req *csi.Create
 			"failed to read zones from accessibility requirements: %v", err)
 	}
 
-	candidateNamespaces, err := c.listFVSCandidateInstanceNamespaces(ctx, pvcNamespace, requestedZones)
+	candidateGroups, err := c.listFVSCandidateInstanceNamespaces(ctx, pvcNamespace, requestedZones,
+		networkProvider)
 	if err != nil {
 		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
 			"%v", err)
 	}
+	var allCandidates []string
+	for _, g := range candidateGroups {
+		allCandidates = append(allCandidates, g...)
+	}
 
-	// Phase 1: see if a FileVolume CR with this name (PVC UID) already exists in any candidate instance namespace.
+	// Phase 1: see if a FileVolume CR with this name (PVC UID) already exists in any candidate instance
+	// namespace, regardless of its priority group, so retries stay idempotent.
 	var instanceNS string
-	for _, ns := range candidateNamespaces {
+	for _, ns := range allCandidates {
 		fvExisting := &fvv1alpha1.FileVolume{}
 		getErr := c.fileVolumeClient.Get(ctx, ctrlclient.ObjectKey{Namespace: ns, Name: fvName}, fvExisting)
 		if getErr == nil {
@@ -438,17 +551,21 @@ func (c *controller) createFileVolumeViaFVS(ctx context.Context, req *csi.Create
 	// Phase 2: no existing FileVolume — pick one candidate namespace and create the CR.
 	if instanceNS == "" {
 		var targetNS string
-		// Randomize order so repeated creates do not always probe the same instance namespace first (hotspot).
-		rand.Shuffle(len(candidateNamespaces), func(i, j int) {
-			candidateNamespaces[i], candidateNamespaces[j] = candidateNamespaces[j], candidateNamespaces[i]
-		})
-		for _, ns := range candidateNamespaces {
-			if svcErr := c.instanceNamespaceHasReadyFileVolumeService(ctx, ns); svcErr != nil {
-				log.Debugf("skipping instance namespace %q for FileVolume create: %v", ns, svcErr)
-				continue
+	groupLoop:
+		for _, group := range candidateGroups {
+			// Randomize order within a priority group so repeated creates do not always probe the same
+			// instance namespace first (hotspot). Groups themselves are walked in priority order.
+			rand.Shuffle(len(group), func(i, j int) {
+				group[i], group[j] = group[j], group[i]
+			})
+			for _, ns := range group {
+				if svcErr := c.instanceNamespaceHasReadyFileVolumeService(ctx, ns); svcErr != nil {
+					log.Debugf("skipping instance namespace %q for FileVolume create: %v", ns, svcErr)
+					continue
+				}
+				targetNS = ns
+				break groupLoop
 			}
-			targetNS = ns
-			break
 		}
 		if targetNS == "" {
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
@@ -734,32 +851,39 @@ func (c *controller) expandFileVolumeViaFVS(ctx context.Context, req *csi.Contro
 	}, "", nil
 }
 
-// shouldProvisionVsanFileVolumeViaFVS encapsulates routing to the FVS CR workflow.
+// shouldProvisionVsanFileVolumeViaFVS encapsulates routing to the FVS CR workflow and returns the
+// resolved network provider of the PVC namespace for use by createFileVolumeViaFVS.
 //
 // The reserved vsan-file-service-policy / vsan-file-service-policy-latebinding storage classes
-// require the NSX_VPC network provider. The provider is resolved either per-namespace (from the
-// PVC namespace's NetworkSettings CR) when supports_per_namespace_network_provider is on, or from
-// the cached global wcp-network-config value resolved once at controller.Init when the per-
-// namespace capability is off. Non-reserved storage classes return useFVS=false without consulting
-// the network provider.
+// require the NSX_VPC or VSPHERE_NETWORK (VDS) network provider. The provider is resolved either
+// per-namespace (from the PVC namespace's NetworkSettings CR) when
+// supports_per_namespace_network_provider is on, or from the cached global wcp-network-config value
+// resolved once at controller.Init when the per-namespace capability is off. Non-reserved storage
+// classes return useFVS=false without consulting the network provider.
 func shouldProvisionVsanFileVolumeViaFVS(ctx context.Context, dc dynamic.Interface,
-	pvcNamespace, storageClassName string) (bool, error) {
+	pvcNamespace, storageClassName string) (bool, string, error) {
 	if !isVsanFileVolumeServiceFSSEnabled {
-		return false, nil
+		return false, "", nil
 	}
 	if !isVsanFileServicePolicyStorageClass(storageClassName) {
-		return false, nil
+		return false, "", nil
 	}
 	np, err := resolveNetworkProviderForFVS(ctx, dc, pvcNamespace)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
-	if np != cnsoperatorutil.VPCNetworkProvider {
-		return false, status.Errorf(codes.FailedPrecondition,
-			"storage class %q requires NSX_VPC network provider (current network provider: %q)",
-			storageClassName, np)
+	if !isFVSSupportedNetworkProvider(np) {
+		return false, "", status.Errorf(codes.FailedPrecondition,
+			"storage class %q requires %s or %s network provider (current network provider: %q)",
+			storageClassName, cnsoperatorutil.VPCNetworkProvider, cnsoperatorutil.VDSNetworkProvider, np)
 	}
-	return true, nil
+	return true, np, nil
+}
+
+// isFVSSupportedNetworkProvider reports whether FVS file volumes can be provisioned for a namespace
+// using the given network provider: NSX VPC or vSphere Distributed Switch (VDS).
+func isFVSSupportedNetworkProvider(np string) bool {
+	return np == cnsoperatorutil.VPCNetworkProvider || np == cnsoperatorutil.VDSNetworkProvider
 }
 
 // resolveNetworkProviderForFVS reads the per-namespace NetworkSettings CR when

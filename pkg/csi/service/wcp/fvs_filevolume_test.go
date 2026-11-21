@@ -190,9 +190,11 @@ func testNamespaceLister(t *testing.T, k8s kubernetes.Interface) corelisters.Nam
 func newTestDynamicClient(t *testing.T, objs ...runtime.Object) *fake.FakeDynamicClient {
 	t.Helper()
 	gvrToListKind := map[schema.GroupVersionResource]string{
-		vpcNetworkConfigurationGVR: "VPCNetworkConfigurationList",
-		fvsFileVolumeGVR:           "FileVolumeList",
-		fvsFileVolumeServiceGVR:    "FileVolumeServiceList",
+		vpcNetworkConfigurationGVR:                   "VPCNetworkConfigurationList",
+		fvsFileVolumeGVR:                             "FileVolumeList",
+		fvsFileVolumeServiceGVR:                      "FileVolumeServiceList",
+		cnsoperatorutil.NetworkGVR:                   "NetworkList",
+		cnsoperatorutil.VSphereDistributedNetworkGVR: "VSphereDistributedNetworkList",
 	}
 	return fake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), gvrToListKind, objs...)
 }
@@ -317,12 +319,18 @@ func TestListFVSCandidateInstanceNamespaces(t *testing.T) {
 	}
 
 	c := &controller{k8sClient: k8s, dynamicClient: dyn, namespaceLister: testNamespaceLister(t, k8s)}
-	out, err := c.listFVSCandidateInstanceNamespaces(ctx, "pvc-ns", []string{"zone-a"})
+	out, err := c.listFVSCandidateInstanceNamespaces(ctx, "pvc-ns", []string{"zone-a"},
+		cnsoperatorutil.VPCNetworkProvider)
 	require.NoError(t, err)
-	require.Equal(t, []string{"inst-ns"}, out)
+	require.Equal(t, [][]string{{"inst-ns"}}, out)
 
-	_, err = c.listFVSCandidateInstanceNamespaces(ctx, "pvc-ns", nil)
+	_, err = c.listFVSCandidateInstanceNamespaces(ctx, "pvc-ns", nil, cnsoperatorutil.VPCNetworkProvider)
 	require.Error(t, err)
+
+	_, err = c.listFVSCandidateInstanceNamespaces(ctx, "pvc-ns", []string{"zone-a"},
+		cnsoperatorutil.NSXTNetworkProvider)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported network provider")
 }
 
 // fvsObj builds an unstructured FileVolumeService CR for tests with the given healthState and
@@ -403,7 +411,7 @@ func TestCreateFileVolumeViaFVS_ValidationAndPVC(t *testing.T) {
 
 	t.Run("missing PVC parameters", func(t *testing.T) {
 		req := &csi.CreateVolumeRequest{Parameters: map[string]string{}}
-		_, fault, err := c.createFileVolumeViaFVS(ctx, req)
+		_, fault, err := c.createFileVolumeViaFVS(ctx, req, cnsoperatorutil.VPCNetworkProvider)
 		require.Error(t, err)
 		require.Equal(t, csifault.CSIInvalidArgumentFault, fault)
 	})
@@ -415,7 +423,7 @@ func TestCreateFileVolumeViaFVS_ValidationAndPVC(t *testing.T) {
 				common.AttributePvcName:      "pvc",
 			},
 		}
-		_, fault, err := c.createFileVolumeViaFVS(ctx, req)
+		_, fault, err := c.createFileVolumeViaFVS(ctx, req, cnsoperatorutil.VPCNetworkProvider)
 		require.Error(t, err)
 		require.Equal(t, csifault.CSIInvalidArgumentFault, fault)
 	})
@@ -431,7 +439,7 @@ func TestCreateFileVolumeViaFVS_ValidationAndPVC(t *testing.T) {
 				Preferred: []*csi.Topology{{Segments: map[string]string{v1.LabelTopologyZone: "z1"}}},
 			},
 		}
-		_, fault, err := c.createFileVolumeViaFVS(ctx, req)
+		_, fault, err := c.createFileVolumeViaFVS(ctx, req, cnsoperatorutil.VPCNetworkProvider)
 		require.Error(t, err)
 		require.Equal(t, csifault.CSIInternalFault, fault)
 		require.Contains(t, err.Error(), "failed to extract PVC UID")
@@ -462,7 +470,7 @@ func TestShouldProvisionVsanFileVolumeViaFVS(t *testing.T) {
 		isPerNamespaceNetworkProvidersFSSEnabled = false
 		// Cache is intentionally left empty: helper must not consult the cache when SC is non-reserved.
 		cachedGlobalNetworkProvider = ""
-		ok, err := shouldProvisionVsanFileVolumeViaFVS(ctx, nil, "ns", "other-sc")
+		ok, _, err := shouldProvisionVsanFileVolumeViaFVS(ctx, nil, "ns", "other-sc")
 		require.NoError(t, err)
 		require.False(t, ok)
 	})
@@ -471,7 +479,7 @@ func TestShouldProvisionVsanFileVolumeViaFVS(t *testing.T) {
 		func(t *testing.T) {
 			withFVSPackageState(t)
 			isVsanFileVolumeServiceFSSEnabled = false
-			ok, err := shouldProvisionVsanFileVolumeViaFVS(ctx, nil, "ns",
+			ok, _, err := shouldProvisionVsanFileVolumeViaFVS(ctx, nil, "ns",
 				common.StorageClassVsanFileServicePolicy)
 			require.NoError(t, err)
 			require.False(t, ok)
@@ -482,10 +490,11 @@ func TestShouldProvisionVsanFileVolumeViaFVS(t *testing.T) {
 		isVsanFileVolumeServiceFSSEnabled = true
 		isPerNamespaceNetworkProvidersFSSEnabled = false
 		cachedGlobalNetworkProvider = cnsoperatorutil.VPCNetworkProvider
-		ok, err := shouldProvisionVsanFileVolumeViaFVS(ctx, nil, "ns",
+		ok, np, err := shouldProvisionVsanFileVolumeViaFVS(ctx, nil, "ns",
 			common.StorageClassVsanFileServicePolicy)
 		require.NoError(t, err)
 		require.True(t, ok)
+		require.Equal(t, cnsoperatorutil.VPCNetworkProvider, np)
 	})
 
 	t.Run("per-namespace OFF + cache=NSXT_CONTAINER_PLUGIN + reserved SC -> FailedPrecondition",
@@ -494,24 +503,24 @@ func TestShouldProvisionVsanFileVolumeViaFVS(t *testing.T) {
 			isVsanFileVolumeServiceFSSEnabled = true
 			isPerNamespaceNetworkProvidersFSSEnabled = false
 			cachedGlobalNetworkProvider = cnsoperatorutil.NSXTNetworkProvider
-			_, err := shouldProvisionVsanFileVolumeViaFVS(ctx, nil, "ns",
+			_, _, err := shouldProvisionVsanFileVolumeViaFVS(ctx, nil, "ns",
 				common.StorageClassVsanFileServicePolicy)
 			require.Error(t, err)
 			require.Equal(t, codes.FailedPrecondition, status.Code(err))
-			require.Contains(t, err.Error(), "requires NSX_VPC")
+			require.Contains(t, err.Error(), "requires NSX_VPC or VSPHERE_NETWORK")
 		})
 
-	t.Run("per-namespace OFF + cache=VSPHERE_NETWORK + reserved SC -> FailedPrecondition",
+	t.Run("per-namespace OFF + cache=VSPHERE_NETWORK + reserved SC routes to FVS (VDS)",
 		func(t *testing.T) {
 			withFVSPackageState(t)
 			isVsanFileVolumeServiceFSSEnabled = true
 			isPerNamespaceNetworkProvidersFSSEnabled = false
 			cachedGlobalNetworkProvider = cnsoperatorutil.VDSNetworkProvider
-			_, err := shouldProvisionVsanFileVolumeViaFVS(ctx, nil, "ns",
+			ok, np, err := shouldProvisionVsanFileVolumeViaFVS(ctx, nil, "ns",
 				common.StorageClassVsanFileServicePolicyLateBinding)
-			require.Error(t, err)
-			require.Equal(t, codes.FailedPrecondition, status.Code(err))
-			require.Contains(t, err.Error(), "requires NSX_VPC")
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.Equal(t, cnsoperatorutil.VDSNetworkProvider, np)
 		})
 
 	t.Run("per-namespace OFF + cache empty + reserved SC -> FailedPrecondition", func(t *testing.T) {
@@ -519,7 +528,7 @@ func TestShouldProvisionVsanFileVolumeViaFVS(t *testing.T) {
 		isVsanFileVolumeServiceFSSEnabled = true
 		isPerNamespaceNetworkProvidersFSSEnabled = false
 		cachedGlobalNetworkProvider = ""
-		_, err := shouldProvisionVsanFileVolumeViaFVS(ctx, nil, "ns",
+		_, _, err := shouldProvisionVsanFileVolumeViaFVS(ctx, nil, "ns",
 			common.StorageClassVsanFileServicePolicy)
 		require.Error(t, err)
 		require.Equal(t, codes.FailedPrecondition, status.Code(err))
@@ -579,7 +588,7 @@ func TestShouldProvisionVsanFileVolumeViaFVS_PerNamespace(t *testing.T) {
 		isPerNamespaceNetworkProvidersFSSEnabled = true
 		dc := newFakeDynamicClientForNetworkSettings(t)
 		seedNetworkSettings(t, dc, "ns-1", ns, "vpc")
-		ok, err := shouldProvisionVsanFileVolumeViaFVS(ctx, dc, ns,
+		ok, _, err := shouldProvisionVsanFileVolumeViaFVS(ctx, dc, ns,
 			common.StorageClassVsanFileServicePolicy)
 		require.NoError(t, err)
 		require.True(t, ok)
@@ -591,24 +600,24 @@ func TestShouldProvisionVsanFileVolumeViaFVS_PerNamespace(t *testing.T) {
 		isPerNamespaceNetworkProvidersFSSEnabled = true
 		dc := newFakeDynamicClientForNetworkSettings(t)
 		seedNetworkSettings(t, dc, "ns-1", ns, "nsx-tier1")
-		_, err := shouldProvisionVsanFileVolumeViaFVS(ctx, dc, ns,
+		_, _, err := shouldProvisionVsanFileVolumeViaFVS(ctx, dc, ns,
 			common.StorageClassVsanFileServicePolicy)
 		require.Error(t, err)
 		require.Equal(t, codes.FailedPrecondition, status.Code(err))
-		require.Contains(t, err.Error(), "requires NSX_VPC")
+		require.Contains(t, err.Error(), "requires NSX_VPC or VSPHERE_NETWORK")
 	})
 
-	t.Run("per-namespace ON + provider=vsphere-distributed -> FailedPrecondition", func(t *testing.T) {
+	t.Run("per-namespace ON + provider=vsphere-distributed routes to FVS (VDS)", func(t *testing.T) {
 		withFVSPackageState(t)
 		isVsanFileVolumeServiceFSSEnabled = true
 		isPerNamespaceNetworkProvidersFSSEnabled = true
 		dc := newFakeDynamicClientForNetworkSettings(t)
 		seedNetworkSettings(t, dc, "ns-1", ns, "vsphere-distributed")
-		_, err := shouldProvisionVsanFileVolumeViaFVS(ctx, dc, ns,
+		ok, np, err := shouldProvisionVsanFileVolumeViaFVS(ctx, dc, ns,
 			common.StorageClassVsanFileServicePolicyLateBinding)
-		require.Error(t, err)
-		require.Equal(t, codes.FailedPrecondition, status.Code(err))
-		require.Contains(t, err.Error(), "requires NSX_VPC")
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, cnsoperatorutil.VDSNetworkProvider, np)
 	})
 
 	t.Run("per-namespace ON + NetworkSettings absent -> FailedPrecondition", func(t *testing.T) {
@@ -616,7 +625,7 @@ func TestShouldProvisionVsanFileVolumeViaFVS_PerNamespace(t *testing.T) {
 		isVsanFileVolumeServiceFSSEnabled = true
 		isPerNamespaceNetworkProvidersFSSEnabled = true
 		dc := newFakeDynamicClientForNetworkSettings(t)
-		_, err := shouldProvisionVsanFileVolumeViaFVS(ctx, dc, ns,
+		_, _, err := shouldProvisionVsanFileVolumeViaFVS(ctx, dc, ns,
 			common.StorageClassVsanFileServicePolicy)
 		require.Error(t, err)
 		require.Equal(t, codes.FailedPrecondition, status.Code(err),
@@ -630,7 +639,7 @@ func TestShouldProvisionVsanFileVolumeViaFVS_PerNamespace(t *testing.T) {
 		isPerNamespaceNetworkProvidersFSSEnabled = true
 		dc := newFakeDynamicClientForNetworkSettings(t)
 		seedNetworkSettings(t, dc, "ns-1", ns, "")
-		_, err := shouldProvisionVsanFileVolumeViaFVS(ctx, dc, ns,
+		_, _, err := shouldProvisionVsanFileVolumeViaFVS(ctx, dc, ns,
 			common.StorageClassVsanFileServicePolicy)
 		require.Error(t, err)
 		require.Equal(t, codes.FailedPrecondition, status.Code(err),
@@ -642,7 +651,7 @@ func TestShouldProvisionVsanFileVolumeViaFVS_PerNamespace(t *testing.T) {
 		withFVSPackageState(t)
 		isVsanFileVolumeServiceFSSEnabled = true
 		isPerNamespaceNetworkProvidersFSSEnabled = true
-		_, err := shouldProvisionVsanFileVolumeViaFVS(ctx, nil, ns,
+		_, _, err := shouldProvisionVsanFileVolumeViaFVS(ctx, nil, ns,
 			common.StorageClassVsanFileServicePolicy)
 		require.Error(t, err)
 		require.Equal(t, codes.FailedPrecondition, status.Code(err))
@@ -1409,7 +1418,7 @@ func TestCreateFileVolumeViaFVS_ExistingFVGetError(t *testing.T) {
 		},
 	}
 
-	resp, fault, err := c.createFileVolumeViaFVS(ctx, req)
+	resp, fault, err := c.createFileVolumeViaFVS(ctx, req, cnsoperatorutil.VPCNetworkProvider)
 	require.Nil(t, resp)
 	require.Error(t, err)
 	require.Equal(t, csifault.CSIInternalFault, fault)
@@ -1556,7 +1565,7 @@ func TestCreateFileVolumeViaFVS_ErrorPhasePropagatesCondition(t *testing.T) {
 		},
 	}
 
-	resp, fault, err := c.createFileVolumeViaFVS(ctx, req)
+	resp, fault, err := c.createFileVolumeViaFVS(ctx, req, cnsoperatorutil.VPCNetworkProvider)
 	require.Nil(t, resp)
 	require.Error(t, err)
 	require.Equal(t, csifault.CSIInternalFault, fault)
@@ -1652,7 +1661,7 @@ func TestCreateFileVolumeViaFVS_HappyPathReturnsFileStore(t *testing.T) {
 	}
 	c, req := newFileStoreTestController(t, pvcUID, existing)
 
-	resp, fault, err := c.createFileVolumeViaFVS(ctx, req)
+	resp, fault, err := c.createFileVolumeViaFVS(ctx, req, cnsoperatorutil.VPCNetworkProvider)
 	require.NoError(t, err)
 	require.Empty(t, fault)
 	require.NotNil(t, resp)
@@ -1694,7 +1703,7 @@ func TestCreateFileVolumeViaFVS_StandaloneSupervisorWithoutFileStoreLabel(t *tes
 			}
 			c, req := newFileStoreTestController(t, pvcUID, existing)
 
-			resp, fault, err := c.createFileVolumeViaFVS(ctx, req)
+			resp, fault, err := c.createFileVolumeViaFVS(ctx, req, cnsoperatorutil.VPCNetworkProvider)
 			require.NoError(t, err)
 			require.Empty(t, fault)
 			require.NotNil(t, resp)
@@ -1728,7 +1737,7 @@ func TestCreateFileVolumeViaFVS_IncompleteReadyTimesOut(t *testing.T) {
 	}
 	c, req := newFileStoreTestController(t, pvcUID, existing)
 
-	resp, fault, err := c.createFileVolumeViaFVS(ctx, req)
+	resp, fault, err := c.createFileVolumeViaFVS(ctx, req, cnsoperatorutil.VPCNetworkProvider)
 	require.Nil(t, resp)
 	require.Error(t, err)
 	require.Equal(t, csifault.CSIInternalFault, fault)
@@ -1755,7 +1764,7 @@ func TestReservedFVSStorageClassGuard(t *testing.T) {
 		common.StorageClassVsanFileServicePolicy,
 		common.StorageClassVsanFileServicePolicyLateBinding,
 	} {
-		useFVS, err := shouldProvisionVsanFileVolumeViaFVS(ctx, nil, "ns", sc)
+		useFVS, _, err := shouldProvisionVsanFileVolumeViaFVS(ctx, nil, "ns", sc)
 		require.NoError(t, err, "sc=%s", sc)
 		require.False(t, useFVS, "sc=%s: with FSS disabled the guard must reject by hitting the reserved-SC branch", sc)
 		require.True(t, isVsanFileServicePolicyStorageClass(sc),

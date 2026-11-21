@@ -19,7 +19,9 @@ package util
 import (
 	"context"
 	"fmt"
+	"sort"
 
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -143,7 +145,7 @@ func GetFVSZones(ctx context.Context, dc dynamic.Interface,
 }
 
 // GetZonesForvSANFileServiceMarkerPolicy returns the union of zones (via zonesFn) across ALL
-// fvs_instance_namespace=true namespaces that carry the AnnotationVPCNetworkConfig annotation.
+// fvs_instance_namespace=true namespaces, regardless of their network type (NSX VPC or VDS).
 // This is the cluster-wide accessible zone algorithm for the vSAN File Service marker policy,
 // used to populate InfraStoragePolicyInfo.
 func GetZonesForvSANFileServiceMarkerPolicy(ctx context.Context,
@@ -151,23 +153,41 @@ func GetZonesForvSANFileServiceMarkerPolicy(ctx context.Context,
 	zonesFn func(string) map[string]struct{}) ([]string, error) {
 	log := logger.GetLogger(ctx)
 
-	zones, err := GetFVSZones(ctx, nil, k8sClient, "", zonesFn)
+	nsList, err := listFVSInstanceNamespaces(ctx, k8sClient)
 	if err != nil {
 		return nil, err
 	}
+	zonesSet := make(map[string]struct{})
+	for i := range nsList {
+		addNamespaceZones(ctx, nsList[i].Name, zonesFn, zonesSet)
+	}
+	zones := sortedZoneList(zonesSet)
 	log.Infof("Accessible zones for vSAN File Service: %v", zones)
 	return zones, nil
 }
 
 // GetZonesForvSANFileServiceMarkerPolicyByNamespace returns the union of zones (via zonesFn)
-// across all fvs_instance_namespace=true namespaces whose VPC path matches the consumer
-// namespace's VPC path.
+// across the fvs_instance_namespace=true namespaces reachable from the consumer namespace.
 // This is the per-namespace accessible zone algorithm for the vSAN File Service marker policy,
 // used to populate namespace-level StoragePolicyInfo.
+//
+//   - NSX VPC (consumer carries AnnotationVPCNetworkConfig): instance namespaces whose VPC path
+//     matches the consumer's VPC path.
+//   - VDS (no VPC annotation): instance namespaces whose default VDS Network shares a portgroup
+//     (Tier 1) or a VDS (Tier 2) with any of the consumer's VDS Networks. This is the same
+//     reachability rule the CSI controller uses to place FileVolume CRs.
 func GetZonesForvSANFileServiceMarkerPolicyByNamespace(ctx context.Context, dc dynamic.Interface,
 	k8sClient kubernetes.Interface, namespace string,
 	zonesFn func(string) map[string]struct{}) ([]string, error) {
 	log := logger.GetLogger(ctx)
+
+	ns, err := k8sClient.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("get namespace %q: %w", namespace, err)
+	}
+	if ns.Annotations[AnnotationVPCNetworkConfig] == "" {
+		return getZonesForvSANFileServiceMarkerPolicyByVDSNamespace(ctx, dc, k8sClient, namespace, zonesFn)
+	}
 
 	consumerVPCPath, err := VPCPathForNamespace(ctx, dc, k8sClient, namespace)
 	if err != nil {
@@ -181,4 +201,80 @@ func GetZonesForvSANFileServiceMarkerPolicyByNamespace(ctx context.Context, dc d
 	}
 	log.Infof("Namespace %q marker-policy accessible zones: %v", namespace, zones)
 	return zones, nil
+}
+
+// getZonesForvSANFileServiceMarkerPolicyByVDSNamespace is the VDS branch of
+// GetZonesForvSANFileServiceMarkerPolicyByNamespace.
+func getZonesForvSANFileServiceMarkerPolicyByVDSNamespace(ctx context.Context, dc dynamic.Interface,
+	k8sClient kubernetes.Interface, namespace string,
+	zonesFn func(string) map[string]struct{}) ([]string, error) {
+	log := logger.GetLogger(ctx)
+
+	consumerNets, err := GetVDSNetworksForNamespace(ctx, dc, namespace, false)
+	if err != nil {
+		return nil, fmt.Errorf("resolve VDS networks for namespace %q: %w", namespace, err)
+	}
+	if len(consumerNets) == 0 {
+		return nil, fmt.Errorf("namespace %q has neither the %q annotation nor a %s Network",
+			namespace, AnnotationVPCNetworkConfig, NetworkTypeVSphereDistributed)
+	}
+	log.Infof("Namespace %q has VDS networks %v", namespace, consumerNets)
+
+	nsList, err := listFVSInstanceNamespaces(ctx, k8sClient)
+	if err != nil {
+		return nil, err
+	}
+	zonesSet := make(map[string]struct{})
+	for i := range nsList {
+		instanceNS := nsList[i].Name
+		if instanceNS == namespace {
+			continue
+		}
+		instanceNets, err := GetVDSNetworksForNamespace(ctx, dc, instanceNS, true)
+		if err != nil {
+			return nil, err
+		}
+		tier := MatchVDSNetworks(consumerNets, instanceNets)
+		if tier == FVSNetworkNoMatch {
+			log.Debugf("Skipping FVS instance namespace %q: networks %v not reachable from %q",
+				instanceNS, instanceNets, namespace)
+			continue
+		}
+		log.Debugf("FVS instance namespace %q matches namespace %q at %s", instanceNS, namespace, tier)
+		addNamespaceZones(ctx, instanceNS, zonesFn, zonesSet)
+	}
+	zones := sortedZoneList(zonesSet)
+	log.Infof("Namespace %q marker-policy accessible zones (VDS): %v", namespace, zones)
+	return zones, nil
+}
+
+// listFVSInstanceNamespaces lists the fvs_instance_namespace=true namespaces.
+func listFVSInstanceNamespaces(ctx context.Context, k8sClient kubernetes.Interface) ([]v1.Namespace, error) {
+	nsList, err := k8sClient.CoreV1().Namespaces().List(ctx, metav1.ListOptions{
+		LabelSelector: NamespaceLabelFVSInstance + "=true",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list fvs_instance_namespace namespaces: %w", err)
+	}
+	return nsList.Items, nil
+}
+
+// addNamespaceZones adds the zones zonesFn reports for namespace into zonesSet.
+func addNamespaceZones(ctx context.Context, namespace string, zonesFn func(string) map[string]struct{},
+	zonesSet map[string]struct{}) {
+	nsZones := zonesFn(namespace)
+	logger.GetLogger(ctx).Debugf("Namespace %q contributes zones: %v", namespace, nsZones)
+	for z := range nsZones {
+		zonesSet[z] = struct{}{}
+	}
+}
+
+// sortedZoneList returns the zones in zonesSet as a sorted slice (never nil).
+func sortedZoneList(zonesSet map[string]struct{}) []string {
+	zones := make([]string, 0, len(zonesSet))
+	for z := range zonesSet {
+		zones = append(zones, z)
+	}
+	sort.Strings(zones)
+	return zones
 }

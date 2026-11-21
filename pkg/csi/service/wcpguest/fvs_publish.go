@@ -26,8 +26,10 @@ limitations under the License.
 //
 // The new vSAN FileVolumeService architecture provisions file volumes through
 // FileVolume CRs on the supervisor and exposes them on a sticky raw IP that is
-// reachable to every VM in the same VPC. No per-VM ACL is required, so the
-// guest must not create / delete a CnsFileAccessConfig CR for these volumes.
+// reachable to every VM in the same VPC (NSX VPC supervisors) or on the same
+// portgroup / VDS (VDS supervisors). No per-VM ACL is required, so the guest
+// must not create / delete a CnsFileAccessConfig CR for these volumes. Per-VM
+// IP export ACLs for shared VDS networks are not implemented yet.
 // The export endpoint and path are returned to CSI on the supervisor PVC's
 // "csi.vsphere.exportpath.nfs41" annotation (common.Nfsv4ExportPathAnnotationKey)
 // at CreateVolume time.
