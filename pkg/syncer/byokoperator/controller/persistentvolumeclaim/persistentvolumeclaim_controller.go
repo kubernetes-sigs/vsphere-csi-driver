@@ -88,6 +88,17 @@ func (r *reconciler) reconcileNormal(ctx context.Context, pvc *corev1.Persistent
 		return nil
 	}
 
+	// While a VAC change is Pending or InProgress, neither the StorageClass's nor any VAC's
+	// policy is reliably the volume's policy (e.g. CNS ReconfigPolicy may already have applied
+	// the new one), so re-keying now could revert it. The status update that marks the VAC effective
+	// triggers another reconcile, which re-keys if needed using the VAC's policy.
+	// This only covers detached volumes, attached ones are encrypted by VM Operator.
+	if r.isVACChangePending(ctx, pvc) {
+		r.logger.Infof("Skipping encryption for PVC %s/%s until VolumeAttributesClass %s takes effect",
+			pvc.Namespace, pvc.Name, *pvc.Spec.VolumeAttributesClassName)
+		return nil
+	}
+
 	encrypted, profileID, err := r.isEncryptedStoragePolicyForPVC(ctx, pvc)
 	if err != nil {
 		return err
@@ -132,9 +143,12 @@ func (r *reconciler) reconcileNormal(ctx context.Context, pvc *corev1.Persistent
 		},
 	}
 
-	if existingKeyID != nil &&
-		existingKeyID.KeyId == newKeyID.KeyId &&
-		existingKeyID.ProviderId.Id == newKeyID.ProviderId.Id {
+	// An EncryptionClass with no keyID asks for a key generated from its provider, so any
+	// existing key from that provider satisfies it. Comparing KeyIds here would never match
+	// and would shallow-recrypt the volume to a freshly generated key on every reconcile.
+	if existingKeyID != nil && existingKeyID.ProviderId != nil &&
+		existingKeyID.ProviderId.Id == newKeyID.ProviderId.Id &&
+		(newKeyID.KeyId == "" || existingKeyID.KeyId == newKeyID.KeyId) {
 		return nil
 	}
 
@@ -162,8 +176,33 @@ func (r *reconciler) reconcileNormal(ctx context.Context, pvc *corev1.Persistent
 	return r.volumeManager.UpdateVolumeCrypto(ctx, updateSpec)
 }
 
+// isVACChangePending reports whether the PVC requests a VolumeAttributesClass that has not
+// yet taken effect and whose change is not settled: the resizer hasn't picked it up yet, or
+// reports it Pending or InProgress. A change rejected as Infeasible is settled. Only applies
+// when VAC-based storage-policy mutability is enabled; otherwise the VAC never drives the
+// volume's policy and must not block encryption.
+func (r *reconciler) isVACChangePending(ctx context.Context, pvc *corev1.PersistentVolumeClaim) bool {
+	if pvc.Spec.VolumeAttributesClassName == nil ||
+		*pvc.Spec.VolumeAttributesClassName == "" ||
+		!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, csicommon.VMPVCStoragePolicyMutability) ||
+		crypto.IsVACPolicyEffective(pvc) {
+		return false
+	}
+
+	// Infeasible means the change to this VAC was rejected, so the volume keeps its previous
+	// policy, and the external-resizer won't retry until the VAC is edited. Treat it as settled
+	// rather than blocking encryption indefinitely, unless it is for an earlier VAC (the VAC has
+	// since been edited and the new change hasn't started yet).
+	modifyStatus := pvc.Status.ModifyVolumeStatus
+	return modifyStatus == nil ||
+		modifyStatus.Status != corev1.PersistentVolumeClaimModifyVolumeInfeasible ||
+		modifyStatus.TargetVolumeAttributesClassName != *pvc.Spec.VolumeAttributesClassName
+}
+
 // isEncryptedStoragePolicyForPVC determines whether the storage policy currently backing
 // the PVC's volume supports encryption. See crypto.IsEncryptedStoragePolicyForPVC.
+// Callers must not invoke this while a VAC change is Pending or InProgress, since no policy
+// (StorageClass or VAC) is reliably the volume's then; see isVACChangePending.
 func (r *reconciler) isEncryptedStoragePolicyForPVC(
 	ctx context.Context,
 	pvc *corev1.PersistentVolumeClaim,

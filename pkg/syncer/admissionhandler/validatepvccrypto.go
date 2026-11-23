@@ -100,22 +100,37 @@ func validatePVCCrypto(
 		encClassNamePath = field.NewPath("annotations", crypto.PVCEncryptionClassAnnotationName)
 	)
 
-	// Use the storage policy currently backing the volume, which is the VolumeAttributesClass's
-	// policy once it has taken effect, consistent with the BYOK PVC controller.
+	// Use the storage policy currently backing the volume, which is the policy of
+	// status.currentVolumeAttributesClassName if set, consistent with the BYOK PVC controller.
 	ok, _, source, err := crypto.IsEncryptedStoragePolicyForPVC(
 		ctx, cryptoClient, cryptoClient, pvc, featureIsVACPolicyMutabilityEnabled)
+
+	// A VolumeAttributesClass policy comes from status.currentVolumeAttributesClassName, which
+	// differs from spec.volumeAttributesClassName until a change to the latter completes (e.g.
+	// after it was rejected as Infeasible). Report whichever field names the VAC actually used.
+	var (
+		vacPath *field.Path
+		vacName string
+	)
+	if source == crypto.StoragePolicySourceVAC {
+		vacPath = field.NewPath("spec", "volumeAttributesClassName")
+		vacName = *pvc.Status.CurrentVolumeAttributesClassName
+		if vacName != *pvc.Spec.VolumeAttributesClassName {
+			vacPath = field.NewPath("status", "currentVolumeAttributesClassName")
+		}
+	}
+
 	switch {
 	case err != nil && source == crypto.StoragePolicySourceVAC && apierrors.IsNotFound(err):
-		allErrs = append(allErrs, field.NotFound(
-			field.NewPath("spec", "volumeAttributesClassName"), *pvc.Spec.VolumeAttributesClassName))
+		allErrs = append(allErrs, field.NotFound(vacPath, vacName))
 	case err != nil:
 		allErrs = append(allErrs, field.InternalError(encClassNamePath, err))
 	case !ok && source == crypto.StoragePolicySourceVAC:
 		allErrs = append(allErrs, field.Invalid(
 			encClassNamePath,
 			encClassName,
-			fmt.Sprintf("requires the effective spec.volumeAttributesClassName %q to specify an encryption "+
-				"storage policy", *pvc.Spec.VolumeAttributesClassName)))
+			fmt.Sprintf("requires the effective %s %q to specify an encryption storage policy",
+				vacPath, vacName)))
 	case !ok:
 		allErrs = append(allErrs, field.Invalid(
 			encClassNamePath,
