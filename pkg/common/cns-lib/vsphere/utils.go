@@ -526,7 +526,7 @@ type UnsupportedAPIVersionError struct {
 }
 
 func (e *UnsupportedAPIVersionError) Error() string {
-	return fmt.Sprintf("the minimum supported vCenter is %d.%d.%d",
+	return fmt.Sprintf("the minimum supported vCenter API version is %d.%d.%d",
 		e.MinimumMajor, e.MinimumMinor, e.MinimumPatch)
 }
 
@@ -542,40 +542,32 @@ func CheckAPI(ctx context.Context,
 		return fmt.Errorf("invalid API Version format %q: expected a dotted version string "+
 			"such as major.minor.patch. Check the vCenter version reported in the CSI config secret", versionToCheck)
 	}
-	major, err := strconv.Atoi(items[0])
-	if err != nil {
-		return fmt.Errorf("invalid Major Version value %q in API version %q: %v. Check the vCenter "+
-			"version reported by the vCenter About info", items[0], versionToCheck, err)
+	// Validate every component before comparing, including components beyond the patch.
+	var version [3]int
+	for i, item := range items {
+		value, err := strconv.Atoi(item)
+		if err != nil || value < 0 || strings.HasPrefix(item, "+") {
+			return fmt.Errorf("invalid API version component %q at position %d in %q: "+
+				"expected a non-negative decimal integer. Check the vCenter API version "+
+				"reported by the vCenter About info", item, i+1, versionToCheck)
+		}
+		if i < len(version) {
+			version[i] = value
+		}
 	}
-	minor, err := strconv.Atoi(items[1])
-	if err != nil {
-		return fmt.Errorf("invalid Minor Version value %q in API version %q: %v. Check the vCenter "+
-			"version reported by the vCenter About info", items[1], versionToCheck, err)
-	}
-
-	if major < minSupportedVCenterMajor || (major == minSupportedVCenterMajor && minor < minSupportedVCenterMinor) {
+	major, minor, patch := version[0], version[1], version[2]
+	belowMinimum := major < minSupportedVCenterMajor ||
+		(major == minSupportedVCenterMajor && minor < minSupportedVCenterMinor)
+	patchBelowMinimum := major == minSupportedVCenterMajor && minor == minSupportedVCenterMinor &&
+		len(items) >= 3 && patch < minSupportedVCenterPatch
+	if belowMinimum || patchBelowMinimum {
 		return &UnsupportedAPIVersionError{
 			MinimumMajor: minSupportedVCenterMajor, MinimumMinor: minSupportedVCenterMinor,
 			MinimumPatch: minSupportedVCenterPatch,
 		}
 	}
 
-	if major == minSupportedVCenterMajor && minor == minSupportedVCenterMinor {
-		if len(items) >= 3 {
-			patch, err := strconv.Atoi(items[2])
-			if err != nil {
-				return fmt.Errorf("invalid patch version value %q in API version %q: %v. Check the vCenter "+
-					"version reported by the vCenter About info", items[2], versionToCheck, err)
-			}
-			if patch < minSupportedVCenterPatch {
-				return &UnsupportedAPIVersionError{
-					MinimumMajor: minSupportedVCenterMajor, MinimumMinor: minSupportedVCenterMinor,
-					MinimumPatch: minSupportedVCenterPatch,
-				}
-			}
-		}
-	}
-	log.Infof("VC version detected as %q satisfies minimum supported vcenter version %d.%d.%d.",
+	log.Infof("vCenter API version detected as %q satisfies minimum supported vCenter API version %d.%d.%d.",
 		versionToCheck, minSupportedVCenterMajor, minSupportedVCenterMinor, minSupportedVCenterPatch)
 	return nil
 }
