@@ -1591,25 +1591,32 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			return unpublishGuestNFSVolume(ctx, req)
 		}
 
-		// Retrieve Supervisor PVC
-		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
-			ctx, req.VolumeId, metav1.GetOptions{})
+		// File and block attachment artifacts are not mutually exclusive for a (NodeId, VolumeId),
+		// so both teardowns run; each is a no-op when its artifact is absent.
+		isFileVolume, err := c.isFileVolumeAttachment(ctx, req)
 		if err != nil {
-			msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in %q namespace. Error: %+v",
-				req.VolumeId, c.supervisorNamespace, err)
-			log.Error(msg)
-			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+			log.Error(err.Error())
+			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, err.Error())
 		}
-		if isFileVolumeAccessMode(svPVC.Spec.AccessModes) {
+		log.Debugf("ControllerUnpublishVolume: volumeId=%q nodeId=%q isFileVolume=%v",
+			req.VolumeId, req.NodeId, isFileVolume)
+
+		if isFileVolume {
 			volumeType = prometheus.PrometheusFileVolumeType
-			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) {
-				return controllerUnpublishForFileVolume(ctx, req, c)
+			// Not gated on the FileVolume FSS: the CR's pvc-protection finalizer must always be released.
+			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) {
+				log.Warnf("ControllerUnpublishVolume: FileVolume FSS is disabled but a CnsFileAccessConfig "+
+					"exists for volumeId=%q on node %q; cleaning it up anyway to avoid leaking the "+
+					"pvc-protection finalizer", req.VolumeId, req.NodeId)
 			}
-			// Feature is disabled on the cluster
-			return nil, csifault.CSIInvalidArgumentFault, status.Error(codes.InvalidArgument,
-				"File volume is not supported because the File Volume feature is disabled on this cluster")
+			resp, faultType, err := controllerUnpublishForFileVolume(ctx, req, c)
+			if err != nil {
+				return resp, faultType, err
+			}
+		} else {
+			volumeType = prometheus.PrometheusBlockVolumeType
 		}
-		volumeType = prometheus.PrometheusBlockVolumeType
+
 		return controllerUnpublishForBlockVolume(ctx, req, c)
 	}
 	resp, faultType, err := controllerUnpublishVolumeInternal()
@@ -1783,28 +1790,19 @@ func controllerUnpublishForFileVolume(ctx context.Context, req *csi.ControllerUn
 		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
 			ctx, req.VolumeId, metav1.GetOptions{})
 		if err != nil {
-			if errors.IsNotFound(err) {
-				msg := fmt.Sprintf("supervisor PVC %q not found in namespace %q", req.VolumeId, c.supervisorNamespace)
+			if !errors.IsNotFound(err) {
+				msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in namespace %q. Error: %+v",
+					req.VolumeId, c.supervisorNamespace, err)
 				log.Error(msg)
-				return nil, csifault.CSINotFoundFault, status.Error(codes.NotFound, msg)
+				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 			}
-			msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in namespace %q. Error: %+v",
-				req.VolumeId, c.supervisorNamespace, err)
-			log.Error(msg)
-			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
-		}
-		// Same rationale as FVS publish: no CnsFileAccessConfig was created, so do not run the
-		// legacy unpublish path that deletes it; return success after the FVS-specific handling.
-		if common.IsFVSPersistentVolumeClaim(svPVC) {
+			// A missing Supervisor PVC cannot be FVS-backed; fall through so an orphaned
+			// CnsFileAccessConfig can still be removed.
+		} else if common.IsFVSPersistentVolumeClaim(svPVC) {
+			// Same rationale as FVS publish: no CnsFileAccessConfig was created, so skip the
+			// legacy unpublish path that deletes it.
 			return ControllerUnpublishForFileVolumeServiceVolume(ctx, req)
 		}
-	}
-	// Adding watch on the CnsFileAccessConfig instance to register for updates
-	cnsFileAccessConfigWatcher, err := k8s.NewCnsFileAccessConfigWatcher(ctx, c.restClientConfig, c.supervisorNamespace)
-	if err != nil {
-		msg := fmt.Sprintf("failed to create cnsFileAccessConfigWatcher. Error: %+v", err)
-		log.Error(msg)
-		return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 	}
 	cnsFileAccessConfigInstance := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
 	cnsFileAccessConfigInstanceName := req.NodeId + "-" + req.VolumeId
@@ -1820,6 +1818,13 @@ func controllerUnpublishForFileVolume(ctx context.Context, req *csi.ControllerUn
 		}
 		msg := fmt.Sprintf("failed to get CnsFileAccessConfig instance: %q/%q. Error: %+v",
 			c.supervisorNamespace, cnsFileAccessConfigInstanceName, err)
+		log.Error(msg)
+		return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+	}
+	// Adding watch on the CnsFileAccessConfig instance to register for updates
+	cnsFileAccessConfigWatcher, err := k8s.NewCnsFileAccessConfigWatcher(ctx, c.restClientConfig, c.supervisorNamespace)
+	if err != nil {
+		msg := fmt.Sprintf("failed to create cnsFileAccessConfigWatcher. Error: %+v", err)
 		log.Error(msg)
 		return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 	}
@@ -2648,6 +2653,43 @@ func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.Contro
 
 	log.Infof("Volume %s successfully modified to VAC %q", volumeID, targetVAC)
 	return &csi.ControllerModifyVolumeResponse{}, nil
+}
+
+// isFileVolumeAttachment reports whether the (req.NodeId, req.VolumeId) attachment was published
+// as a file volume: either the Supervisor PVC is FVS-backed, or a CnsFileAccessConfig CR exists
+// for this node/volume pair.
+func (c *controller) isFileVolumeAttachment(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (
+	bool, error) {
+	// A missing Supervisor PVC is tolerated so an orphaned CnsFileAccessConfig CR is still found.
+	if IsVsanFileVolumeServiceEnabled {
+		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
+			ctx, req.VolumeId, metav1.GetOptions{})
+		switch {
+		case err == nil:
+			if common.IsFVSPersistentVolumeClaim(svPVC) {
+				return true, nil
+			}
+		case !errors.IsNotFound(err):
+			return false, fmt.Errorf("failed to retrieve supervisor PVC %q in %q namespace: %v",
+				req.VolumeId, c.supervisorNamespace, err)
+		}
+	}
+
+	cnsFileAccessConfigInstanceName := req.NodeId + "-" + req.VolumeId
+	existingInstance := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
+	err := c.cnsOperatorClient.Get(ctx, types.NamespacedName{
+		Namespace: c.supervisorNamespace,
+		Name:      cnsFileAccessConfigInstanceName,
+	}, existingInstance)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.IsNotFound(err):
+		return false, nil
+	default:
+		return false, fmt.Errorf("failed to get CnsFileAccessConfig instance %q/%q: %v",
+			c.supervisorNamespace, cnsFileAccessConfigInstanceName, err)
+	}
 }
 
 // getTargetVACForVolume resolves the target VolumeAttributesClass name from the guest PVC.

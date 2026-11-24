@@ -25,8 +25,11 @@ import (
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	testclient "k8s.io/client-go/kubernetes/fake"
+	ctrlclientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 )
@@ -165,22 +168,23 @@ func TestControllerUnpublishForFileVolume_GateOn_LateBindingFVS(t *testing.T) {
 
 func TestControllerUnpublishForFileVolume_GateOn_SupervisorPVCNotFound(t *testing.T) {
 	setVsanFileVolumeServiceEnabledForTest(t, true)
+	scheme := runtime.NewScheme()
+	if err := cnsoperatorv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to build scheme: %v", err)
+	}
 	c := &controller{
 		supervisorClient:    testclient.NewClientset(),
 		supervisorNamespace: fvsTestNamespace,
+		cnsOperatorClient:   ctrlclientfake.NewClientBuilder().WithScheme(scheme).Build(),
 	}
 	req := &csi.ControllerUnpublishVolumeRequest{VolumeId: "missing-supervisor-pvc", NodeId: fvsTestNodeID}
 
-	_, faultType, err := controllerUnpublishForFileVolume(context.Background(), req, c)
-	if err == nil {
-		t.Fatal("expected error when supervisor PVC is missing")
+	resp, _, err := controllerUnpublishForFileVolume(context.Background(), req, c)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if faultType != csifault.CSINotFoundFault {
-		t.Fatalf("faultType=%q want %q", faultType, csifault.CSINotFoundFault)
-	}
-	st, ok := status.FromError(err)
-	if !ok || st.Code() != codes.NotFound {
-		t.Fatalf("expected gRPC NotFound, got ok=%v code=%v err=%v", ok, st.Code(), err)
+	if resp == nil {
+		t.Fatal("expected non-nil response")
 	}
 }
 
