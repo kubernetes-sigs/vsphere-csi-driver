@@ -401,8 +401,32 @@ func (osUtils *OsUtils) CleanupStagePath(ctx context.Context, stagingTarget stri
 			return fmt.Errorf(
 				"error unmounting stagingTarget: %v", err)
 		}
+		// gofsutil.Info has no mount ID. Several lines at this path can be one
+		// propagated mount, which a single unmount clears, or mounts stacked
+		// on the same path, which a single unmount peels one layer from.
+		// If the path is still mounted, report the error so kubelet retries
+		// and the next attempt unmounts the remaining layer. Success here
+		// would let the disk detach while the path is still mounted.
+		stillMounted, err := osUtils.IsTargetInMounts(ctx, stagingTarget)
+		if err != nil {
+			return err
+		}
+		if err := errIfStagingTargetMounted(ctx, stagingTarget, volID, stillMounted); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// errIfStagingTargetMounted reports that one unmount left the staging path
+// mounted. A clear path returns nil.
+func errIfStagingTargetMounted(ctx context.Context, stagingTarget, volID string, mounted bool) error {
+	if !mounted {
+		return nil
+	}
+	log := logger.GetLogger(ctx)
+	return logger.LogNewErrorCodef(log, codes.Internal,
+		"staging target %q for volume %q is still mounted after unmount", stagingTarget, volID)
 }
 
 // IsBlockVolumeMounted checks if the block volume is properly mounted or not.
@@ -446,17 +470,30 @@ func (osUtils *OsUtils) IsBlockVolumeMounted(
 			err.Error())
 	}
 
-	// device is mounted more than once. Should only be mounted to target.
-	if len(mnts) > 1 {
-		return false, logger.LogNewErrorCodef(log, codes.Internal,
-			"isBlockVolumeMounted: volume: %s appears mounted in multiple places", volID)
+	// A bind-mounted /var/lib/kubelet with shared propagation lists every mount
+	// under that directory twice, at the same path. Those duplicate lines are
+	// one mount. A different path means the device is mounted elsewhere.
+	if err := deviceMountedElsewhere(ctx, volID, stagingTargetPath, mnts); err != nil {
+		return false, err
 	}
 
-	// Since we looked up the block volume from the target path, we assume that
-	// the one existing mount is from the block to the target.
-	log.Debugf("isBlockVolumeMounted: Found single mount point for volume %q and target %q",
+	log.Debugf("isBlockVolumeMounted: volume %q is mounted only at target %q",
 		volID, stagingTargetPath)
 	return true, nil
+}
+
+// deviceMountedElsewhere reports an error when any mount of the device is at a
+// path other than stagingTargetPath. Repeated entries for the same path are
+// ignored.
+func deviceMountedElsewhere(ctx context.Context, volID, stagingTargetPath string, mnts []gofsutil.Info) error {
+	log := logger.GetLogger(ctx)
+	for _, m := range mnts {
+		if unescape(ctx, m.Path) != stagingTargetPath {
+			return logger.LogNewErrorCodef(log, codes.Internal,
+				"isBlockVolumeMounted: volume: %s appears mounted in multiple places", volID)
+		}
+	}
+	return nil
 }
 
 // CleanupPublishPath will unmount and remove publish path
