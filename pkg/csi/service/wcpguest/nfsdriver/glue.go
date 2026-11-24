@@ -40,12 +40,12 @@ const workingMountDir = "/tmp/nfsdriver"
 
 // defaultMountPermissions is applied to every per-PVC subdirectory unless a StorageClass
 // overrides it via the "mountPermissions" parameter (case-insensitive, upstream's own
-// parameter — see controllerserver.go/nodeserver.go). It matches upstream's default of 0, which
-// means no chmod at all: a new subdirectory keeps whatever mode and owner the controller created
-// it with, so one workload cannot read or write another PVC's data just by being able to mount
-// the export. Workloads that run as a different UID than the controller, and need the volume
-// to be writable, opt in per StorageClass, e.g. mountPermissions: "0777" (see example/).
-const defaultMountPermissions = 0
+// parameter — see controllerserver.go/nodeserver.go). 0777 is the One-pager default: MkdirAll
+// is masked by the controller umask to 0755, and kubelet does not apply fsGroup to an RWX CSI
+// volume, so a non-root pod cannot write unless the directory is chmod'd. A StorageClass can
+// still set another mode, including "0" to skip chmod. The controller's scratch mount of the
+// export root stays at 0 (internalMount) so the share itself is never chmod'd.
+const defaultMountPermissions = 0777
 
 // VolumeIDPrefix marks a CSI volume or snapshot ID as backed by this package rather than a
 // Supervisor PVC or CNS, so callers can detect it and route accordingly before doing anything
