@@ -475,3 +475,13 @@ func TestGetAllK8sVolumesConcurrentAccess(t *testing.T) {
 		t.Errorf("Expected %d volume IDs but got %d", iterations/2, len(volumeIDs))
 	}
 }
+
+// TestGetPVCNameFromCSIVolumeIDNilMap verifies that a lookup against an uninitialized
+// volumeIDToPvcMap reports not found instead of panicking.
+func TestGetPVCNameFromCSIVolumeIDNilMap(t *testing.T) {
+	k8sOrchestrator := K8sOrchestrator{}
+	pvcName, pvcNamespace, exists := k8sOrchestrator.GetPVCNameFromCSIVolumeID("test-volume-id")
+	assert.False(t, exists)
+	assert.Empty(t, pvcName)
+	assert.Empty(t, pvcNamespace)
+}

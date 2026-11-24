@@ -2564,17 +2564,20 @@ func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.Contro
 			"ControllerModifyVolume is not supported for guest NFS volume %q", volumeID)
 	}
 
-	// Resolve target VAC from the guest PVC
-	targetVAC, err := c.getTargetVACForVolume(ctx, volumeID)
-	if err != nil {
-		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to resolve target VAC for volume %s: %v", volumeID, err)
+	// Resolve the target supervisor VAC from mutable_parameters, which csi-resizer sources from the
+	// parameters of the target guest VolumeAttributesClass. This matches how CreateVolume resolves it.
+	var targetVAC string
+	for param := range req.GetMutableParameters() {
+		if strings.ToLower(param) == common.AttributeSupervisorVolumeAttributesClass {
+			targetVAC = req.GetMutableParameters()[param]
+		}
 	}
-
 	if targetVAC == "" {
-		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
-			"no VolumeAttributesClass specified in guest PVC")
+		return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			"no VolumeAttributesClass specified: mutable_parameters must contain %q",
+			common.AttributeSupervisorVolumeAttributesClass)
 	}
+	log.Infof("Resolved target VAC %q for volume %q from mutable_parameters", targetVAC, volumeID)
 
 	// Get the supervisor PVC
 	svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
@@ -2648,34 +2651,6 @@ func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.Contro
 
 	log.Infof("Volume %s successfully modified to VAC %q", volumeID, targetVAC)
 	return &csi.ControllerModifyVolumeResponse{}, nil
-}
-
-// getTargetVACForVolume resolves the target VolumeAttributesClass name from the guest PVC.
-// It uses the in-memory volumeID→PVC cache (maintained by the PV informer) to avoid an
-// expensive List call, then fetches the guest PVC to read spec.volumeAttributesClassName.
-func (c *controller) getTargetVACForVolume(ctx context.Context, volumeID string) (string, error) {
-	log := logger.GetLogger(ctx)
-
-	// Look up the guest PVC name/namespace from the cache. The cache is populated by the
-	// PV informer and maps CSI volumeHandle → guest PVC, matching how the supervisor does it.
-	pvcName, pvcNamespace, exists := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(volumeID)
-	if !exists {
-		return "", fmt.Errorf("no guest PVC found for volume %q", volumeID)
-	}
-
-	pvc, err := c.guestClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Get(
-		ctx, pvcName, metav1.GetOptions{})
-	if err != nil {
-		return "", fmt.Errorf("failed to get guest PVC %s/%s: %v", pvcNamespace, pvcName, err)
-	}
-
-	if pvc.Spec.VolumeAttributesClassName == nil {
-		return "", nil // No VAC specified
-	}
-
-	log.Infof("Resolved target VAC %q for volume %q from guest PVC %s/%s",
-		*pvc.Spec.VolumeAttributesClassName, volumeID, pvcNamespace, pvcName)
-	return *pvc.Spec.VolumeAttributesClassName, nil
 }
 
 // waitForSupervisorPVCModifyVolume watches the supervisor PVC until modify volume completion or failure.

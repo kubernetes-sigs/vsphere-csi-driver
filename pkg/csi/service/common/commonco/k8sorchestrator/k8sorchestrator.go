@@ -149,7 +149,11 @@ func (m *volumeIDToPvcMap) remove(volumeHandle string) {
 }
 
 // Returns the namespaced pvc name corresponding to volumeHandle.
+// A nil map (not initialized for this cluster flavor or mode) is treated as not found.
 func (m *volumeIDToPvcMap) get(volumeHandle string) (string, bool) {
+	if m == nil {
+		return "", false
+	}
 	m.RLock()
 	defer m.RUnlock()
 	pvcname, found := m.items[volumeHandle]

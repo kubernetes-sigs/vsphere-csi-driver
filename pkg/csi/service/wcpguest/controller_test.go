@@ -1443,25 +1443,6 @@ func TestControllerGetCapabilitiesModifyVolumeGated(t *testing.T) {
 func TestControllerModifyVolume(t *testing.T) {
 	ctx := context.Background()
 
-	// The fake orchestrator maps any volumeID not containing "invalid" to "mock-pvc"/"mock-namespace".
-	// Guest PVCs must be created under those names so getTargetVACForVolume can find them.
-	const mockPVC = "mock-pvc"
-	const mockNS = "mock-namespace"
-
-	createGuestPVC := func(guestClient *testclient.Clientset, vacName string) {
-		pvc := &v1.PersistentVolumeClaim{
-			ObjectMeta: metav1.ObjectMeta{Name: mockPVC, Namespace: mockNS},
-			Spec:       v1.PersistentVolumeClaimSpec{},
-		}
-		if vacName != "" {
-			pvc.Spec.VolumeAttributesClassName = &vacName
-		}
-		_, err := guestClient.CoreV1().PersistentVolumeClaims(mockNS).Create(ctx, pvc, metav1.CreateOptions{})
-		if err != nil {
-			t.Fatalf("failed to create guest PVC: %v", err)
-		}
-	}
-
 	createTestSupervisorPVC := func(name, namespace string) *v1.PersistentVolumeClaim {
 		return &v1.PersistentVolumeClaim{
 			ObjectMeta: metav1.ObjectMeta{
@@ -1547,8 +1528,6 @@ func TestControllerModifyVolume(t *testing.T) {
 		supervisorClient := testclient.NewClientset()
 		runtimeClient := ctrlclientfake.NewClientBuilder().Build()
 
-		createGuestPVC(guestClient, "") // No VAC — fake maps volumeID → mock-pvc/mock-namespace
-
 		c := &controller{
 			guestClient:             guestClient,
 			supervisorClient:        supervisorClient,
@@ -1585,7 +1564,6 @@ func TestControllerModifyVolume(t *testing.T) {
 		supervisorClient := testclient.NewClientset()
 		runtimeClient := ctrlclientfake.NewClientBuilder().Build()
 
-		createGuestPVC(guestClient, targetVAC) // fake maps volumeID → mock-pvc/mock-namespace
 		supervisorPVC := createTestSupervisorPVC(volumeID, testNamespace)
 		supervisorPVC.Status.CurrentVolumeAttributesClassName = &targetVAC
 		supervisorPVC.Status.ModifyVolumeStatus = nil
@@ -1612,8 +1590,52 @@ func TestControllerModifyVolume(t *testing.T) {
 		require.NoError(t, err)
 
 		req := &csi.ControllerModifyVolumeRequest{
+			VolumeId: volumeID,
+			MutableParameters: map[string]string{
+				common.AttributeSupervisorVolumeAttributesClass: targetVAC,
+			},
+		}
+
+		resp, err := c.ControllerModifyVolume(ctx, req)
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+	})
+
+	t.Run("mutable_parameters key is matched case-insensitively", func(t *testing.T) {
+		volumeID := "test-volume"
+		targetVAC := "target-vac"
+
+		guestClient := testclient.NewClientset()
+		supervisorClient := testclient.NewClientset()
+		runtimeClient := ctrlclientfake.NewClientBuilder().Build()
+
+		supervisorPVC := createTestSupervisorPVC(volumeID, testNamespace)
+		supervisorPVC.Status.CurrentVolumeAttributesClassName = &targetVAC
+
+		_, err := supervisorClient.CoreV1().PersistentVolumeClaims(testNamespace).Create(
+			ctx, supervisorPVC, metav1.CreateOptions{})
+		require.NoError(t, err)
+
+		c := &controller{
+			guestClient:             guestClient,
+			supervisorClient:        supervisorClient,
+			supervisorRuntimeClient: runtimeClient,
+			supervisorNamespace:     testNamespace,
+		}
+
+		fakeOrch, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+		require.NoError(t, err)
+		originalCO := commonco.ContainerOrchestratorUtility
+		commonco.ContainerOrchestratorUtility = fakeOrch
+		defer func() { commonco.ContainerOrchestratorUtility = originalCO }()
+
+		err = fakeOrch.EnableFSS(ctx, common.VMPVCStoragePolicyMutabilityFSS)
+		require.NoError(t, err)
+
+		// csi-resizer passes the guest VAC parameter key as written in the VAC, e.g. svVolumeAttributesClass.
+		req := &csi.ControllerModifyVolumeRequest{
 			VolumeId:          volumeID,
-			MutableParameters: map[string]string{},
+			MutableParameters: map[string]string{"svVolumeAttributesClass": targetVAC},
 		}
 
 		resp, err := c.ControllerModifyVolume(ctx, req)
@@ -1633,8 +1655,6 @@ func TestControllerModifyVolume(t *testing.T) {
 		_ = v1.AddToScheme(scheme)
 		runtimeClient := ctrlclientfake.NewClientBuilder().WithScheme(scheme).Build()
 
-		// Fake orchestrator maps volumeID → mock-pvc/mock-namespace; create the PVC there.
-		createGuestPVC(guestClient, targetVAC)
 		supervisorPVC := createTestSupervisorPVC(volumeID, testNamespace)
 
 		_, err := supervisorClient.CoreV1().PersistentVolumeClaims(testNamespace).Create(
@@ -1683,91 +1703,15 @@ func TestControllerModifyVolume(t *testing.T) {
 		}()
 
 		req := &csi.ControllerModifyVolumeRequest{
-			VolumeId:          volumeID,
-			MutableParameters: map[string]string{},
+			VolumeId: volumeID,
+			MutableParameters: map[string]string{
+				common.AttributeSupervisorVolumeAttributesClass: targetVAC,
+			},
 		}
 
 		resp, err := c.ControllerModifyVolume(ctx, req)
 		assert.NoError(t, err)
 		assert.NotNil(t, resp)
-	})
-}
-
-// TestGetTargetVACForVolume tests the getTargetVACForVolume helper function.
-// The implementation uses commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID
-// (the in-memory PV informer cache) to resolve volumeID → guest PVC.
-// The FakeK8SOrchestrator maps any volumeID containing "invalid" to not-found,
-// and all other volumeIDs to "mock-pvc" / "mock-namespace".
-func TestGetTargetVACForVolume(t *testing.T) {
-	ctx := context.Background()
-	// Ensure commonco.ContainerOrchestratorUtility is initialised with the fake orchestrator.
-	getControllerTest(t)
-
-	const mockPVC = "mock-pvc"
-	const mockNS = "mock-namespace"
-
-	makePVC := func(guestClient *testclient.Clientset, vacName string) {
-		pvc := &v1.PersistentVolumeClaim{
-			ObjectMeta: metav1.ObjectMeta{Name: mockPVC, Namespace: mockNS},
-			Spec:       v1.PersistentVolumeClaimSpec{},
-		}
-		if vacName != "" {
-			pvc.Spec.VolumeAttributesClassName = &vacName
-		}
-		_, err := guestClient.CoreV1().PersistentVolumeClaims(mockNS).Create(ctx, pvc, metav1.CreateOptions{})
-		require.NoError(t, err)
-	}
-
-	t.Run("successful VAC resolution", func(t *testing.T) {
-		guestClient := testclient.NewClientset()
-		makePVC(guestClient, "gold-vac")
-
-		c := &controller{guestClient: guestClient}
-		result, err := c.getTargetVACForVolume(ctx, "test-volume-123")
-		assert.NoError(t, err)
-		assert.Equal(t, "gold-vac", result)
-	})
-
-	t.Run("no VAC specified returns empty string", func(t *testing.T) {
-		guestClient := testclient.NewClientset()
-		makePVC(guestClient, "") // no VAC
-
-		c := &controller{guestClient: guestClient}
-		result, err := c.getTargetVACForVolume(ctx, "test-volume-123")
-		assert.NoError(t, err)
-		assert.Empty(t, result)
-	})
-
-	t.Run("volume not in cache", func(t *testing.T) {
-		// volumeID containing "invalid" causes FakeK8SOrchestrator to return exists=false
-		c := &controller{guestClient: testclient.NewClientset()}
-		result, err := c.getTargetVACForVolume(ctx, "invalid-volume")
-		assert.Error(t, err)
-		assert.Empty(t, result)
-		assert.Contains(t, err.Error(), "no guest PVC found")
-	})
-
-	t.Run("guest PVC not found", func(t *testing.T) {
-		// Cache returns mock-pvc/mock-namespace but PVC does not exist in the API
-		c := &controller{guestClient: testclient.NewClientset()}
-		result, err := c.getTargetVACForVolume(ctx, "test-volume-123")
-		assert.Error(t, err)
-		assert.Empty(t, result)
-		assert.Contains(t, err.Error(), "failed to get guest PVC")
-	})
-
-	t.Run("guest client API failure on get", func(t *testing.T) {
-		guestClient := testclient.NewClientset()
-		guestClient.PrependReactor("get", "persistentvolumeclaims",
-			func(action ktesting.Action) (handled bool, ret runtime.Object, err error) {
-				return true, nil, errors.NewInternalError(assert.AnError)
-			})
-
-		c := &controller{guestClient: guestClient}
-		result, err := c.getTargetVACForVolume(ctx, "test-volume-123")
-		assert.Error(t, err)
-		assert.Empty(t, result)
-		assert.Contains(t, err.Error(), "failed to get guest PVC")
 	})
 }
 
