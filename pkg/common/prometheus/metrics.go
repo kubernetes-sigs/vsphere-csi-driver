@@ -208,4 +208,18 @@ var (
 		Name: "vsphere_cns_volume_pv_retained",
 		Help: "Number of CNS volumes with ReclaimPolicy=Retain PVs in Released/Available phase, per vCenter.",
 	}, []string{"vc"})
+
+	// CsiCBTSessionsInFlightGauge tracks the number of CBT (SnapshotMetadata)
+	// streaming sessions currently being served by the CSI driver.
+	CsiCBTSessionsInFlightGauge = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "vsphere_csi_cbt_sessions_in_flight",
+		Help: "Number of CBT GetMetadataAllocated/GetMetadataDelta sessions currently in flight.",
+	})
+
+	// CsiCBTSessionsRejectedCounterVec counts CBT sessions rejected with
+	// ResourceExhausted because the concurrent session limit was reached.
+	CsiCBTSessionsRejectedCounterVec = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "vsphere_csi_cbt_sessions_rejected_total",
+		Help: "Total number of CBT sessions rejected because the concurrent session limit was reached.",
+	}, []string{"method"})
 )

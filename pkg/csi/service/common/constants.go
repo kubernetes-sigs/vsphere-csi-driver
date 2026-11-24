@@ -678,6 +678,14 @@ const (
 	CSI_Backup_API = "supports_CSI_Backup_API"
 	// CSI_Backup_API_FSS is an FSS for Changed Block Tracking(CBT) support in pvCSI
 	CSI_Backup_API_FSS = "CSI_Backup_API"
+	// DefaultSupervisorMaxConcurrentCBTSessions is the default cap on concurrent CBT
+	// (GetMetadataAllocated/GetMetadataDelta) gRPC sessions served by the Supervisor
+	// CSI driver. CNS limits 500 sessions per datastore and 4000 per VC, but CSI
+	// cannot enforce a per-datastore limit and 4000 is too high, so CSI uses 1024.
+	DefaultSupervisorMaxConcurrentCBTSessions = 1024
+	// DefaultGuestMaxConcurrentCBTSessions is the default cap on concurrent CBT gRPC
+	// sessions served by pvCSI in a guest cluster.
+	DefaultGuestMaxConcurrentCBTSessions = 1024
 	// SupportsExposingStoragePolicyAttributes is the supervisor capability that gates exposing
 	// storage policy attributes to devops users. The same name is reused as the pvCSI FSS in
 	// guest clusters (see WCPFeatureStateAssociatedWithPVCSI), so the guest installs the

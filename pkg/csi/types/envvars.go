@@ -47,4 +47,14 @@ const (
 	// Depending on the value, either controller and node service will be
 	// activated (The identity service is always activated).
 	EnvVarMode = "X_CSI_MODE"
+
+	// EnvSupervisorMaxConcurrentCBTSessions overrides the maximum number of
+	// concurrent CBT (GetMetadataAllocated/GetMetadataDelta) sessions accepted
+	// by the CSI driver running in the Supervisor cluster. Sessions beyond the
+	// limit are rejected with ResourceExhausted.
+	EnvSupervisorMaxConcurrentCBTSessions = "SUPERVISOR_MAX_CONCURRENT_CBT_SESSIONS"
+
+	// EnvGuestMaxConcurrentCBTSessions is the same limit for pvCSI running in
+	// a guest cluster.
+	EnvGuestMaxConcurrentCBTSessions = "GUEST_MAX_CONCURRENT_CBT_SESSIONS"
 )

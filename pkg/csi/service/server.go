@@ -114,49 +114,11 @@ func (s *nonBlockingGRPCServer) serve(endpoint string, ids csi.IdentityServer,
 		return logger.LogNewErrorf(log, "failed to listen: %v", err)
 	}
 
-	server := grpc.NewServer()
+	server, err := newGRPCServer(ids, cs, ns, sms)
+	if err != nil {
+		return err
+	}
 	s.server = server
-
-	// Register the CSI services.
-	// Always require the identity service.
-	if ids == nil {
-		return logger.LogNewError(log, "identity service is required")
-	}
-	// Either a Controller or Node service should be supplied.
-	if cs == nil && ns == nil {
-		return logger.LogNewError(log, "either a controller or node service is required")
-	}
-
-	// Always register the identity service.
-	csi.RegisterIdentityServer(s.server, ids)
-	log.Info("identity service registered")
-
-	// Determine which of the controller/node services to register.
-	mode := os.Getenv(csitypes.EnvVarMode)
-	if strings.EqualFold(mode, "controller") {
-		if cs == nil {
-			return logger.LogNewError(log, "controller service required when running in controller mode")
-		}
-		csi.RegisterControllerServer(s.server, cs)
-		log.Info("controller service registered")
-
-		// Register SnapshotMetadata service for controller mode if provided.
-		// This service provides GetMetadataAllocated and GetMetadataDelta RPCs
-		// for efficient backup and restore operations (CBT support).
-		if sms != nil {
-			csi.RegisterSnapshotMetadataServer(s.server, sms)
-			log.Info("snapshot metadata service registered")
-		}
-	} else if strings.EqualFold(mode, "node") {
-		if ns == nil {
-			return logger.LogNewError(log, "node service required when running in node mode")
-		}
-		csi.RegisterNodeServer(s.server, ns)
-		log.Info("node service registered")
-	} else {
-		return logger.LogNewErrorf(log, "invalid value %q specified for %s, expecting 'node' or 'controller'",
-			mode, csitypes.EnvVarMode)
-	}
 
 	log.Infof("Listening for connections on address: %s", listener.Addr())
 	if err := server.Serve(listener); err != nil {
@@ -164,4 +126,57 @@ func (s *nonBlockingGRPCServer) serve(endpoint string, ids csi.IdentityServer,
 		return err
 	}
 	return nil
+}
+
+// newGRPCServer builds the CSI gRPC server, including the CBT session-limit
+// interceptor, and registers the services required by the current X_CSI_MODE.
+func newGRPCServer(ids csi.IdentityServer, cs csi.ControllerServer, ns csi.NodeServer,
+	sms csi.SnapshotMetadataServer) (*grpc.Server, error) {
+	log := logger.GetLoggerWithNoContext()
+
+	server := grpc.NewServer(grpc.ChainStreamInterceptor(
+		newCBTSessionLimiter(getMaxConcurrentCBTSessions(log)).streamInterceptor))
+
+	// Register the CSI services.
+	// Always require the identity service.
+	if ids == nil {
+		return nil, logger.LogNewError(log, "identity service is required")
+	}
+	// Either a Controller or Node service should be supplied.
+	if cs == nil && ns == nil {
+		return nil, logger.LogNewError(log, "either a controller or node service is required")
+	}
+
+	// Always register the identity service.
+	csi.RegisterIdentityServer(server, ids)
+	log.Info("identity service registered")
+
+	// Determine which of the controller/node services to register.
+	mode := os.Getenv(csitypes.EnvVarMode)
+	if strings.EqualFold(mode, "controller") {
+		if cs == nil {
+			return nil, logger.LogNewError(log, "controller service required when running in controller mode")
+		}
+		csi.RegisterControllerServer(server, cs)
+		log.Info("controller service registered")
+
+		// Register SnapshotMetadata service for controller mode if provided.
+		// This service provides GetMetadataAllocated and GetMetadataDelta RPCs
+		// for efficient backup and restore operations (CBT support).
+		if sms != nil {
+			csi.RegisterSnapshotMetadataServer(server, sms)
+			log.Info("snapshot metadata service registered")
+		}
+	} else if strings.EqualFold(mode, "node") {
+		if ns == nil {
+			return nil, logger.LogNewError(log, "node service required when running in node mode")
+		}
+		csi.RegisterNodeServer(server, ns)
+		log.Info("node service registered")
+	} else {
+		return nil, logger.LogNewErrorf(log, "invalid value %q specified for %s, expecting 'node' or 'controller'",
+			mode, csitypes.EnvVarMode)
+	}
+
+	return server, nil
 }
