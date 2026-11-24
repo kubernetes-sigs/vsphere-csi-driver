@@ -202,15 +202,34 @@ func (ns *NodeServer) NodePublishVolume(_ context.Context, req *csi.NodePublishV
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	if mountPermissions > 0 {
+	// A read-only mount rejects chmod with EROFS. An existing volume whose context omits
+	// mountPermissions falls back to the driver default, so a directory left at 0755 by an older
+	// driver would be chmod'd to 0777 here and the first read-only publish would fail after the
+	// mount had already succeeded. Skip that chmod; a later read-write publish still applies it.
+	if mountPermissions > 0 && !hasReadOnlyMountOption(mountOptions) {
 		if err := chmodIfPermissionMismatch(targetPath, uint32(mountPermissions)); err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
 		}
-	} else {
+	} else if mountPermissions == 0 {
 		klog.V(2).Infof("skip chmod on targetPath(%s) since mountPermissions is set as 0", targetPath)
+	} else {
+		klog.V(2).Infof("skip chmod on targetPath(%s) since the volume is mounted read-only", targetPath)
 	}
 	klog.V(2).Infof("volume(%s) mount %s on %s succeeded", volumeID, source, targetPath)
 	return &csi.NodePublishVolumeResponse{}, nil
+}
+
+// hasReadOnlyMountOption reports whether options mount the volume read-only.
+// An option may be a single flag ("ro") or a comma-separated list.
+func hasReadOnlyMountOption(options []string) bool {
+	for _, opt := range options {
+		for _, part := range strings.Split(opt, ",") {
+			if strings.TrimSpace(part) == "ro" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // NodeUnpublishVolume unmount the volume
