@@ -401,8 +401,32 @@ func (osUtils *OsUtils) CleanupStagePath(ctx context.Context, stagingTarget stri
 			return fmt.Errorf(
 				"error unmounting stagingTarget: %v", err)
 		}
+		// gofsutil.Info has no mount ID. Several lines at this path can be one
+		// propagated mount, which a single unmount clears, or mounts stacked
+		// on the same path, which a single unmount peels one layer from.
+		// If the path is still mounted, report the error so kubelet retries
+		// and the next attempt unmounts the remaining layer. Success here
+		// would let the disk detach while the path is still mounted.
+		stillMounted, err := osUtils.IsTargetInMounts(ctx, stagingTarget)
+		if err != nil {
+			return err
+		}
+		if err := errIfStagingTargetMounted(ctx, stagingTarget, volID, stillMounted); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// errIfStagingTargetMounted reports that one unmount left the staging path
+// mounted. A clear path returns nil.
+func errIfStagingTargetMounted(ctx context.Context, stagingTarget, volID string, mounted bool) error {
+	if !mounted {
+		return nil
+	}
+	log := logger.GetLogger(ctx)
+	return logger.LogNewErrorCodef(log, codes.Internal,
+		"staging target %q for volume %q is still mounted after unmount", stagingTarget, volID)
 }
 
 // IsBlockVolumeMounted checks if the block volume is properly mounted or not.

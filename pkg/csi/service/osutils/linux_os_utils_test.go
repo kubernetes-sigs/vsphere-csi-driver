@@ -389,6 +389,31 @@ func TestDeviceMountedElsewhere(t *testing.T) {
 	}
 }
 
+func TestErrIfStagingTargetMounted(t *testing.T) {
+	ctx := context.Background()
+	staging := "/var/lib/kubelet/plugins/kubernetes.io/csi/pv/pvc-abc/globalmount"
+	volID := "pvc-abc"
+
+	t.Run("cleared mount", func(t *testing.T) {
+		if err := errIfStagingTargetMounted(ctx, staging, volID, false); err != nil {
+			t.Fatalf("cleared path returned %v", err)
+		}
+	})
+
+	t.Run("stacked mount remains", func(t *testing.T) {
+		err := errIfStagingTargetMounted(ctx, staging, volID, true)
+		if err == nil {
+			t.Fatal("expected an error, got nil")
+		}
+		if status.Code(err) != codes.Internal {
+			t.Errorf("status code = %s, want Internal", status.Code(err))
+		}
+		if !strings.Contains(err.Error(), "still mounted after unmount") {
+			t.Errorf("error = %q, want the still-mounted message", err.Error())
+		}
+	})
+}
+
 func TestUnescape(t *testing.T) {
 	tests := []struct {
 		in, out string
