@@ -65,6 +65,10 @@ type QuotaDetails struct {
 	StoragePolicyId string `json:"storagePolicyId,omitempty"`
 	// StorageClassName is the name of K8s storage class associated with the given storage policy.
 	StorageClassName string `json:"storageClassName,omitempty"`
+	// VolumeAttributesClassName is the name of the K8s volume attributes class the volume's
+	// quota is tracked under, if any (e.g. after a storage policy change via VolumeAttributesClass).
+	// +optional
+	VolumeAttributesClassName string `json:"volumeAttributesClassName,omitempty"`
 	// Namespace of the PersistentVolumeClaim.
 	Namespace string `json:"namespace,omitempty"`
 	// AggregatedSnapshotSize stores the aggregate snapshot size for volume.

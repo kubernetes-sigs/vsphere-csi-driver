@@ -61,6 +61,7 @@ type QuotaDetails struct {
 	Reserved                            *resource.Quantity
 	StoragePolicyId                     string
 	StorageClassName                    string
+	VolumeAttributesClassName           string
 	Namespace                           string
 	AggregatedSnapshotSize              *resource.Quantity
 	SnapshotLatestOperationCompleteTime metav1.Time

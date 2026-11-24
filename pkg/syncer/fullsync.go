@@ -935,6 +935,8 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 
 	volumeIdTok8sPVMap := make(map[string]*v1.PersistentVolume)
 	scNameToPolicyIdMap := make(map[string]string)
+	// vacToPolicyIDMap is fetched lazily, only when a volume with a VolumeAttributesClass needs a CnsVolumeInfo.
+	var vacToPolicyIDMap map[string]string
 	var k8sClient clientset.Interface
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && IsPodVMOnStretchSupervisorFSSEnabled {
 		// Create volumeIdTok8sPVMap map for easy lookup of PVs
@@ -1016,8 +1018,32 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 						continue
 					}
 					if pvc.Spec.StorageClassName != nil {
+						policyID := scNameToPolicyIdMap[*pvc.Spec.StorageClassName]
+						// A volume with a VolumeAttributesClass is backed by, and charged to, the VAC's policy.
+						vacName := ""
+						if IsVMPVCStoragePolicyMutabilityEnabled && pvc.Status.CurrentVolumeAttributesClassName != nil &&
+							*pvc.Status.CurrentVolumeAttributesClassName != "" {
+							if vacToPolicyIDMap == nil {
+								vacToPolicyIDMap, err = fetchVACToStoragePolicyMapping(ctx)
+								if err != nil {
+									log.Warnf("FullSync for VC %s: failed to fetch VolumeAttributesClasses for volume %s. "+
+										"Error: %+v", vc, volumeID, err)
+									continue
+								}
+							}
+							if vacPolicyID := vacToPolicyIDMap[*pvc.Status.CurrentVolumeAttributesClassName]; vacPolicyID != "" {
+								vacName, policyID = *pvc.Status.CurrentVolumeAttributesClassName, vacPolicyID
+							} else {
+								// Do not attribute the volume to its StorageClass: the CnsVolumeInfo would not be
+								// revisited once created. Retry on the next full sync instead.
+								log.Warnf("FullSync for VC %s: cannot resolve current VolumeAttributesClass %q for "+
+									"volume %s; retrying next full sync", vc, *pvc.Status.CurrentVolumeAttributesClassName,
+									volumeID)
+								continue
+							}
+						}
 						err = volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeID, pvc.Namespace,
-							scNameToPolicyIdMap[*pvc.Spec.StorageClassName], *pvc.Spec.StorageClassName, vc.String(),
+							policyID, *pvc.Spec.StorageClassName, vacName, vc.String(),
 							&pvcCapacity, isLinkedCloneVolume)
 						if err != nil {
 							log.Warnf("FullSync for VC %s: failed to create VolumeInfo CR for volume %s."+

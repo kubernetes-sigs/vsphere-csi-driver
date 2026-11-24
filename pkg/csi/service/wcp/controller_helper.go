@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
@@ -1069,6 +1070,51 @@ func GetZonesFromAccessibilityRequirements(ctx context.Context,
 		return nil, logger.LogNewErrorCodef(log, codes.Internal, "failed to retrieve zones for e nil")
 	}
 	return zones, nil
+}
+
+// getPVCVolumeAttributesClassName returns spec.volumeAttributesClassName of the given PVC, or "" if unset.
+func getPVCVolumeAttributesClassName(ctx context.Context, k8sClient kubernetes.Interface,
+	namespace, name string) (string, error) {
+	if k8sClient == nil {
+		return "", fmt.Errorf("kubernetes client is not initialized")
+	}
+	if namespace == "" || name == "" {
+		return "", fmt.Errorf("PVC name and namespace must be provided, got %q/%q", namespace, name)
+	}
+	pvc, err := k8sClient.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+	if pvc.Spec.VolumeAttributesClassName == nil {
+		return "", nil
+	}
+	return *pvc.Spec.VolumeAttributesClassName, nil
+}
+
+// getPersistedQuotaOwner returns the storage policy ID and VolumeAttributesClass name recorded in the quota
+// details of the named CnsVolumeOperationRequest, i.e. the owner the operation was reserved and charged
+// against. If they are not available, it returns the given defaults.
+func getPersistedQuotaOwner(ctx context.Context, store cnsvolumeoperationrequest.VolumeOperationRequest,
+	name, defaultPolicyID, defaultVACName string) (string, string) {
+	log := logger.GetLogger(ctx)
+	if store == nil {
+		return defaultPolicyID, defaultVACName
+	}
+	details, err := store.GetRequestDetails(ctx, name)
+	if err != nil {
+		log.Warnf("getPersistedQuotaOwner: failed to get CnsVolumeOperationRequest %q, using policy %q VAC %q. "+
+			"Error: %v", name, defaultPolicyID, defaultVACName, err)
+		return defaultPolicyID, defaultVACName
+	}
+	if details == nil || details.QuotaDetails == nil || details.QuotaDetails.StoragePolicyId == "" {
+		return defaultPolicyID, defaultVACName
+	}
+	policyID, vacName := details.QuotaDetails.StoragePolicyId, details.QuotaDetails.VolumeAttributesClassName
+	if policyID != defaultPolicyID || vacName != defaultVACName {
+		log.Infof("getPersistedQuotaOwner: CnsVolumeOperationRequest %q was charged to policy %q VAC %q, not "+
+			"policy %q VAC %q of this request", name, policyID, vacName, defaultPolicyID, defaultVACName)
+	}
+	return policyID, vacName
 }
 
 // getSnapshotLimitForNamespace reads the snapshot limit from ConfigMap in the namespace.
