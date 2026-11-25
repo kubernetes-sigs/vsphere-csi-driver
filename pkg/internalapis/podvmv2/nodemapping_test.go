@@ -202,28 +202,54 @@ func TestNodeMappingClientReads(t *testing.T) {
 }
 
 func TestNodeClassification(t *testing.T) {
-	withType := func(value string, set bool) *corev1.Node {
-		node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{}}}
+	withProvider := func(value string, set bool) *corev1.Node {
+		node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{}}}
 		if set {
-			node.Annotations[NodeTypeAnnotation] = value
+			node.Labels[VirtualNodeProviderLabel] = value
 		}
 		return node
 	}
+	// The VirtualNode Node as the platform registers it: provider label, hostname label,
+	// a masqueraded single-host annotation, and no node-type annotation.
+	platformVirtualNode := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+		Labels: map[string]string{
+			VirtualNodeProviderLabel:              VirtualNodeProviderValue,
+			"virtualnode.vmware.com/cluster-moid": "domain-c52",
+			corev1.LabelHostname:                  "virtual-node-domain-c52",
+			corev1.LabelTopologyZone:              "zone-1",
+		},
+		Annotations: map[string]string{
+			"vmware-system/csi-create-csinode-object": "true",
+			"vmware-system-esxi-node-moid":            "host-21",
+		},
+	}}
+	// pod.vmware.com/node-type is a Pod annotation. On a Node it carries no meaning.
+	legacyAnnotationOnly := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+		Annotations: map[string]string{"pod.vmware.com/node-type": "virtual-node"},
+	}}
 	for _, tc := range []struct {
 		name               string
 		node               *corev1.Node
 		virtual, dedicated bool
+		nodeType           string
 	}{
 		{name: "nil", node: nil},
-		{name: "annotation absent is a dedicated ESXi Node", node: withType("", false), dedicated: true},
-		{name: "empty annotation is a dedicated ESXi Node", node: withType("", true), dedicated: true},
-		{name: "virtual node", node: withType(VirtualNodeType, true), virtual: true},
-		{name: "unknown type is neither", node: withType("entity-group", true)},
-		{name: "case differs is neither", node: withType("Virtual-Node", true)},
+		{name: "provider absent is a dedicated ESXi Node", node: withProvider("", false), dedicated: true},
+		{name: "empty provider is a dedicated ESXi Node", node: withProvider("", true), dedicated: true},
+		{name: "virtual node", node: withProvider(VirtualNodeProviderValue, true), virtual: true,
+			nodeType: VirtualNodeProviderValue},
+		{name: "platform-registered virtual node", node: platformVirtualNode, virtual: true,
+			nodeType: VirtualNodeProviderValue},
+		{name: "node-type annotation alone is a dedicated ESXi Node", node: legacyAnnotationOnly, dedicated: true},
+		{name: "other provider is neither", node: withProvider("other-provider", true),
+			nodeType: "other-provider"},
+		{name: "case differs is neither", node: withProvider("WCP-Virtual-Node", true),
+			nodeType: "WCP-Virtual-Node"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.virtual, IsVirtualNode(tc.node))
 			require.Equal(t, tc.dedicated, IsDedicatedHostNode(tc.node))
+			require.Equal(t, tc.nodeType, NodeTypeOf(tc.node))
 		})
 	}
 }

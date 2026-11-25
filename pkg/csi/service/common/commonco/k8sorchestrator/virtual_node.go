@@ -145,8 +145,8 @@ func (h *hostInventory) snapshot(ctx context.Context) (map[string]string, error)
 		} else {
 			// An unsupported node type is never read as an ESXi host Node, and
 			// nothing else can be said to own the host it names either.
-			conflicts[host] = fmt.Sprintf("held by Node %q, whose node type %q is not a supported ESXi host Node",
-				node.Name, node.Annotations[podvmv2.NodeTypeAnnotation])
+			conflicts[host] = fmt.Sprintf("held by Node %q, whose provider %q is not a supported ESXi host Node",
+				node.Name, podvmv2.NodeTypeOf(node))
 		}
 	}
 	if len(virtualNodes) > 0 {
@@ -166,8 +166,9 @@ func (h *hostInventory) snapshot(ctx context.Context) (map[string]string, error)
 }
 
 // addVirtualNodeHosts publishes each VirtualNode's hosts from its NodeMapping.
-// The platform scopes that list to hosts without a dedicated Node, so CSI
-// performs no handoff inference of its own. A host listed by two VirtualNodes
+// The producer lists the cluster's hosts that run an ESXi release supporting
+// VirtualNodes. Upgrading a host to such a release deletes its dedicated Node,
+// so CSI performs no handoff inference of its own. A host listed by two VirtualNodes
 // gets no owner. A host listed by a VirtualNode that a dedicated Node still
 // holds stays with the dedicated Node, which is the live owner until it is
 // deleted; dropping both claimants would hide that host's volumes.
@@ -207,7 +208,7 @@ func (h *hostInventory) addVirtualNodeHosts(ctx context.Context, virtualNodes []
 			continue
 		}
 		for _, host := range hosts {
-			// The platform scopes status.hosts to hosts without a dedicated
+			// A host listed in status.hosts should no longer have a dedicated
 			// Node, so an overlap means the mapping and live Node state
 			// disagree: producer lag, a reverse transition or a bug.
 			if holder, held := reserved[host]; held {

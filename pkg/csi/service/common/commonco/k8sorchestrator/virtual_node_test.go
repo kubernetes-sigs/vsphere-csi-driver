@@ -46,13 +46,14 @@ func inventoryNode(name, host string, virtual bool) *corev1.Node {
 		node.Annotations[common.HostMoidAnnotationKey] = host
 	}
 	if virtual {
-		node.Annotations[podvmv2.NodeTypeAnnotation] = podvmv2.VirtualNodeType
+		node.Labels[podvmv2.VirtualNodeProviderLabel] = podvmv2.VirtualNodeProviderValue
 	}
 	return node
 }
 
-// nodeMapping builds a mapping the resolver should accept. The platform scopes
-// hosts to those without a dedicated Node, so tests list only handed-off hosts.
+// nodeMapping builds a mapping the resolver should accept. A host is listed once it
+// runs a release supporting VirtualNodes, by which point its dedicated Node is gone,
+// so tests list only handed-off hosts.
 func nodeMapping(node *corev1.Node, hosts ...string) podvmv2.NodeMapping {
 	controller := true
 	mapping := podvmv2.NodeMapping{
@@ -194,7 +195,7 @@ func TestVirtualNodeInventoryRejectsUntrustworthyMapping(t *testing.T) {
 				node.DeletionTimestamp = &now
 				want = map[string]string{"host-1": "compute-a"}
 			case "unknown node type":
-				node.Annotations[podvmv2.NodeTypeAnnotation] = "entity-group"
+				node.Labels[podvmv2.VirtualNodeProviderLabel] = "other-provider"
 			case "node list fails":
 				wantErr = true
 				nodeListErr = fmt.Errorf("unavailable")
@@ -249,7 +250,7 @@ func TestDedicatedNodesReserveHostsDuringHandoff(t *testing.T) {
 				now := metav1.Now()
 				node.DeletionTimestamp = &now
 			case "unknown type":
-				node.Annotations[podvmv2.NodeTypeAnnotation] = "entity-group"
+				node.Labels[podvmv2.VirtualNodeProviderLabel] = "other-provider"
 			case "conflicting dedicated":
 				objects = append(objects, inventoryNode("duplicate", "host-1", false))
 			}
@@ -332,4 +333,34 @@ func TestSharedDynamicClientRetriesAfterFailure(t *testing.T) {
 	require.NoError(t, err)
 	require.Same(t, client, again, "a successful client is reused")
 	require.Equal(t, 2, built, "the client is built once after the retry succeeds")
+}
+
+// The platform registers a VirtualNode with a masqueraded single-host annotation naming a host
+// that may still have its own dedicated Node. Recognized by its provider label, the VirtualNode
+// takes its hosts from the NodeMapping only, and the masqueraded host stays with its dedicated
+// Node instead of being withheld as claimed by two dedicated Nodes.
+func TestVirtualNodeInventoryIgnoresMasqueradedHost(t *testing.T) {
+	ctx := context.Background()
+	setPodVMV2Capability(t, true)
+	virtual := inventoryNode("virtual-node-domain-c52", "host-2", true)
+	virtual.Labels[corev1.LabelHostname] = virtual.Name
+	client := fake.NewSimpleClientset(
+		inventoryNode("esx-2", "host-2", false),
+		inventoryNode("esx-3", "host-3", false),
+		virtual,
+	)
+	h := &hostInventory{
+		client: client,
+		nodeMappings: func(context.Context) ([]podvmv2.NodeMapping, error) {
+			return []podvmv2.NodeMapping{nodeMapping(virtual, "host-1")}, nil
+		},
+	}
+	c := &K8sOrchestrator{clusterFlavor: cnstypes.CnsClusterFlavorWorkload, hostInventory: h}
+	owners, err := c.GetNodeIDtoNameMap(ctx)
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{
+		"host-1": "virtual-node-domain-c52",
+		"host-2": "esx-2",
+		"host-3": "esx-3",
+	}, owners)
 }

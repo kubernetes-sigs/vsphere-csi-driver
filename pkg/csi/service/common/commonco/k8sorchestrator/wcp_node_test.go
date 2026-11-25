@@ -220,7 +220,7 @@ func TestCreateCSINodePodVMV2(t *testing.T) {
 		{name: "registration trigger absent", podVMV2: true},
 		{name: "legacy prefix is not identity", nodeName: "virtual-node-domain-c1", podVMV2: true, trigger: true,
 			want: []string{zone, host}},
-		{name: "unknown future node type", nodeType: "entity-group", podVMV2: true, trigger: true},
+		{name: "unknown node provider", nodeType: "other-provider", podVMV2: true, trigger: true},
 		{name: "virtual zone pending", virtualNode: true, podVMV2: true, trigger: true, missingZone: true},
 	} {
 		for _, hostLocal := range []bool{false, true} {
@@ -243,7 +243,7 @@ func TestCreateCSINodePodVMV2(t *testing.T) {
 					Labels: map[string]string{corev1.LabelTopologyZone: "zone-1"},
 				}}
 				if tc.virtualNode {
-					node.Annotations[podvmv2.NodeTypeAnnotation] = podvmv2.VirtualNodeType
+					node.Labels[podvmv2.VirtualNodeProviderLabel] = podvmv2.VirtualNodeProviderValue
 				} else {
 					node.Labels[corev1.LabelHostname] = node.Name
 				}
@@ -254,7 +254,7 @@ func TestCreateCSINodePodVMV2(t *testing.T) {
 					node.Name = tc.nodeName
 				}
 				if tc.nodeType != "" {
-					node.Annotations[podvmv2.NodeTypeAnnotation] = tc.nodeType
+					node.Labels[podvmv2.VirtualNodeProviderLabel] = tc.nodeType
 				}
 				if tc.missingZone {
 					delete(node.Labels, corev1.LabelTopologyZone)
@@ -311,7 +311,8 @@ func TestCSINodeRegistrationMetadataArrivesLater(t *testing.T) {
 	client := k8sfake.NewSimpleClientset()
 	c := &K8sOrchestrator{k8sClient: client, clusterFlavor: cnstypes.CnsClusterFlavorWorkload}
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "cluster-node", UID: "uid",
-		Annotations: map[string]string{podvmv2.NodeTypeAnnotation: podvmv2.VirtualNodeType}}}
+		Annotations: map[string]string{},
+		Labels:      map[string]string{podvmv2.VirtualNodeProviderLabel: podvmv2.VirtualNodeProviderValue}}}
 	c.createCSINode(node)
 	triggered := node.DeepCopy()
 	triggered.Annotations[common.CreateCSINodeAnnotation] = "true"
@@ -320,7 +321,7 @@ func TestCSINodeRegistrationMetadataArrivesLater(t *testing.T) {
 		t.Fatal("registration must wait for zone")
 	}
 	zoned := triggered.DeepCopy()
-	zoned.Labels = map[string]string{corev1.LabelTopologyZone: "zone-1"}
+	zoned.Labels[corev1.LabelTopologyZone] = "zone-1"
 	c.updateCSINode(triggered, zoned)
 	registered, err := client.StorageV1().CSINodes().Get(context.Background(), node.Name, metav1.GetOptions{})
 	if err != nil {
@@ -362,10 +363,12 @@ func TestCreateCSINodeStaleOwner(t *testing.T) {
 			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
 				Name: "compute-node", UID: "node-uid",
 				Annotations: map[string]string{
-					podvmv2.NodeTypeAnnotation:     podvmv2.VirtualNodeType,
 					common.CreateCSINodeAnnotation: "true",
 				},
-				Labels: map[string]string{corev1.LabelTopologyZone: "zone-1"},
+				Labels: map[string]string{
+					corev1.LabelTopologyZone:         "zone-1",
+					podvmv2.VirtualNodeProviderLabel: podvmv2.VirtualNodeProviderValue,
+				},
 			}}
 			client := k8sfake.NewSimpleClientset(&storagev1.CSINode{
 				ObjectMeta: metav1.ObjectMeta{Name: node.Name, OwnerReferences: tc.owners},
@@ -412,7 +415,7 @@ func TestCreateCSINodeWithoutVSphereDriverEntryPodVMV2(t *testing.T) {
 			node := newAnnotatedNode()
 			node.Labels = map[string]string{corev1.LabelTopologyZone: "zone-1"}
 			if virtual {
-				node.Annotations[podvmv2.NodeTypeAnnotation] = podvmv2.VirtualNodeType
+				node.Labels[podvmv2.VirtualNodeProviderLabel] = podvmv2.VirtualNodeProviderValue
 			}
 			c, client := newWCPNodeTestOrchestrator(t, newExistingCSINode(otherDriver()))
 			c.createCSINode(node)
@@ -420,4 +423,71 @@ func TestCreateCSINodeWithoutVSphereDriverEntryPodVMV2(t *testing.T) {
 			require.Nil(t, findDriver(getCSINode(t, client), common.VSphereCSIDriverName))
 		})
 	}
+}
+
+// platformVirtualNode returns a VirtualNode shaped as the platform registers it: the provider
+// label, a hostname label equal to the Node name, a masqueraded single-host annotation, and no
+// pod.vmware.com/node-type annotation (that key is set only on Pods).
+func platformVirtualNode(name string) *corev1.Node {
+	return &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+		Name: name, UID: "virtual-node-uid",
+		Labels: map[string]string{
+			podvmv2.VirtualNodeProviderLabel:      podvmv2.VirtualNodeProviderValue,
+			"virtualnode.vmware.com/cluster-moid": "domain-c52",
+			corev1.LabelHostname:                  name,
+			corev1.LabelTopologyZone:              "zone-1",
+		},
+		Annotations: map[string]string{
+			common.CreateCSINodeAnnotation: "true",
+			common.HostMoidAnnotationKey:   "host-21",
+		},
+	}}
+}
+
+// A VirtualNode registered by the platform must get zone-only topology even though it carries a
+// hostname label and a masqueraded host annotation. A CSINode registered earlier with the
+// dedicated-Node keys is re-created with the zone key alone.
+func TestCreateCSINodePlatformVirtualNode(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		existing []string
+	}{
+		{name: "new registration"},
+		{name: "re-registers dedicated-Node keys", existing: []string{corev1.LabelTopologyZone, corev1.LabelHostname}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var seed []*storagev1.CSINode
+			if tc.existing != nil {
+				seed = append(seed, newExistingCSINode(storagev1.CSINodeDriver{
+					Name: common.VSphereCSIDriverName, NodeID: testCSINodeName, TopologyKeys: tc.existing,
+				}))
+			}
+			c, client := newWCPNodeTestOrchestrator(t, seed...)
+			WcpCapabilitiesMap.Store(common.PodVMV2Support, true)
+			c.createCSINode(platformVirtualNode(testCSINodeName))
+			driver := findDriver(getCSINode(t, client), common.VSphereCSIDriverName)
+			require.NotNil(t, driver)
+			require.Equal(t, []string{corev1.LabelTopologyZone}, driver.TopologyKeys)
+		})
+	}
+}
+
+// Gaining the provider label is a relevant Node change: registration is retried and the CSINode
+// moves from the dedicated-Node keys to zone-only topology.
+func TestUpdateCSINodeOnProviderLabelChange(t *testing.T) {
+	c, client := newWCPNodeTestOrchestrator(t)
+	WcpCapabilitiesMap.Store(common.PodVMV2Support, true)
+	virtual := platformVirtualNode(testCSINodeName)
+	unlabeled := virtual.DeepCopy()
+	delete(unlabeled.Labels, podvmv2.VirtualNodeProviderLabel)
+
+	c.createCSINode(unlabeled)
+	driver := findDriver(getCSINode(t, client), common.VSphereCSIDriverName)
+	require.NotNil(t, driver)
+	require.Equal(t, []string{corev1.LabelTopologyZone, corev1.LabelHostname}, driver.TopologyKeys)
+
+	c.updateCSINode(unlabeled, virtual)
+	driver = findDriver(getCSINode(t, client), common.VSphereCSIDriverName)
+	require.NotNil(t, driver)
+	require.Equal(t, []string{corev1.LabelTopologyZone}, driver.TopologyKeys)
 }
