@@ -169,6 +169,19 @@ func TestCSINodeTopologyControllerForTKGSHA(t *testing.T) {
 				Phase: corev1.ClaimPending,
 			},
 		}
+		// HostLocalStorage + PodVM v2: zone-only accessible topology plus the host MoID mirror.
+		expectedHostMoID          = "host-45"
+		testPVCWithHostMoIDMirror = &corev1.PersistentVolumeClaim{
+			Status: corev1.PersistentVolumeClaimStatus{Phase: corev1.ClaimBound},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      testPVCName,
+				Namespace: testSupervisorNamespace,
+				Annotations: map[string]string{
+					common.AnnVolumeAccessibleTopology: `[{"topology.kubernetes.io/zone":"` + expectedZoneValue + `"}]`,
+					common.AttributeESXiHostMoID:       expectedHostMoID,
+				},
+			},
+		}
 		testBufferSize = 1024
 	)
 
@@ -178,11 +191,13 @@ func TestCSINodeTopologyControllerForTKGSHA(t *testing.T) {
 		vm                            *vmoperatortypes.VirtualMachine
 		vmV1alpha2                    *vmoperatorv1alpha2.VirtualMachine
 		enableHostLocalSupportInGuest bool
-		existingPVC                   *corev1.PersistentVolumeClaim
-		expectedTopologyLabels        []csinodetopologyv1alpha1.TopologyLabel
-		expectedCRDStatus             csinodetopologyv1alpha1.CRDStatus
-		expectedReconcileResult       reconcile.Result
-		expectedReconcileError        error
+		// enableHostLocalStorageAndPodVMV2InGuest selects HostLocalStorage + PodVM v2.
+		enableHostLocalStorageAndPodVMV2InGuest bool
+		existingPVC                             *corev1.PersistentVolumeClaim
+		expectedTopologyLabels                  []csinodetopologyv1alpha1.TopologyLabel
+		expectedCRDStatus                       csinodetopologyv1alpha1.CRDStatus
+		expectedReconcileResult                 reconcile.Result
+		expectedReconcileError                  error
 	}{
 		{
 			name:            "TestWithVmStatusZonePopulated",
@@ -249,6 +264,40 @@ func TestCSINodeTopologyControllerForTKGSHA(t *testing.T) {
 			expectedCRDStatus:             csinodetopologyv1alpha1.CSINodeTopologyError,
 			expectedReconcileResult:       reconcile.Result{RequeueAfter: time.Second},
 			expectedReconcileError:        nil,
+		},
+		{
+			name:                                    "TestWithHostLocalStorageAndPodVMV2_PVCHasHostMoIDMirror",
+			csiNodeTopology:                         testCSINodeTopology.DeepCopy(),
+			vm:                                      testVMwithNonRemovableVolume.DeepCopy(),
+			enableHostLocalSupportInGuest:           true,
+			enableHostLocalStorageAndPodVMV2InGuest: true,
+			existingPVC:                             testPVCWithHostMoIDMirror.DeepCopy(),
+			expectedTopologyLabels: []csinodetopologyv1alpha1.TopologyLabel{
+				{
+					Key:   expectedZoneKey,
+					Value: expectedZoneValue,
+				},
+				{
+					Key:   expectedHostKey,
+					Value: expectedHostMoID,
+				},
+			},
+			expectedCRDStatus:       csinodetopologyv1alpha1.CSINodeTopologySuccess,
+			expectedReconcileResult: reconcile.Result{},
+			expectedReconcileError:  nil,
+		},
+		{
+			// A HostLocalStorage boot PVC (hostname, no mirror) is not renamed into a MoID.
+			name:                                    "TestWithHostLocalStorageAndPodVMV2_PVCHasOnlyHostname",
+			csiNodeTopology:                         testCSINodeTopology.DeepCopy(),
+			vm:                                      testVMwithNonRemovableVolume.DeepCopy(),
+			enableHostLocalSupportInGuest:           true,
+			enableHostLocalStorageAndPodVMV2InGuest: true,
+			existingPVC:                             withBoundPhase(testPVCWithTopologyAnnotation.DeepCopy()),
+			expectedTopologyLabels:                  nil,
+			expectedCRDStatus:                       csinodetopologyv1alpha1.CSINodeTopologyError,
+			expectedReconcileResult:                 reconcile.Result{RequeueAfter: time.Second},
+			expectedReconcileError:                  nil,
 		},
 		{
 			name:                          "TestWithHostLocalSupportDisabled",
@@ -321,15 +370,16 @@ func TestCSINodeTopologyControllerForTKGSHA(t *testing.T) {
 			supervisorClientset := fake.NewSimpleClientset(supervisorClientsetObjs...)
 
 			r := &ReconcileCSINodeTopology{
-				client:                        fakeClient,
-				scheme:                        s,
-				configInfo:                    &cnsconfig.ConfigurationInfo{},
-				recorder:                      record.NewFakeRecorder(testBufferSize),
-				enableTKGsHAinGuest:           true,
-				enableHostLocalSupportInGuest: test.enableHostLocalSupportInGuest,
-				vmOperatorClient:              fakeVmOperatorClient,
-				supervisorNamespace:           testSupervisorNamespace,
-				supervisorClientset:           supervisorClientset,
+				client:                                  fakeClient,
+				scheme:                                  s,
+				configInfo:                              &cnsconfig.ConfigurationInfo{},
+				recorder:                                record.NewFakeRecorder(testBufferSize),
+				enableTKGsHAinGuest:                     true,
+				enableHostLocalSupportInGuest:           test.enableHostLocalSupportInGuest,
+				enableHostLocalStorageAndPodVMV2InGuest: test.enableHostLocalStorageAndPodVMV2InGuest,
+				vmOperatorClient:                        fakeVmOperatorClient,
+				supervisorNamespace:                     testSupervisorNamespace,
+				supervisorClientset:                     supervisorClientset,
 			}
 
 			backOffDuration = make(map[types.NamespacedName]time.Duration)
@@ -356,6 +406,57 @@ func TestCSINodeTopologyControllerForTKGSHA(t *testing.T) {
 
 			assert.Equal(t, test.expectedCRDStatus, updatedCSINodeTopology.Status.Status)
 			assert.Equal(t, test.expectedTopologyLabels, updatedCSINodeTopology.Status.TopologyLabels)
+		})
+	}
+}
+
+func withBoundPhase(pvc *corev1.PersistentVolumeClaim) *corev1.PersistentVolumeClaim {
+	pvc.Status.Phase = corev1.ClaimBound
+	return pvc
+}
+
+// TestBootVolumeHostMoID covers getHostMoIDFromNonRemovableVolume, used only when
+// HostLocalStorage and PodVM v2 are both enabled.
+func TestBootVolumeHostMoID(t *testing.T) {
+	for _, scenario := range []string{"legacy local", "virtual local", "shared", "pending", "missing host", "wrong zone"} {
+		t.Run(scenario, func(t *testing.T) {
+			vm := &vmoperatortypes.VirtualMachine{ObjectMeta: metav1.ObjectMeta{Name: "worker"},
+				Spec: vmoperatortypes.VirtualMachineSpec{Volumes: []vmoperatortypes.VirtualMachineVolume{{
+					Name: "boot", Removable: boolPtr(false), VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
+						PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+							PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{ClaimName: "boot"},
+						},
+					},
+				}}}, Status: vmoperatortypes.VirtualMachineStatus{Zone: "zone-1"}}
+			pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "boot", Namespace: "tenant",
+				Annotations: map[string]string{
+					common.AnnVolumeAccessibleTopology: `[{"topology.kubernetes.io/zone":"zone-1"}]`,
+					common.AttributeESXiHostMoID:       "host-45",
+				}}, Status: corev1.PersistentVolumeClaimStatus{Phase: corev1.ClaimBound}}
+			if scenario == "legacy local" || scenario == "missing host" {
+				pvc.Annotations[common.AnnVolumeAccessibleTopology] =
+					`[{"topology.kubernetes.io/zone":"zone-1","kubernetes.io/hostname":"esx.example.com"}]`
+			}
+			if scenario == "shared" || scenario == "missing host" {
+				delete(pvc.Annotations, common.AttributeESXiHostMoID)
+			}
+			if scenario == "pending" {
+				pvc.Status.Phase = corev1.ClaimPending
+			}
+			if scenario == "wrong zone" {
+				vm.Status.Zone = "zone-2"
+			}
+			host, err := getHostMoIDFromNonRemovableVolume(context.Background(), fake.NewSimpleClientset(pvc), vm, pvc.Namespace)
+			if scenario == "pending" || scenario == "missing host" || scenario == "wrong zone" {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			if scenario == "shared" {
+				assert.Empty(t, host)
+			} else {
+				assert.Equal(t, "host-45", host)
+			}
 		})
 	}
 }

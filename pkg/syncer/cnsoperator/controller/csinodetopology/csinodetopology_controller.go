@@ -100,6 +100,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	var vmOperatorClient client.Client
 	var supervisorNamespace string
 	var enableHostLocalSupportInGuest bool
+	var enableHostLocalStorageAndPodVMV2InGuest bool
 	var supervisorClientset kubernetes.Interface
 	if enableTKGsHAinGuest {
 		log.Infof("The %s FSS is enabled in %s", common.TKGsHA, cnstypes.CnsClusterFlavorGuest)
@@ -121,10 +122,23 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		if enableHostLocalSupportInGuest {
 			log.Infof("The %s FSS is enabled in %s", common.HostLocalStorageSupportFSS, cnstypes.CnsClusterFlavorGuest)
 
+			// HostLocalStorage + PodVM v2 requires all four switches: the
+			// host-local-storage-support and podvm-v2-support PVCSI FSSs and the
+			// supports_host_local_storage and supports_podvm_v2 Supervisor capabilities.
+			// Latched for the life of this process so worker topology does not change
+			// between reconciles.
+			enableHostLocalStorageAndPodVMV2InGuest = commonco.IsHostLocalStorageAndPodVMV2EnabledInGuest(ctx,
+				coCommonInterface)
+			if enableHostLocalStorageAndPodVMV2InGuest {
+				log.Infof("HostLocalStorage and PodVM v2 are both enabled in %s: worker host topology uses "+
+					"the ESXi host MoID", cnstypes.CnsClusterFlavorGuest)
+			}
+
 			// Used to read the Supervisor PVC backing the node VM's
-			// non-removable (boot) volume, whose
+			// non-removable (boot) volume. With HostLocalStorage, its
 			// csi.vsphere.volume-accessible-topology annotation carries the
-			// ESXi hostname.
+			// ESXi hostname. With HostLocalStorage + PodVM v2, its
+			// cns.vmware.com/esxi-host-moid annotation carries the ESXi host MoID.
 			supervisorClientset, err = kubernetes.NewForConfig(restClientConfigForSupervisor)
 			if err != nil {
 				log.Errorf("failed to create supervisor clientset. Error: %+v", err)
@@ -150,24 +164,26 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme,
 		corev1.EventSource{Component: csinodetopologyv1alpha1.GroupName})
 	return add(mgr, newReconciler(mgr, configInfo, recorder,
-		enableTKGsHAinGuest, enableHostLocalSupportInGuest, vmOperatorClient, supervisorNamespace,
-		supervisorClientset))
+		enableTKGsHAinGuest, enableHostLocalSupportInGuest, enableHostLocalStorageAndPodVMV2InGuest,
+		vmOperatorClient, supervisorNamespace, supervisorClientset))
 }
 
 // newReconciler returns a new `reconcile.Reconciler`.
 func newReconciler(mgr manager.Manager, configInfo *cnsconfig.ConfigurationInfo, recorder record.EventRecorder,
-	enableTKGsHAinGuest bool, enableHostLocalSupportInGuest bool, vmOperatorClient client.Client,
-	supervisorNamespace string, supervisorClientset kubernetes.Interface) reconcile.Reconciler {
+	enableTKGsHAinGuest bool, enableHostLocalSupportInGuest bool, enableHostLocalStorageAndPodVMV2InGuest bool,
+	vmOperatorClient client.Client, supervisorNamespace string,
+	supervisorClientset kubernetes.Interface) reconcile.Reconciler {
 	return &ReconcileCSINodeTopology{
-		client:                        mgr.GetClient(),
-		scheme:                        mgr.GetScheme(),
-		configInfo:                    configInfo,
-		recorder:                      recorder,
-		enableTKGsHAinGuest:           enableTKGsHAinGuest,
-		enableHostLocalSupportInGuest: enableHostLocalSupportInGuest,
-		vmOperatorClient:              vmOperatorClient,
-		supervisorNamespace:           supervisorNamespace,
-		supervisorClientset:           supervisorClientset,
+		client:                                  mgr.GetClient(),
+		scheme:                                  mgr.GetScheme(),
+		configInfo:                              configInfo,
+		recorder:                                recorder,
+		enableTKGsHAinGuest:                     enableTKGsHAinGuest,
+		enableHostLocalSupportInGuest:           enableHostLocalSupportInGuest,
+		enableHostLocalStorageAndPodVMV2InGuest: enableHostLocalStorageAndPodVMV2InGuest,
+		vmOperatorClient:                        vmOperatorClient,
+		supervisorNamespace:                     supervisorNamespace,
+		supervisorClientset:                     supervisorClientset,
 	}
 }
 
@@ -235,7 +251,10 @@ type ReconcileCSINodeTopology struct {
 	supervisorNamespace           string
 	enableTKGsHAinGuest           bool
 	enableHostLocalSupportInGuest bool
-	supervisorClientset           kubernetes.Interface
+	// enableHostLocalStorageAndPodVMV2InGuest is true only when HostLocalStorage and PodVM v2
+	// are both enabled (see commonco.IsHostLocalStorageAndPodVMV2EnabledInGuest).
+	enableHostLocalStorageAndPodVMV2InGuest bool
+	supervisorClientset                     kubernetes.Interface
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -419,7 +438,8 @@ func (r *ReconcileCSINodeTopology) reconcileForGuest(ctx context.Context, reques
 
 	// Fetch topology labels for guest worker node backed by vmop VM.
 	topologyLabels, err := getNodeTopologyInfoForGuest(ctx, instance, r.vmOperatorClient,
-		r.supervisorNamespace, r.enableHostLocalSupportInGuest, r.supervisorClientset)
+		r.supervisorNamespace, r.enableHostLocalSupportInGuest, r.enableHostLocalStorageAndPodVMV2InGuest,
+		r.supervisorClientset)
 	if err != nil {
 		msg := fmt.Sprintf("failed to fetch topology information for the worker node %q. Error: %v",
 			instance.Name, err)
@@ -449,14 +469,15 @@ func (r *ReconcileCSINodeTopology) reconcileForGuest(ctx context.Context, reques
 
 func getNodeTopologyInfoForGuest(ctx context.Context, instance *csinodetopologyv1alpha1.CSINodeTopology,
 	vmOperatorClient client.Client, supervisorNamespace string,
-	enableHostLocalSupportInGuest bool, supervisorClientset kubernetes.Interface) (
+	enableHostLocalSupportInGuest bool, enableHostLocalStorageAndPodVMV2InGuest bool,
+	supervisorClientset kubernetes.Interface) (
 	[]csinodetopologyv1alpha1.TopologyLabel, error) {
 	log := logger.GetLogger(ctx)
 	vmKey := types.NamespacedName{
 		Namespace: supervisorNamespace,
 		Name:      instance.Name, // use the nodeName as the VM key
 	}
-	var zone, hostname string
+	var zone, host string
 	if enableHostLocalSupportInGuest {
 		// v1alpha5 is needed here (and only here) to read
 		// Spec.Volumes[].Removable, which identifies the boot volume for
@@ -469,15 +490,28 @@ func getNodeTopologyInfoForGuest(ctx context.Context, instance *csinodetopologyv
 		}
 		zone = virtualMachine.Status.Zone
 
-		// For host-local storage, the node VM's non-removable (boot) volume's
-		// backing Supervisor PVC carries the resolved ESXi hostname in its
-		// csi.vsphere.volume-accessible-topology annotation (stamped by the
-		// Supervisor CSI/CNS provisioning path).
-		hostname, err = getHostnameFromNonRemovableVolume(ctx, supervisorClientset, virtualMachine,
-			supervisorNamespace)
-		if err != nil {
-			return nil, logger.LogNewErrorf(log,
-				"failed to resolve ESXi hostname for node %q. Error: %+v", instance.Name, err)
+		if enableHostLocalStorageAndPodVMV2InGuest {
+			// HostLocalStorage + PodVM v2: the node VM's non-removable (boot) volume's
+			// backing Supervisor PVC carries the resolved ESXi host MoID in its
+			// cns.vmware.com/esxi-host-moid annotation (stamped by the
+			// Supervisor provisioner alongside accessible topology).
+			host, err = getHostMoIDFromNonRemovableVolume(ctx, supervisorClientset, virtualMachine,
+				supervisorNamespace)
+			if err != nil {
+				return nil, logger.LogNewErrorf(log,
+					"failed to resolve ESXi host MoID for node %q. Error: %+v", instance.Name, err)
+			}
+		} else {
+			// HostLocalStorage: the node VM's non-removable (boot) volume's
+			// backing Supervisor PVC carries the resolved ESXi hostname in its
+			// csi.vsphere.volume-accessible-topology annotation (stamped by the
+			// Supervisor CSI/CNS provisioning path).
+			host, err = getHostnameFromNonRemovableVolume(ctx, supervisorClientset, virtualMachine,
+				supervisorNamespace)
+			if err != nil {
+				return nil, logger.LogNewErrorf(log,
+					"failed to resolve ESXi hostname for node %q. Error: %+v", instance.Name, err)
+			}
 		}
 	} else {
 		log.Info("fetching virtual machines with all versions")
@@ -498,11 +532,11 @@ func getNodeTopologyInfoForGuest(ctx context.Context, instance *csinodetopologyv
 			},
 		)
 	}
-	if hostname != "" {
+	if host != "" {
 		topologyLabels = append(topologyLabels,
 			csinodetopologyv1alpha1.TopologyLabel{
 				Key:   common.GuestClusterTopologyLabelHost,
-				Value: hostname,
+				Value: host,
 			},
 		)
 	}
@@ -564,6 +598,53 @@ func getHostnameFromNonRemovableVolume(ctx context.Context, supervisorClientset 
 	log.Infof("PVC %q's %q annotation did not contain a %q key", pvcName, common.AnnVolumeAccessibleTopology,
 		corev1.LabelHostname)
 	return "", nil
+}
+
+// getHostMoIDFromNonRemovableVolume reads the boot PVC's committed host mirror. Used only
+// when HostLocalStorage and PodVM v2 are both enabled.
+// Shared zonal boot volumes have no host mirror and publish zone only.
+func getHostMoIDFromNonRemovableVolume(ctx context.Context, supervisorClientset kubernetes.Interface,
+	virtualMachine *vmoperatorv1alpha5.VirtualMachine, supervisorNamespace string) (string, error) {
+	var pvcName string
+	for _, vol := range virtualMachine.Spec.Volumes {
+		if vol.Removable != nil && !*vol.Removable && vol.PersistentVolumeClaim != nil {
+			pvcName = vol.PersistentVolumeClaim.ClaimName
+			break
+		}
+	}
+	if pvcName == "" {
+		return "", fmt.Errorf("no non-removable volume with a PVC found on VirtualMachine %q", virtualMachine.Name)
+	}
+
+	pvc, err := supervisorClientset.CoreV1().PersistentVolumeClaims(supervisorNamespace).Get(
+		ctx, pvcName, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get PVC %q: %w", pvcName, err)
+	}
+
+	// Get() succeeds and returns the PVC object as soon as it is created,
+	// regardless of binding state. The volume-accessible-topology annotation
+	// is only stamped once the underlying volume is provisioned and bound,
+	// so a still-Pending PVC must be treated as a hard error (and retried),
+	// not silently skipped.
+	if pvc.Status.Phase != corev1.ClaimBound {
+		return "", fmt.Errorf("boot disk PVC %q is still in %q phase; cannot resolve ESXi host MoID yet",
+			pvcName, pvc.Status.Phase)
+	}
+
+	topologies, err := common.GuestAccessibleTopology(pvc)
+	if err != nil {
+		return "", err
+	}
+	host := pvc.Annotations[common.AttributeESXiHostMoID]
+	if host != "" {
+		for _, topology := range topologies {
+			if virtualMachine.Status.Zone == "" || topology[corev1.LabelTopologyZone] != virtualMachine.Status.Zone {
+				return "", fmt.Errorf("boot volume zone does not match VM %q zone", virtualMachine.Name)
+			}
+		}
+	}
+	return host, nil
 }
 
 // getVirtualMachineV1alpha5 fetches a VirtualMachine using the v1alpha5 API
