@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/tlsprofile"
 )
 
 const (
@@ -45,16 +47,19 @@ type SharedTokenOptions struct {
 // would make a live end-to-end proxy test order-dependent and unreliable
 // given every other test in this file also calls GetSharedToken for real.
 func newSessionManagerTransport(options SharedTokenOptions) *http.Transport {
+	tlsConfig := &tls.Config{
+		RootCAs:            options.TrustedCertificates,
+		InsecureSkipVerify: options.InsecureSkipVerify,
+	}
+	// Advertise the full (post-quantum) key exchange group list.
+	tlsprofile.ApplyClient(tlsConfig)
 	return &http.Transport{
 		// http.DefaultTransport sets this; a bare &http.Transport{} literal
 		// does not, and leaves Proxy nil, silently ignoring HTTP_PROXY/
 		// HTTPS_PROXY/NO_PROXY. Needed for deployments that reach the session
 		// manager through an egress proxy.
-		Proxy: http.ProxyFromEnvironment,
-		TLSClientConfig: &tls.Config{
-			RootCAs:            options.TrustedCertificates,
-			InsecureSkipVerify: options.InsecureSkipVerify,
-		},
+		Proxy:           http.ProxyFromEnvironment,
+		TLSClientConfig: tlsConfig,
 	}
 }
 

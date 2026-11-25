@@ -42,8 +42,9 @@ COPY go.mod go.sum ./
 COPY pkg/    pkg/
 COPY cmd/    cmd/
 ENV CGO_ENABLED=0
-ENV GOFIPS=1
-ENV GOEXPERIMENT="boringcrypto"
+# Use Go's native FIPS 140-3 module (not BoringCrypto): it provides the ML-KEM hybrid
+# key exchange groups required for post-quantum TLS and makes crypto/tls FIPS-only by default.
+ENV GOFIPS140=v1.26.0
 ENV GOPROXY=${GOPROXY:-https://proxy.golang.org}
 
 # Inject Version, Commit, and Branch into the binary via ldflags
