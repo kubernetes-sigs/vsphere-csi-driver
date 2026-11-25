@@ -758,9 +758,10 @@ const (
 	// any WCP capability — deliberately absent from WCPFeatureStateAssociatedWithPVCSI).
 	VKSRegisterVolume = "vks-register-volume"
 
-	// VsanFileVolumeExpansion is a CSI-only FSS that gates volume expansion of legacy vSAN file
-	// service (CNS) RWX file volumes in the vanilla driver. Not associated with any WCP capability.
-	VsanFileVolumeExpansion = "vsanfs-file-volume-expansion"
+	// LegacyVsanFileShareExpansion is a CSI-only FSS that gates volume expansion of legacy vSAN file
+	// share (CNS file volume, "file:<uuid>") RWX volumes in the vanilla driver. It does not apply to
+	// the new File Volume Service (FVS) volumes. Not associated with any WCP capability.
+	LegacyVsanFileShareExpansion = "legacy-vsan-file-share-expansion"
 )
 
 var WCPFeatureStates = map[string]struct{}{

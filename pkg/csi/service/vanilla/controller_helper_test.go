@@ -109,7 +109,7 @@ func TestIsVanillaFileVolume(t *testing.T) {
 }
 
 // TestValidateVanillaControllerExpandFileVolumeRequest verifies a file volume is expanded only for a
-// legacy "file:" volume and only when the VsanFileVolumeExpansion FSS is enabled.
+// legacy "file:" volume and only when the LegacyVsanFileShareExpansion FSS is enabled.
 func TestValidateVanillaControllerExpandFileVolumeRequest(t *testing.T) {
 	ctx := context.Background()
 

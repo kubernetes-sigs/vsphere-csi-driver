@@ -271,3 +271,36 @@ func TestGetVirtualCenterConfigsNormalizesDatacenterEntries(t *testing.T) {
 		})
 	}
 }
+
+func TestIsvSphereVersion90orAbove(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+		want    bool
+		wantErr bool
+	}{
+		{name: "7.0.3 is below 9.0", version: "7.0.3", want: false},
+		{name: "8.0.3 is below 9.0", version: "8.0.3", want: false},
+		{name: "8.0.3.0 is below 9.0", version: "8.0.3.0", want: false},
+		{name: "9.0.0.0 is 9.0", version: "9.0.0.0", want: true},
+		{name: "9.0.2 is above 9.0", version: "9.0.2", want: true},
+		{name: "9.1.0 is above 9.0", version: "9.1.0", want: true},
+		{name: "10.0.0 is above 9.0", version: "10.0.0", want: true},
+		{name: "empty version is an error", version: "", wantErr: true},
+		{name: "single number is an error", version: "9", wantErr: true},
+		{name: "non numeric major is an error", version: "x.0.0", wantErr: true},
+		{name: "non numeric minor is an error", version: "9.y.0", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := IsvSphereVersion90orAbove(context.Background(), types.AboutInfo{Version: tc.version})
+			if tc.wantErr {
+				assert.Error(t, err)
+				assert.False(t, got)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}

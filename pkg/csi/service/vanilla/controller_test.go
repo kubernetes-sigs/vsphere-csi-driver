@@ -27,6 +27,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	promclient "github.com/prometheus/client_golang/prometheus"
 	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
@@ -47,6 +48,8 @@ import (
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
 	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -859,8 +862,164 @@ func TestExtendVolume(t *testing.T) {
 	}
 }
 
-// TestMigratedExtendVolume helps test ControllerExpandVolume with VolumeId
-// having migrated volume.
+// TestExpandVolumeFailureNamesTheVolume verifies that when expanding a volume fails in CNS the
+// error names the volume. The message used to print the literal "df" instead of the volume id, so
+// neither the error nor the PVC VolumeResizeFailed event said which volume failed.
+func TestExpandVolumeFailureNamesTheVolume(t *testing.T) {
+	ct := getControllerTest(t)
+
+	// A volume id that does not exist in CNS, so the expand fails inside CNS.
+	volID := uuid.New().String()
+	reqExpand := &csi.ControllerExpandVolumeRequest{
+		VolumeId: volID,
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 2 * common.GbInBytes,
+		},
+		VolumeCapability: &csi.VolumeCapability{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+			AccessType: &csi.VolumeCapability_Mount{
+				Mount: &csi.VolumeCapability_MountVolume{FsType: "ext4"},
+			},
+		},
+	}
+
+	_, err := ct.controller.ControllerExpandVolume(ctx, reqExpand)
+	if err == nil {
+		t.Fatal("expected expanding a volume that does not exist to fail")
+	}
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected a grpc status error, got %v", err)
+	}
+	if st.Code() != codes.Internal {
+		t.Fatalf("expected code %v, got %v (%v)", codes.Internal, st.Code(), st.Message())
+	}
+	// Check the wrapper text itself: the underlying CNS error can mention the volume id too.
+	want := fmt.Sprintf("failed to expand volume: %q to size:", volID)
+	if !strings.Contains(st.Message(), want) {
+		t.Errorf("expected the error to contain %s, got: %v", want, st.Message())
+	}
+}
+
+// TestExpandFileVolumeRequiresVCenter90 verifies that expanding a legacy vSAN file share volume is
+// rejected with FailedPrecondition on a vCenter older than 9.0 (the simulator reports 7.0.3), even
+// when the LegacyVsanFileShareExpansion FSS is on, because CNS extend of a file share is confirmed
+// to work only from 9.0.
+func TestExpandFileVolumeRequiresVCenter90(t *testing.T) {
+	ct := getControllerTest(t)
+	if err := commonco.ContainerOrchestratorUtility.EnableFSS(ctx, common.LegacyVsanFileShareExpansion); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = commonco.ContainerOrchestratorUtility.DisableFSS(ctx, common.LegacyVsanFileShareExpansion)
+	}()
+
+	volID := "file:" + uuid.New().String()
+	reqExpand := &csi.ControllerExpandVolumeRequest{
+		VolumeId: volID,
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 2 * common.GbInBytes,
+		},
+		VolumeCapability: &csi.VolumeCapability{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+			},
+			AccessType: &csi.VolumeCapability_Mount{
+				Mount: &csi.VolumeCapability_MountVolume{FsType: "nfs4"},
+			},
+		},
+	}
+
+	_, err := ct.controller.ControllerExpandVolume(ctx, reqExpand)
+	if err == nil {
+		t.Fatal("expected expanding a file volume on vCenter older than 9.0 to fail")
+	}
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected a grpc status error, got %v", err)
+	}
+	if st.Code() != codes.FailedPrecondition {
+		t.Fatalf("expected code %v, got %v (%v)", codes.FailedPrecondition, st.Code(), st.Message())
+	}
+	if !strings.Contains(st.Message(), "requires vCenter 9.0 or later") {
+		t.Errorf("expected the error to name the vCenter 9.0 requirement, got: %v", st.Message())
+	}
+}
+
+// expandFailureCount returns how many failed ExpandVolume operations are recorded in the CSI volume
+// operations histogram for the given volume type and fault type.
+func expandFailureCount(t *testing.T, volumeType, faultType string) uint64 {
+	families, err := promclient.DefaultGatherer.Gather()
+	if err != nil {
+		t.Fatalf("failed to gather metrics: %v", err)
+	}
+	for _, family := range families {
+		if family.GetName() != "vsphere_csi_volume_ops_histogram" {
+			continue
+		}
+		for _, metric := range family.GetMetric() {
+			labels := map[string]string{}
+			for _, label := range metric.GetLabel() {
+				labels[label.GetName()] = label.GetValue()
+			}
+			if labels["voltype"] == volumeType && labels["optype"] == prometheus.PrometheusExpandVolumeOpType &&
+				labels["status"] == prometheus.PrometheusFailStatus && labels["faulttype"] == faultType {
+				return metric.GetHistogram().GetSampleCount()
+			}
+		}
+	}
+	return 0
+}
+
+// TestExpandFileVolumeRejectionMetric verifies that a file volume expansion rejected because the
+// LegacyVsanFileShareExpansion FSS is off is recorded in the expand volume metric as a file volume
+// with an Unimplemented fault, and not as an unknown volume type with an internal fault.
+func TestExpandFileVolumeRejectionMetric(t *testing.T) {
+	ct := getControllerTest(t)
+	if err := commonco.ContainerOrchestratorUtility.DisableFSS(ctx, common.LegacyVsanFileShareExpansion); err != nil {
+		t.Fatal(err)
+	}
+
+	unimplementedBefore := expandFailureCount(t, prometheus.PrometheusFileVolumeType, csifault.CSIUnimplementedFault)
+	fileInternalBefore := expandFailureCount(t, prometheus.PrometheusFileVolumeType, csifault.CSIInternalFault)
+	unknownInternalBefore := expandFailureCount(t, prometheus.PrometheusUnknownVolumeType, csifault.CSIInternalFault)
+
+	reqExpand := &csi.ControllerExpandVolumeRequest{
+		VolumeId: "file:" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 2 * common.GbInBytes,
+		},
+		VolumeCapability: &csi.VolumeCapability{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+			},
+			AccessType: &csi.VolumeCapability_Mount{
+				Mount: &csi.VolumeCapability_MountVolume{FsType: "nfs4"},
+			},
+		},
+	}
+	_, err := ct.controller.ControllerExpandVolume(ctx, reqExpand)
+	if status.Code(err) != codes.Unimplemented {
+		t.Fatalf("expected code %v, got %v", codes.Unimplemented, err)
+	}
+
+	got := expandFailureCount(t, prometheus.PrometheusFileVolumeType, csifault.CSIUnimplementedFault)
+	if got != unimplementedBefore+1 {
+		t.Errorf("expected one more file/Unimplemented expand failure, before=%d after=%d", unimplementedBefore, got)
+	}
+	got = expandFailureCount(t, prometheus.PrometheusFileVolumeType, csifault.CSIInternalFault)
+	if got != fileInternalBefore {
+		t.Errorf("rejection must not count as a file/Internal expand failure, before=%d after=%d", fileInternalBefore, got)
+	}
+	got = expandFailureCount(t, prometheus.PrometheusUnknownVolumeType, csifault.CSIInternalFault)
+	if got != unknownInternalBefore {
+		t.Errorf("rejection must not count as an unknown/Internal expand failure, before=%d after=%d",
+			unknownInternalBefore, got)
+	}
+}
+
 func TestMigratedExtendVolume(t *testing.T) {
 	ct := getControllerTest(t)
 	reqExpand := &csi.ControllerExpandVolumeRequest{

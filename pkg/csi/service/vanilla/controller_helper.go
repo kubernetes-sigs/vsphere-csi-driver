@@ -74,7 +74,7 @@ func isVanillaFileVolume(ctx context.Context, volumeID string) bool {
 // validateVanillaControllerExpandFileVolumeRequest is the helper function to validate
 // ExpandVolumeRequest for a CNS file volume on Vanilla CSI driver.
 // File volumes can be expanded only for legacy vSAN file service volumes ("file:<uuid>") and
-// only when the VsanFileVolumeExpansion FSS is enabled. Otherwise the request is rejected as it
+// only when the LegacyVsanFileShareExpansion FSS is enabled. Otherwise the request is rejected as it
 // was before file volume expansion was supported.
 // Function returns error if validation fails otherwise returns nil.
 func validateVanillaControllerExpandFileVolumeRequest(ctx context.Context,
