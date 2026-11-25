@@ -27,6 +27,7 @@ import (
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/runtimeconfig"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -143,7 +144,9 @@ func (driver *vsphereCSIDriver) BeforeServe(ctx context.Context) error {
 		return nil
 	}
 
-	// Controller service is needed.
+	// Controller service is needed. From here on GetConfig also completes the Supervisor
+	// configuration from its runtime sources (when their FSS is on).
+	runtimeconfig.Register()
 	cfg, err = cnsconfig.GetConfig(ctx)
 	if err != nil {
 		log.Errorf("failed to read config. Error: %+v", err)
