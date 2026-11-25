@@ -2452,10 +2452,13 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		}
 
 		if volumeAttachment != nil && volumeAttachment.Status.Attached {
+			// Name the VolumeAttachment rather than formatting the whole object. The external-attacher
+			// saves this message in the VolumeAttachment's status.attachError, and the API server
+			// rejects a message that embeds the object, which hides the reason from users.
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-				"volumeAttachment %v already has the attached status as true. "+
+				"volumeAttachment %q already has the attached status as true. "+
 					"Assuming the attach volume is due to incorrect force sync Attach from CSI Attacher",
-				volumeAttachment)
+				volumeAttachment.Name)
 		}
 
 		isBlockRequest := !isFileVolumeRequestInWcp(ctx, []*csi.VolumeCapability{req.GetVolumeCapability()})

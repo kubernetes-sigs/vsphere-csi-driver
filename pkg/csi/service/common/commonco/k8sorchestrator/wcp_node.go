@@ -80,8 +80,8 @@ func (c *K8sOrchestrator) createCSINode(obj interface{}) {
 	isWorkloadDomainIsolationEnabled := c.IsFSSEnabled(ctx, common.WorkloadDomainIsolation)
 	isPodVMV2Enabled := c.IsFSSEnabled(ctx, common.PodVMV2Support)
 	if isPodVMV2Enabled && !podvmv2.IsVirtualNode(node) && !podvmv2.IsDedicatedHostNode(node) {
-		log.Warnf("createCSINode: unsupported node type %q on Node %q",
-			node.Annotations[podvmv2.NodeTypeAnnotation], node.Name)
+		log.Warnf("createCSINode: unsupported node provider %q on Node %q",
+			podvmv2.NodeTypeOf(node), node.Name)
 		return
 	}
 	isVirtualNode := isPodVMV2Enabled && podvmv2.IsVirtualNode(node)
@@ -219,7 +219,7 @@ func (c *K8sOrchestrator) updateCSINode(oldObj, newObj interface{}) {
 	}
 	relevant := !oldOK || oldNode == nil || oldNode.UID != newNode.UID ||
 		oldNode.Annotations[common.CreateCSINodeAnnotation] != newNode.Annotations[common.CreateCSINodeAnnotation] ||
-		oldNode.Annotations[podvmv2.NodeTypeAnnotation] != newNode.Annotations[podvmv2.NodeTypeAnnotation] ||
+		oldNode.Labels[podvmv2.VirtualNodeProviderLabel] != newNode.Labels[podvmv2.VirtualNodeProviderLabel] ||
 		oldNode.Labels[corev1.LabelTopologyZone] != newNode.Labels[corev1.LabelTopologyZone]
 	if !relevant {
 		return

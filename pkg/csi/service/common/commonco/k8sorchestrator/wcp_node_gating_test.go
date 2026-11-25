@@ -58,7 +58,7 @@ func TestUpdateCSINodeIsAddOnlyWithoutPodVMV2(t *testing.T) {
 	rezoned := triggered.DeepCopy()
 	rezoned.Labels[corev1.LabelTopologyZone] = "zone-2"
 	typed := rezoned.DeepCopy()
-	typed.Annotations[podvmv2.NodeTypeAnnotation] = podvmv2.VirtualNodeType
+	typed.Labels[podvmv2.VirtualNodeProviderLabel] = podvmv2.VirtualNodeProviderValue
 
 	c.updateCSINode(node, triggered)
 	c.updateCSINode(triggered, rezoned)
@@ -96,10 +96,10 @@ func TestCSINodeIsolationReconcileUnchangedWithoutPodVMV2(t *testing.T) {
 			clusterComputeResourceMoIds = []string{"domain-c1"}
 			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
 				Name: "esx-1", UID: "uid",
-				// A VirtualNode annotation has no effect while PodVM v2 is disabled.
-				Annotations: map[string]string{common.CreateCSINodeAnnotation: "true",
-					podvmv2.NodeTypeAnnotation: podvmv2.VirtualNodeType},
-				Labels: map[string]string{zone: "zone-1", host: "esx-1"},
+				// The VirtualNode label has no effect while PodVM v2 is disabled.
+				Annotations: map[string]string{common.CreateCSINodeAnnotation: "true"},
+				Labels: map[string]string{zone: "zone-1", host: "esx-1",
+					podvmv2.VirtualNodeProviderLabel: podvmv2.VirtualNodeProviderValue},
 			}}
 			client := fake.NewSimpleClientset(&storagev1.CSINode{
 				ObjectMeta: metav1.ObjectMeta{Name: node.Name},

@@ -79,9 +79,9 @@ PodVM on an ESXi host inside that cluster.
                        Supervisor Kubernetes API
  ┌──────────────────────────────────────────────────────────────────────┐
  │  Node virtual-node-domain-c52                                          │
- │    annot pod.vmware.com/node-type: virtual-node                        │
- │    annot vmware-system/csi-create-csinode-object: "true"               │
+ │    label virtual-kubelet.io/provider: wcp-virtual-node                 │
  │    label topology.kubernetes.io/zone: zone-1                           │
+ │    annot vmware-system/csi-create-csinode-object: "true"               │
  │                                                                        │
  │  NodeMapping virtual-node-domain-c52   (ownerRef → the Node above)     │
  │    spec: {}                                                            │
@@ -97,7 +97,7 @@ PodVM on an ESXi host inside that cluster.
 
 | Information | Source | CSI use |
 |---|---|---|
-| Node type | Annotation `pod.vmware.com/node-type: virtual-node` (proposed; final key pending) | Exact value `virtual-node` means a VirtualNode. An absent or empty value means a dedicated ESXi Node, the existing behavior. Any other non-empty value is unsupported and is never treated as ESXi. |
+| Node type | Label `virtual-kubelet.io/provider`, set by the Virtual Node Controller when it registers the Node | Exact value `wcp-virtual-node` means a VirtualNode. An absent or empty value means a dedicated ESXi Node, the existing behavior. Any other non-empty value (another virtual-kubelet provider) is unsupported and is never treated as ESXi. The Supervisor scheduler extender identifies VirtualNodes by the same label. |
 | Zone | Label `topology.kubernetes.io/zone` | CSINode topology and zonal provisioning. CSI requires it before registering the Node. |
 | Registration trigger | Annotation `vmware-system/csi-create-csinode-object: "true"` | Same trigger spherelet already uses. |
 | Represented hosts | `NodeMapping` CR (`nodemappings.virtualnode.vmware.com/v1alpha1`), same name as the Node, owned by it | `hostMoID → VirtualNode` ownership for ListVolumes. |
@@ -105,6 +105,16 @@ PodVM on an ESXi host inside that cluster.
 
 The CSI NodeId of a VirtualNode is its actual `node.Name`. CSI never infers the Node type or the
 cluster from the name.
+
+`pod.vmware.com/node-type: virtual-node` is a **Pod** annotation that the virtual node sets for the
+network operator. It is never set on a Node, and CSI does not read it. An earlier revision of this
+design used it as the Node discriminator, which classified every VirtualNode as a dedicated ESXi
+Node.
+
+The platform also sets, on the VirtualNode, a `kubernetes.io/hostname` label equal to the Node name.
+It also sets the dedicated-host annotation `vmware-system-esxi-node-moid`, naming one real host the
+VirtualNode stands in for during placement. CSI ignores both on a VirtualNode: neither describes the
+hosts it owns, and the named host may still have its own dedicated Node.
 
 ### 4.3 NodeMapping CR
 
@@ -116,11 +126,13 @@ controller-managers APIs (`apis/public/virtual-node/v1alpha1/nodemapping_types.g
 |---|---|
 | `metadata.name` | Equals the VirtualNode name. A controller `ownerReference` points at that Node's UID, so the CR is garbage-collected with the Node. |
 | `spec` | Empty; reserved for future fields. |
-| `status.hosts[]` | Up to 128 `{moid, name}` entries: the ESXi hosts the Node represents. The list contains **only hosts that have no dedicated Kubernetes Node**, so it describes ownership rather than raw cluster membership. |
+| `status.hosts[]` | Up to 128 `{moid, name}` entries: the ESXi hosts the Node represents. The producer lists the cluster's hosts that run ESXi 9.2 or later. Upgrading a host to 9.2 deletes its dedicated Node, so in steady state the list describes ownership rather than raw cluster membership. CSI still cross-checks it against dedicated Nodes (section 6.1). |
 | `status.conditions[Ready]` | `status.hosts` reflects the current set of hosts represented by the Node. |
 
 NodeMapping objects exist only for VirtualNodes. The platform, which creates and deletes the
-dedicated Nodes, publishes the ownership hand-off, so CSI does not infer it. The CRD is registered
+dedicated Nodes, publishes the ownership hand-off, so CSI does not infer it. If the producer cannot
+read vCenter, or the cluster has more than 128 qualifying hosts, it sets `Ready=False`, and CSI
+publishes no hosts for that VirtualNode. The CRD is registered
 only when the PodVM v2 FSS and capability are enabled.
 
 The mapping does not identify a vCenter or a compute cluster. Host MoIDs are unique only within one
@@ -179,10 +191,10 @@ enabled, it is backed by a fresh inventory snapshot (`hostInventory.snapshot` in
 
 ```mermaid
 flowchart TD
-    A[List core Nodes] --> B{node-type?}
-    B -- "virtual-node, has zone" --> V[VirtualNode candidates]
-    B -- "empty, has esxi-node-moid" --> D["owners[host] = ESXi Node<br/>reserve host"]
-    B -- "unknown type, has esxi-node-moid" --> R["reserve host as conflict<br/>(no owner)"]
+    A[List core Nodes] --> B{"provider label?"}
+    B -- "wcp-virtual-node, has zone" --> V["VirtualNode candidates<br/>(esxi-node-moid ignored)"]
+    B -- "absent, has esxi-node-moid" --> D["owners[host] = ESXi Node<br/>reserve host"]
+    B -- "other provider, has esxi-node-moid" --> R["reserve host as conflict<br/>(no owner)"]
     V --> H[List NodeMapping CRs]
     H --> E{"same name, ownerRef UID == Node UID,<br/>not deleting, Ready=True?"}
     E -- no --> X[publish no hosts for this VirtualNode]
@@ -314,7 +326,7 @@ cache runtime hosts: each ListVolumes call reads them from vCenter (section 7.4)
 | PodVM v2 disabled, stretched or zonal Supervisor | ESXi Node | `[zone, hostname]` (unchanged) |
 | PodVM v2 enabled | ESXi Node (9.1 host) | `[zone, hostname]` |
 | PodVM v2 enabled | VirtualNode | `[zone]` |
-| PodVM v2 enabled | Unknown `node-type` | Not registered; a warning is logged |
+| PodVM v2 enabled | Unknown provider label value | Not registered; a warning is logged |
 
 ```mermaid
 flowchart TD
@@ -322,12 +334,12 @@ flowchart TD
     T -- no --> W1[skip: wait for trigger]
     T -- yes --> F{"PodVM v2 enabled?"}
     F -- no --> L["legacy keys:<br/>[hostname] or [zone, hostname]"]
-    F -- yes --> K{"node-type"}
-    K -- "unknown non-empty" --> W2[skip: unsupported type]
-    K -- "virtual-node" --> Z{"zone label present?"}
+    F -- yes --> K{"provider label"}
+    K -- "other provider" --> W2[skip: unsupported type]
+    K -- "wcp-virtual-node" --> Z{"zone label present?"}
     Z -- no --> W3[skip: wait for zone]
     Z -- yes --> VK["keys = [zone]"]
-    K -- "empty (ESXi)" --> EK["keys = [zone, hostname]"]
+    K -- "absent (ESXi)" --> EK["keys = [zone, hostname]"]
     VK --> G{"CSINode exists?"}
     EK --> G
     L --> G
@@ -373,7 +385,10 @@ Registration details:
   already been handled and later status updates are not relevant changes. A CSINode with no Node
   `ownerReference`, such as one the spherelet created, is left alone: nothing will collect it, and
   re-creating it would drop the driver registration for no reason.
-- The VirtualNode needs no `kubernetes.io/hostname` label and no single-host annotation.
+- The VirtualNode's `kubernetes.io/hostname` label and single-host annotation do not change its
+  keys. A change to the provider label, zone label or trigger is a relevant Node update, so a
+  CSINode registered with the dedicated-Node keys before the Node was recognized as a VirtualNode
+  is re-created with `[zone]`.
 - A registered CSINode does not prove that the VirtualNode's host ownership is resolvable. That
   depends on the NodeMapping (section 6.1).
 
@@ -453,9 +468,9 @@ sequenceDiagram
     participant K as Kubernetes API
     participant C as CSI syncer and controller
     Note over P,C: T0: VC and Supervisor on 9.2, all hosts on 9.1
-    P->>K: Nodes esxi-host-21/24/27 (node-type empty)
+    P->>K: Nodes esxi-host-21/24/27 (no provider label)
     C->>K: CSINodes keys [zone, hostname]
-    P->>K: VirtualNode virtual-node-domain-c52 (zone, trigger)
+    P->>K: VirtualNode virtual-node-domain-c52 (provider label, zone, trigger)
     P->>K: NodeMapping hosts=[] Ready
     C->>K: CSINode virtual-node-domain-c52 keys [zone]
     Note over C: ListVolumes: all hosts map to ESXi Nodes
@@ -492,7 +507,7 @@ sequenceDiagram
 - **Exclusive ownership.** A host is owned by its dedicated Node or by the VirtualNode, never both.
   If the NodeMapping lists a host that an ESXi Node still holds, deleting or not, CSI keeps the
   dedicated Node as the owner and logs the disagreement. The platform's contract says this should
-  not happen (D1.e), so it signals producer lag or a bug — but the dedicated Node object exists and
+  not happen (D1.c, D1.e), so it signals producer lag or a bug — but the dedicated Node object exists and
   the VolumeAttachments on that host still name it, so it is the live owner. Publishing no owner
   would drop that host's volumes from ListVolumes, which the external-attacher reads as a detach:
   a worse outcome than the disagreement it was reporting.
@@ -547,19 +562,19 @@ sequenceDiagram
 | NodeMapping not Ready, wrong owner UID or deleting | Hosts withheld. |
 | Host listed by a VirtualNode and held by a dedicated Node | The dedicated Node stays the owner. The conflict is logged (section 7.4). |
 | Host listed by two VirtualNodes | No owner for that host, logged with both claimants. |
-| Unknown `node-type` value | Not registered. If it carries a host MoID, that host is reserved and has no owner, logged with the unsupported value. |
+| Unknown provider label value | Not registered. If it carries a host MoID, that host is reserved and has no owner, logged with the unsupported value. |
 | Node list or NodeMapping list error | The lookup fails and ListVolumes fails with it. No stale cache is used and no partial map is published. |
 
 ## 9. Dependencies and open items
 
 | ID | Item | Owner |
 |---|---|---|
-| D1.a | Final key and values for the Node-type discriminator (`pod.vmware.com/node-type`) | Platform |
-| D1.b | Ordering: zone and Node type published before `csi-create-csinode-object` | Platform |
+| D1.a | Resolved: the Node-type discriminator is the label `virtual-kubelet.io/provider=wcp-virtual-node`, which the Virtual Node Controller sets and the scheduler extender reads. `pod.vmware.com/node-type` is a Pod annotation and is not used. | Platform |
+| D1.b | Resolved: the provider label is part of the Node at registration. The zone label can follow the trigger; CSI waits for it and registers on the zone update. | Platform |
 | D1.c | A host must be in NodeMapping `status.hosts` before it exits maintenance mode and can run v2 PodVMs. Its dedicated Node must be deleted before the host is added (section 7.4, hand-off gap). | Platform |
-| D1.d | Whether `status.hosts` includes disconnected or maintenance-mode hosts; behavior over 128 hosts | Platform |
-| D1.e | Resolved: the platform confirmed on 2026-11-05 that the list never includes a host that still has a dedicated Node, and the merged wording ("all ESXi hosts represented by the Node") is consistent with that. CSI keeps the dedicated-Node cross-check (section 6.1). | Platform |
-| D1.f | NodeMapping producer: the CRD is merged, but the controller that creates and maintains the CRs is a follow-up change | Platform |
+| D1.d | Resolved: the producer lists every cluster host whose reported ESXi version is 9.2 or later, including maintenance-mode hosts; a host with no readable version is left out. Over 128 hosts it truncates the list and sets `Ready=False`, so CSI publishes no hosts for that VirtualNode. | Platform |
+| D1.e | Resolved: the producer selects hosts by ESXi version (9.2 or later) rather than by the absence of a dedicated Node. Exclusivity relies on the upgrade deleting the dedicated Node (D1.c). CSI keeps the dedicated-Node cross-check (section 6.1) for any lag. | Platform |
+| D1.f | Resolved: the NodeMapping producer is merged in the Virtual Node Controller. It creates one CR per VirtualNode, owned by that Node, and resyncs it on cluster membership or host version changes. | Platform |
 | D1.g | schedext and DRS place or vMotion v2 PodVMs only onto 9.2+ hosts listed in the NodeMapping, never onto a host that still has a dedicated Node | Platform |
 | D1.h | The Supervisor stays backed by a single vCenter. NodeMapping host MoIDs are unique only within one vCenter, so multi-vCenter support needs vCenter-qualified host identity before this inventory can be used (section 6.1) | Platform |
 | D4 | Several PodVMs sharing one PVC on one VirtualNode share a single VolumeAttachment identity. Supported concurrency and replacement semantics are still to be defined. | CSI and platform |
