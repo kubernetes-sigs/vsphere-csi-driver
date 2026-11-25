@@ -459,8 +459,16 @@ func validateGuestClusterRequestedTopologyAnnotation(value string) (string, erro
 
 // generateVolumeAccessibleTopologyFromPVCAnnotation returns accessible topologies generated using
 // PVC annotation "csi.vsphere.volume-accessible-topology".
+//
+// A Supervisor PVC with the cns.vmware.com/esxi-host-moid annotation was provisioned with
+// HostLocalStorage + PodVM v2; its topology is built from the zone plus that host MoID
+// (common.GuestAccessibleTopology). Every other PVC, including HostLocalStorage volumes,
+// returns the annotation as is.
 func generateVolumeAccessibleTopologyFromPVCAnnotation(claim *v1.PersistentVolumeClaim) (
 	[]map[string]string, error) {
+	if claim.Annotations[common.AttributeESXiHostMoID] != "" {
+		return common.GuestAccessibleTopology(claim)
+	}
 	volumeAccessibleTopology := claim.Annotations[common.AnnVolumeAccessibleTopology]
 	if volumeAccessibleTopology == "" {
 		return nil, fmt.Errorf("annotation %q is not set for the claim: %q, namespace: %q",
