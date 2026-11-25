@@ -24,11 +24,9 @@ provisioner: csi.vsphere.vmware.com
 parameters:
   server: <nfs-server-ip-or-hostname>
   share: /<exported-path>
-  # Permissions applied to each volume's directory. The default is 0 (no chmod), which keeps the
-  # directory private to the user the controller runs as, so no workload can read or write another
-  # PVC's data just by being able to mount the export. kubelet does not apply fsGroup to RWX CSI
-  # volumes, so pods that run as a different user cannot write to such a directory. If your pods
-  # need to, opt in here — 0777 makes the directory writable by every pod that mounts the export.
+  # Permissions applied to each volume's directory. Omitted, this is 0777, so a non-root pod
+  # can write. kubelet does not apply fsGroup to RWX CSI volumes. Set "0" to skip chmod and keep
+  # the mode MkdirAll left behind the controller umask (0755).
   mountPermissions: "0777"
 reclaimPolicy: Delete
 volumeBindingMode: Immediate

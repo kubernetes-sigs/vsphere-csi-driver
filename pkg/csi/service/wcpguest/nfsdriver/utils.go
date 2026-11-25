@@ -134,6 +134,9 @@ func unixModeToFileMode(mode uint32) os.FileMode {
 	return goMode
 }
 
+// chmodFunc performs the chmod. Tests replace it so a read-only publish fails if chmod is attempted.
+var chmodFunc = chmod
+
 // chmodIfPermissionMismatch only performs chmod when permission mismatches.
 // The mode parameter is a raw Unix mode_t value (e.g. 02770).
 // Compares both regular permission bits (0777) and special bits (setuid/setgid/sticky)
@@ -153,7 +156,7 @@ func chmodIfPermissionMismatch(targetPath string, mode uint32) error {
 	if currentMode != desiredMode {
 		klog.V(2).Infof("chmodIfPermissionMismatch: about to chmod targetPath(%s, currentMode:0%o) to desiredMode(0%o)",
 			targetPath, currentMode, mode)
-		if err := chmod(targetPath, mode); err != nil {
+		if err := chmodFunc(targetPath, mode); err != nil {
 			klog.Errorf("chmodIfPermissionMismatch: chmod(%s, 0%o) failed: %v", targetPath, mode, err)
 			return err
 		}

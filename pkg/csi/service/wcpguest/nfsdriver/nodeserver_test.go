@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"syscall"
 	"testing"
 	"time"
 
@@ -181,4 +182,67 @@ func TestNodePublishVolumeMountErrorReleasesLock(t *testing.T) {
 
 	// A prompt (non-timeout) failure releases the lock straight away.
 	require.True(t, ns.Driver.volumeLocks.TryAcquire(fmt.Sprintf("%s-%s", "vol-1", target)))
+}
+
+// An existing volume created before the 0777 default has no mountPermissions in its context and a
+// directory left at 0755. Publishing it read-only must not chmod: the mount is already read-only,
+// so chmod returns EROFS and the publish would fail after the mount succeeded.
+func TestNodePublishVolumeReadOnlySkipsChmodOfExistingDirectory(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		prepare func(req *csi.NodePublishVolumeRequest)
+	}{
+		{name: "readonly flag", prepare: func(req *csi.NodePublishVolumeRequest) { req.Readonly = true }},
+		{name: "mount flag", prepare: func(req *csi.NodePublishVolumeRequest) {
+			req.VolumeCapability.GetMount().MountFlags = []string{"nfsvers=4.1", "ro"}
+		}},
+		{name: "comma separated mount option", prepare: func(req *csi.NodePublishVolumeRequest) {
+			req.VolumeContext[mountOptionsField] = "nfsvers=4.1,ro"
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			old := chmodFunc
+			chmodFunc = func(string, uint32) error {
+				called = true
+				return syscall.EROFS
+			}
+			t.Cleanup(func() { chmodFunc = old })
+
+			m := newFakeNFSMounter()
+			ns := newTestNodeServer(t, m)
+			ns.Driver.mountPermissions = 0777
+			target := t.TempDir() + "/target"
+			req := publishRequest(target)
+			tc.prepare(req)
+
+			_, err := ns.NodePublishVolume(context.Background(), req)
+			require.NoError(t, err)
+			require.False(t, called, "chmod on a read-only mount returns EROFS")
+			info, statErr := os.Stat(target)
+			require.NoError(t, statErr)
+			require.Equal(t, os.FileMode(0755), info.Mode().Perm())
+			require.True(t, hasReadOnlyMountOption(m.MountPoints[0].Opts))
+		})
+	}
+}
+
+// A read-write publish of that same existing directory still chmods it to the 0777 default.
+func TestNodePublishVolumeReadWriteChmodsExistingDirectory(t *testing.T) {
+	var got uint32
+	old := chmodFunc
+	chmodFunc = func(_ string, mode uint32) error {
+		got = mode
+		return nil
+	}
+	t.Cleanup(func() { chmodFunc = old })
+
+	m := newFakeNFSMounter()
+	ns := newTestNodeServer(t, m)
+	ns.Driver.mountPermissions = 0777
+	target := t.TempDir() + "/target"
+
+	_, err := ns.NodePublishVolume(context.Background(), publishRequest(target))
+	require.NoError(t, err)
+	require.Equal(t, uint32(0777), got)
 }

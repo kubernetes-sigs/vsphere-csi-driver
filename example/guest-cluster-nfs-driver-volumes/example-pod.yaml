@@ -1,6 +1,6 @@
 # Mounts the PVC from example-pvc.yaml. The pod runs as a non-root user with every capability
-# dropped, as a restricted Pod Security profile requires. The volume is writable by this user only
-# if the StorageClass sets mountPermissions (see example-sc.yaml).
+# dropped, as a restricted Pod Security profile requires. The volume is writable because the
+# default mountPermissions is 0777 (see example-sc.yaml). Set that parameter to "0" to skip chmod.
 apiVersion: v1
 kind: Pod
 metadata:

@@ -28,12 +28,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Every PVC directory is created with the controller's own mode unless a StorageClass opts in,
-// so one workload cannot read or write another PVC's data by being able to mount the export.
-func TestDefaultMountPermissionsIsNotWorldWritable(t *testing.T) {
-	require.Equal(t, 0, defaultMountPermissions,
-		"the default must stay 0 (no chmod); workloads that need a writable volume set mountPermissions")
-	require.Equal(t, uint64(0), GetOrCreateDriver().mountPermissions)
+// An omitted mountPermissions is 0777 so a non-root pod can write. A StorageClass sets "0" to skip chmod.
+func TestDefaultMountPermissionsIsWorldWritable(t *testing.T) {
+	require.Equal(t, 0777, defaultMountPermissions,
+		"the default must be 0777; a StorageClass sets mountPermissions to 0 to skip chmod")
+	require.Equal(t, uint64(0777), GetOrCreateDriver().mountPermissions)
 }
 
 func TestValidateCreateVolumeParameters(t *testing.T) {
