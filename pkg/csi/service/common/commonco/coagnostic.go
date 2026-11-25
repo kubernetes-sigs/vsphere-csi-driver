@@ -146,6 +146,18 @@ type COCommonInterface interface {
 	ListPVCs(ctx context.Context, namespace string) []*v1.PersistentVolumeClaim
 }
 
+// IsSVPVCSnapshotFinalizerAddEnabled reports whether pvCSI may add the CNS finalizers
+// (cns.vmware.com/pvc-protection, cns.vmware.com/volumesnapshot-protection) to supervisor
+// PVCs/VolumeSnapshots. Besides SVPVCSnapshotProtectionFinalizer, the supervisor must enable
+// SVPVCSnapshotFinalizerClusterDeletionCleanup, which only supervisors that remove those
+// finalizers on guest cluster deletion set. Older supervisors leave it unset, so no finalizer is
+// added there that would block deletion of the cluster's PVCs/VolumeSnapshots.
+// Removal of the finalizers must not be gated by this check.
+func IsSVPVCSnapshotFinalizerAddEnabled(ctx context.Context, co COCommonInterface) bool {
+	return co.IsFSSEnabled(ctx, common.SVPVCSnapshotProtectionFinalizer) &&
+		co.IsCNSCSIFSSEnabled(ctx, common.SVPVCSnapshotFinalizerClusterDeletionCleanup)
+}
+
 // GetContainerOrchestratorInterface returns orchestrator object for a given
 // container orchestrator type.
 func GetContainerOrchestratorInterface(ctx context.Context, orchestratorType int,

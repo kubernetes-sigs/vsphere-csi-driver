@@ -232,7 +232,12 @@ func (r *ReconcileNamespace) Reconcile(ctx context.Context,
 	backOffDurationMapMutex.Unlock()
 	reconcileLog.Infof("Reconciling Namespace with Request.Name: %q timeout %q seconds",
 		request.Name, timeout)
-	// If namespace does not have deletion timestamp, only clean up objects of guest clusters being deleted
+	// If namespace does not have deletion timestamp, only clean up objects of guest clusters being deleted.
+	// This cleanup is intentionally NOT gated by the SVPVCSnapshotFinalizerClusterDeletionCleanup FSS.
+	// That FSS only tells pvCSI it may add CNS finalizers. Finalizers already added (by an older pvCSI,
+	// before a supervisor upgrade, or before the FSS was disabled) must still be removed on cluster
+	// deletion, or the PVCs/VolumeSnapshots stay Terminating and block it. The cleanup is safe to always
+	// run: it only removes CNS finalizers from objects owned by guest clusters that are deleting or gone.
 	if instance.DeletionTimestamp.IsZero() {
 		r.cleanupObjectsOfDeletingClusters(ctx, instance.Name)
 		return reconcile.Result{}, nil
