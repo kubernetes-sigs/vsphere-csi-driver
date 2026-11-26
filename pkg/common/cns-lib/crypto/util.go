@@ -85,9 +85,10 @@ func GetStoragePolicyIDFromVAC(vac *storagev1.VolumeAttributesClass) string {
 
 // IsVACPolicyEffective returns true if the PVC's VolumeAttributesClassName is set and
 // its policy has actually taken effect on the underlying volume. A non-nil
-// pvc.Status.ModifyVolumeStatus means a ModifyVolume operation is still pending or in
-// progress, so the volume may still be backed by its previous (StorageClass) policy —
-// callers should keep using the StorageClass's policy until this returns true.
+// pvc.Status.ModifyVolumeStatus means a ModifyVolume operation is Pending or InProgress, in
+// which case the volume's policy is uncertain (CNS ReconfigPolicy may already have applied
+// the requested one), or was rejected as Infeasible, in which case the volume keeps its
+// previous policy. See IsEncryptedStoragePolicyForPVC.
 //
 // ModifyVolumeStatus == nil alone is not sufficient: it is also the initial PVC state
 // before any modify has ever been attempted. Only treat the VAC as effective once
@@ -136,11 +137,17 @@ func IsEncryptedVAC(
 
 // IsEncryptedStoragePolicyForPVC determines whether the storage policy currently backing
 // the PVC's volume supports encryption, and returns the policy ID and where the policy came
-// from. If vacPolicyMutabilityEnabled is true and the PVC's VolumeAttributesClass has taken
-// effect (IsVACPolicyEffective), its policy takes precedence over the StorageClass's,
-// consistent with CSI ModifyVolume semantics. Otherwise the StorageClass's policy is used,
-// since a ModifyVolume switching the PVC to the VAC's policy may still be pending or in
-// progress. The VolumeAttributesClass is read using reader.
+// from. If vacPolicyMutabilityEnabled is true, the PVC has a VolumeAttributesClass set, and
+// status.currentVolumeAttributesClassName is set, that VolumeAttributesClass's policy takes
+// precedence over the StorageClass's, consistent with CSI ModifyVolume semantics. Once a
+// change completes, it is the requested VolumeAttributesClass (IsVACPolicyEffective); after
+// a change is rejected as Infeasible, it is the previous one, which the volume keeps.
+// Otherwise the StorageClass's policy is used, since no VolumeAttributesClass has taken
+// effect. The VolumeAttributesClass is read using reader.
+//
+// While a change is Pending or InProgress the result is not reliable, since CNS
+// ReconfigPolicy may already have applied the requested policy. Callers that apply the
+// policy to the volume must not call this until the change completes or is rejected.
 //
 // If the effective VolumeAttributesClass does not exist, its NotFound error is returned so
 // callers can report it. If the cluster doesn't serve the VolumeAttributesClass v1 API, the
@@ -153,8 +160,10 @@ func IsEncryptedStoragePolicyForPVC(
 	pvc *corev1.PersistentVolumeClaim,
 	vacPolicyMutabilityEnabled bool,
 ) (bool, string, StoragePolicySource, error) {
-	if vacPolicyMutabilityEnabled && IsVACPolicyEffective(pvc) {
-		encrypted, profileID, err := IsEncryptedVAC(ctx, cryptoClient, reader, *pvc.Spec.VolumeAttributesClassName)
+	currentVAC := pvc.Status.CurrentVolumeAttributesClassName
+	if vacPolicyMutabilityEnabled && pvc.Spec.VolumeAttributesClassName != nil &&
+		currentVAC != nil && *currentVAC != "" {
+		encrypted, profileID, err := IsEncryptedVAC(ctx, cryptoClient, reader, *currentVAC)
 		if !meta.IsNoMatchError(err) {
 			return encrypted, profileID, StoragePolicySourceVAC, err
 		}

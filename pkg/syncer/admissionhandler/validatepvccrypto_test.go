@@ -177,6 +177,22 @@ func newCryptoTestPVCWithVAC(t *testing.T, encClassName, vacName string, effecti
 	return raw
 }
 
+// newCryptoTestPVCWithRejectedVAC returns a PVC with the given encryption class whose change
+// from currentVAC to rejectedVAC was rejected as Infeasible, so currentVAC still backs the volume.
+func newCryptoTestPVCWithRejectedVAC(t *testing.T, encClassName, currentVAC, rejectedVAC string) []byte {
+	pvc := &corev1.PersistentVolumeClaim{}
+	assert.NoError(t, json.Unmarshal(newCryptoTestPVC(t, encClassName, nil), pvc))
+	pvc.Spec.VolumeAttributesClassName = &rejectedVAC
+	pvc.Status.CurrentVolumeAttributesClassName = &currentVAC
+	pvc.Status.ModifyVolumeStatus = &corev1.ModifyVolumeStatus{
+		TargetVolumeAttributesClassName: rejectedVAC,
+		Status:                          corev1.PersistentVolumeClaimModifyVolumeInfeasible,
+	}
+	raw, err := json.Marshal(pvc)
+	assert.NoError(t, err)
+	return raw
+}
+
 func newCryptoTestVAC(name, profileID string) *storagev1.VolumeAttributesClass {
 	return &storagev1.VolumeAttributesClass{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
@@ -320,6 +336,81 @@ func TestValidatePVCRequestForCryptoWithVAC(t *testing.T) {
 			if tt.encryptedSC == nil {
 				mockCryptoClient.AssertNotCalled(t, "IsEncryptedStorageClass", mock.Anything, mock.Anything)
 			}
+			if tt.encryptedVACPolicy == nil {
+				mockCryptoClient.AssertNotCalled(t, "IsEncryptedStorageProfile", mock.Anything, mock.Anything)
+			}
+		})
+	}
+}
+
+// TestValidatePVCRequestForCryptoInfeasibleVAC verifies that when a VAC change was rejected as
+// Infeasible, the EncryptionClass is validated against the policy of the VAC still backing the
+// volume (status.currentVolumeAttributesClassName), not the StorageClass's or the rejected VAC's.
+func TestValidatePVCRequestForCryptoInfeasibleVAC(t *testing.T) {
+	ctx := context.Background()
+
+	origVACPolicyMutabilityEnabled := featureIsVACPolicyMutabilityEnabled
+	t.Cleanup(func() {
+		featureIsVACPolicyMutabilityEnabled = origVACPolicyMutabilityEnabled
+	})
+	featureIsVACPolicyMutabilityEnabled = true
+
+	tests := []struct {
+		name               string
+		vacMissing         bool
+		encryptedVACPolicy *bool // nil means IsEncryptedStorageProfile must not be called
+		expectedResult     bool
+		expectedReason     string // substring of the denial reason
+	}{
+		{
+			name:               "Encrypted current VAC is allowed",
+			encryptedVACPolicy: ptr.To(true),
+			expectedResult:     true,
+		},
+		{
+			name:               "Non-encrypted current VAC is denied",
+			encryptedVACPolicy: ptr.To(false),
+			expectedResult:     false,
+			expectedReason:     `effective status.currentVolumeAttributesClassName "test-vac"`,
+		},
+		{
+			name:           "Missing current VAC is denied as not found",
+			vacMissing:     true,
+			expectedResult: false,
+			expectedReason: `status.currentVolumeAttributesClassName: Not found: "test-vac"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var vacs []client.Object
+			if !tt.vacMissing {
+				vacs = append(vacs, newCryptoTestVAC("test-vac", "vac-profile-id"))
+			}
+			mockCryptoClient := newCryptoTestMockClient(false, vacs...)
+			if tt.encryptedVACPolicy != nil {
+				mockCryptoClient.On("IsEncryptedStorageProfile", mock.Anything, "vac-profile-id").
+					Return(*tt.encryptedVACPolicy, nil)
+			}
+
+			req := admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Kind:      metav1.GroupVersionKind{Kind: "PersistentVolumeClaim"},
+					Operation: admissionv1.Update,
+					Object: runtime.RawExtension{
+						Raw: newCryptoTestPVCWithRejectedVAC(t, "enc-class-2", "test-vac", "rejected-vac")},
+					OldObject: runtime.RawExtension{
+						Raw: newCryptoTestPVCWithRejectedVAC(t, "enc-class-1", "test-vac", "rejected-vac")},
+				},
+			}
+
+			resp := validatePVCRequestForCrypto(ctx, mockCryptoClient, req)
+			assert.Equal(t, tt.expectedResult, resp.Allowed)
+			if tt.expectedReason != "" {
+				assert.Contains(t, string(resp.Result.Reason), tt.expectedReason)
+			}
+			mockCryptoClient.AssertExpectations(t)
+			mockCryptoClient.AssertNotCalled(t, "IsEncryptedStorageClass", mock.Anything, mock.Anything)
 			if tt.encryptedVACPolicy == nil {
 				mockCryptoClient.AssertNotCalled(t, "IsEncryptedStorageProfile", mock.Anything, mock.Anything)
 			}

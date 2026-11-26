@@ -204,6 +204,39 @@ func TestIsEncryptedStoragePolicyForPVC(t *testing.T) {
 		assert.Equal(t, StoragePolicySourceVAC, source)
 	})
 
+	t.Run("CurrentVACWhenChangeInfeasible", func(t *testing.T) {
+		c := newClient(encryptedSC, encryptedVAC, cm)
+		rejectedVAC := "rejected-vac"
+		pvc := newPVC(&encryptedSC.Name, &rejectedVAC)
+		pvc.Status.CurrentVolumeAttributesClassName = &encryptedVAC.Name
+		pvc.Status.ModifyVolumeStatus = &corev1.ModifyVolumeStatus{
+			TargetVolumeAttributesClassName: rejectedVAC,
+			Status:                          corev1.PersistentVolumeClaimModifyVolumeInfeasible,
+		}
+
+		ok, profileID, source, err := IsEncryptedStoragePolicyForPVC(ctx, c, c, pvc, true)
+		require.NoError(t, err)
+		assert.True(t, ok)
+		assert.Equal(t, "profile-vac-only", profileID)
+		assert.Equal(t, StoragePolicySourceVAC, source)
+	})
+
+	t.Run("StorageClassWhenFirstVACChangeInfeasible", func(t *testing.T) {
+		c := newClient(encryptedSC, encryptedVAC, cm)
+		pvc := newPVC(&encryptedSC.Name, &encryptedVAC.Name)
+		pvc.Status.CurrentVolumeAttributesClassName = nil
+		pvc.Status.ModifyVolumeStatus = &corev1.ModifyVolumeStatus{
+			TargetVolumeAttributesClassName: encryptedVAC.Name,
+			Status:                          corev1.PersistentVolumeClaimModifyVolumeInfeasible,
+		}
+
+		ok, profileID, source, err := IsEncryptedStoragePolicyForPVC(ctx, c, c, pvc, true)
+		require.NoError(t, err)
+		assert.True(t, ok)
+		assert.Equal(t, "profile-encrypted-sc", profileID)
+		assert.Equal(t, StoragePolicySourceStorageClass, source)
+	})
+
 	t.Run("StorageClassWhenVACPolicyMutabilityDisabled", func(t *testing.T) {
 		c := newClient(encryptedSC, encryptedVAC, cm)
 
