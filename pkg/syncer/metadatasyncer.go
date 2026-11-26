@@ -858,6 +858,24 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to listen on PVCs. Error: %v", err)
 	}
+	// Storage-policy migration discovery gets its own PVC listener. Each
+	// listener is processed by its own goroutine, so a backlog in pvcUpdated
+	// does not delay starting the migration watchers. Only Supervisor PVCs
+	// carry the Mobility Operator migration annotations.
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		err = metadataSyncer.k8sInformerManager.AddPVCListener(
+			ctx,
+			nil, // Add.
+			func(oldObj interface{}, newObj interface{}) { // Update.
+				pvcUpdatedForMigration(oldObj, newObj, metadataSyncer)
+			},
+			func(obj interface{}) { // Delete.
+				pvcDeletedForMigration(obj)
+			})
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to listen on PVCs for storage policy migration. Error: %v", err)
+		}
+	}
 	err = metadataSyncer.k8sInformerManager.AddPodListener(
 		ctx,
 		func(obj interface{}) { // Add.
@@ -899,7 +917,9 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 
 	// Recover migration watchers for existing PVCs with migration annotations.
 	// This ensures that migration watchers are properly started after syncer restart.
-	initMigrationWatchersOnStartup(ctx, metadataSyncer)
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		initMigrationWatchersOnStartup(ctx, metadataSyncer)
+	}
 
 	fullSyncTicker := time.NewTicker(time.Duration(getFullSyncIntervalInMin(ctx)) * time.Minute)
 	defer fullSyncTicker.Stop()
@@ -3325,12 +3345,6 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 	}
 	log.Debugf("PVCUpdated: PVC Updated from %+v to %+v", oldPvc, newPvc)
 
-	// Storage-policy migration discovery: PVC carries
-	// cns.vmware.com/migration-cr-* annotations when the Mobility Operator is
-	// processing a VAC change for it. We start / stop the per-PVC migration
-	// watcher here. Internally gated on the VM_PVC_STORAGE_POLICY_MUTABILITY FSS.
-	handlePvcMigrationAnnotations(ctx, oldPvc, newPvc, metadataSyncer)
-
 	if newPvc.Status.Phase != v1.ClaimBound {
 		log.Debugf("PVCUpdated: New PVC not in Bound phase")
 		return
@@ -3482,8 +3496,6 @@ func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 		return
 	}
 	log.Debugf("PVCDeleted: %+v", pvc)
-	// Cancel any in-flight storage-policy migration watcher for this PVC.
-	handlePvcDeletedForMigration(ctx, pvc)
 	if pvc.Status.Phase != v1.ClaimBound {
 		return
 	}
@@ -5631,8 +5643,8 @@ func updateStoragePolicyUsageQuota(ctx context.Context, cnsOperatorClient client
 func initMigrationWatchersOnStartup(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 	log := logger.GetLogger(ctx)
 
-	// Only proceed if the migration FSS is enabled. This runs on both the Supervisor and a Guest,
-	// so it must use the flavor-resolved value instead of a hardcoded FSS/capability name.
+	// Only proceed if the migration FSS is enabled. Use the flavor-resolved value instead of a
+	// hardcoded FSS/capability name.
 	if !IsVMPVCStoragePolicyMutabilityEnabled {
 		log.Debugf("initMigrationWatchersOnStartup: VM_PVC_STORAGE_POLICY_MUTABILITY FSS not enabled, skipping")
 		return
