@@ -16,6 +16,10 @@
 
 set +x
 
+# These scripts write credentials (testbed passwords, kubeconfig) to files that
+# the CI system passes between stages. Create them readable by the owner only.
+umask 077
+
 vcIp=$(grep vcIp ./env.json | cut -d = -f2)
 vimUsername=$(grep vimUsername ./env.json | cut -d = -f2)
 vimPassword=$(grep vimPassword ./env.json | cut -d = -f2)
