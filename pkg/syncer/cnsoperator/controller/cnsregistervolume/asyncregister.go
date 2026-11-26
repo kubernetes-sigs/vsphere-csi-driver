@@ -220,14 +220,17 @@ func (r *ReconcileCnsRegisterVolume) pollCreateVolume(ctx context.Context,
 	taskID := instance.Status.CnsTaskID
 	taskMoRef := vim25types.ManagedObjectReference{Type: "Task", Value: taskID}
 
+	outcome, done := r.taskTracker.outcome(taskID)
 	// A CR resuming after a syncer restart holds a task ID but has no
 	// subscription, because the listview is in-process and starts empty. Its
 	// slot is normally accounted for by restoreTaskAccounting before anything
 	// new is admitted; this covers a CR that reaches here first. The task is
-	// monitored whether or not a slot is free, since it is already running.
-	r.taskTracker.tryAcquireSlot(cr)
-
-	outcome, done := r.taskTracker.outcome(taskID)
+	// monitored whether or not a slot is free, since it may be running. A
+	// Succeeded or Failed outcome needs no slot: its capacity was returned when
+	// it was published, and consuming it must not take that capacity back.
+	if !done || !outcome.terminal() {
+		r.taskTracker.accountRunningTask(cr)
+	}
 	if !done {
 		if r.taskTracker.isRetiring(taskID) {
 			// The previous subscription's result was consumed but its removal

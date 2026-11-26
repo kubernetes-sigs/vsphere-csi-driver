@@ -74,12 +74,22 @@ import (
 const (
 	workerThreadsEnvVar     = "WORKER_THREADS_REGISTER_VOLUME"
 	defaultMaxWorkerThreads = 40
-	// maxInFlightCnsTasksEnvVar caps concurrent CNS CreateVolume tasks. Before
-	// the task wait was moved off the reconciler worker, the worker pool itself
-	// capped this at defaultMaxWorkerThreads; this replaces that ceiling
-	// explicitly so vCenter sees no more concurrency than it does today.
+	// maxInFlightCnsTasksEnvVar caps concurrent CNS CreateVolume tasks from
+	// this controller.
+	//
+	// CNS executes at most 128 tasks at a time per vCenter, shared by every
+	// client: the provisioner, the attacher, this syncer and other
+	// Supervisors. It queues up to 4000 queued or running tasks (10 per disk
+	// path) and rejects the excess with a CnsFault, which the submit path
+	// retries. A cap above 128 therefore adds no throughput; the extra tasks
+	// only wait inside CNS, in front of every other client's work, instead of
+	// here where they cost nothing. 100 stays below CNS's execution capacity
+	// and matches the per-process concurrency external-provisioner already
+	// uses. It started at 40, matching the reconcile worker pool that used to
+	// bound it implicitly, and at 40 it became the bottleneck of a 1000-volume
+	// burst while vCenter idled.
 	maxInFlightCnsTasksEnvVar  = "MAX_INFLIGHT_CNS_TASKS_REGISTER_VOLUME"
-	defaultMaxInFlightCnsTasks = 40
+	defaultMaxInFlightCnsTasks = 100
 	staticPvNamePrefix         = "static-pv-"
 	// Labels added to PVs created by CnsRegisterVolume for identification and direct lookup
 	labelCnsRegisterVolumeCreatedBy      = "cns.vmware.com/created-by"
@@ -593,8 +603,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	setInstanceConditions(ctx, r, instance, trueCondition(cnsregistervolumev1alpha1.ConditionSpecValidated,
 		cnsregistervolumev1alpha1.ReasonValidated, "CnsRegisterVolume spec is valid"))
 
-	log.Infof("Creating CNS volume: %+v for CnsRegisterVolume request with name: %q on namespace: %q",
-		instance, instance.Name, instance.Namespace)
+	log.Infof("Creating CNS volume for CnsRegisterVolume request with name: %q on namespace: %q",
+		instance.Name, instance.Namespace)
+	log.Debugf("CnsRegisterVolume instance: %+v", instance)
 	// Submit the CNS task and return, or pick up the result of a task submitted
 	// by an earlier pass. Either way this does not block on CNS, so the worker
 	// is free to start another CnsRegisterVolume while this one's task runs.

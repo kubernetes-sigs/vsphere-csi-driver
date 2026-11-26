@@ -18,6 +18,7 @@ package cnsregistervolume
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -91,7 +92,11 @@ type cnsTaskTracker struct {
 	submittedAt map[string]time.Time
 	// slots maps a CR to the task MoRef it currently holds a capacity slot
 	// for. Keyed by CR rather than by task so that a CR which loses its task
-	// reference cannot leak a slot forever.
+	// reference cannot leak a slot forever. An entry stays until the CR has
+	// consumed its task's result, because it is also how a CR finds a task
+	// whose reference it has not yet persisted; but once the task has published
+	// a Succeeded or Failed outcome the entry no longer counts against the cap
+	// (see activeLocked).
 	slots map[apitypes.NamespacedName]string
 	// seeded records that slots has been rebuilt from the tasks persisted on
 	// CRs. slots starts empty in a new process while those tasks are still
@@ -117,6 +122,12 @@ type cnsTaskOutcome struct {
 	volInfo   *volumes.CnsVolumeInfo
 	faultType string
 	err       error
+}
+
+// terminal reports whether the task is finished on CNS, so its slot is no
+// longer load on vCenter. Unknown is not terminal: the task may still be running.
+func (o *cnsTaskOutcome) terminal() bool {
+	return o.state == volumes.CreateVolumeTaskSucceeded || o.state == volumes.CreateVolumeTaskFailed
 }
 
 // newCnsTaskTracker builds a tracker. events must be the same channel the
@@ -147,11 +158,44 @@ func (t *cnsTaskTracker) tryAcquireSlot(cr apitypes.NamespacedName) bool {
 	if _, held := t.slots[cr]; held {
 		return true
 	}
-	if len(t.slots) >= t.maxInFlight {
+	if t.activeLocked() >= t.maxInFlight {
 		return false
 	}
 	t.slots[cr] = ""
 	return true
+}
+
+// activeLocked counts the slots whose task may still be running on CNS. A slot
+// whose task has published a Succeeded or Failed outcome is not counted: vCenter
+// is done with it, even if the CR has not consumed the result yet. Releasing
+// the capacity at that point, rather than when the CR's next reconcile runs,
+// keeps the cap a bound on vCenter load instead of on reconcile queue latency.
+// t.mu must be held.
+func (t *cnsTaskTracker) activeLocked() int {
+	n := 0
+	for _, taskID := range t.slots {
+		if taskID != "" {
+			if out, ok := t.results[taskID]; ok && out.terminal() {
+				continue
+			}
+		}
+		n++
+	}
+	return n
+}
+
+// accountRunningTask takes a slot for a CR whose task is already running, for
+// example after a restart, if one is free. The task is monitored either way;
+// this is accounting only.
+func (t *cnsTaskTracker) accountRunningTask(cr apitypes.NamespacedName) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if _, held := t.slots[cr]; held {
+		return
+	}
+	if t.activeLocked() < t.maxInFlight {
+		t.slots[cr] = ""
+	}
 }
 
 // isSeeded reports whether the slots of tasks submitted by an earlier process
@@ -188,11 +232,12 @@ func (t *cnsTaskTracker) releaseSlot(cr apitypes.NamespacedName) {
 	delete(t.slots, cr)
 }
 
-// inFlight reports how many slots are currently taken.
+// inFlight reports how many slots count against the cap: tasks that may still
+// be running on CNS, plus slots reserved for a submission in progress.
 func (t *cnsTaskTracker) inFlight() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return len(t.slots)
+	return t.activeLocked()
 }
 
 // watch registers a submitted task with the listview and starts the goroutine
@@ -276,6 +321,17 @@ func (t *cnsTaskTracker) awaitResult(cr apitypes.NamespacedName,
 	decodeCtx, cancel := context.WithTimeout(ctx, volumes.VolumeOperationTimeoutInSeconds*time.Second)
 	state, volInfo, faultType, err := volumes.DecodeCreateVolumeTaskResult(decodeCtx, vc, result, volumeName)
 	cancel()
+	// The decoder reports a missing TaskInfo as Unknown because the listview
+	// sends one both when vCenter says the task failed and when the listview
+	// itself lost its session. The two are distinguishable: only a task that
+	// vCenter reported in the error state carries ErrTaskFailed. Treating that
+	// as Failed records the failure on the CR and retries it with backoff,
+	// instead of re-reading a task that CNS may already have cleaned up --
+	// which ended as a silent resubmission with no event and no backoff.
+	if state == volumes.CreateVolumeTaskUnknown && !expired && result.TaskInfo == nil &&
+		errors.Is(result.Err, volumes.ErrTaskFailed) {
+		state, err = volumes.CreateVolumeTaskFailed, result.Err
+	}
 	log.Infof("CNS CreateVolume task %q for CnsRegisterVolume %s/%s completed with state %q",
 		taskMoRef.Value, cr.Namespace, cr.Name, state)
 
