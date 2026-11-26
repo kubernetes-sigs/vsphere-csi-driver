@@ -1020,6 +1020,43 @@ func TestExpandFileVolumeRejectionMetric(t *testing.T) {
 	}
 }
 
+// TestExpandFileVolumeInvalidRequestMetric verifies that a malformed file volume expansion request
+// (here: no capacity range) is recorded in the expand volume metric as a file volume with an
+// InvalidArgument fault, and not as Unimplemented, which is reserved for the rejections of an
+// unsupported expansion (FSS off, FVS volume).
+func TestExpandFileVolumeInvalidRequestMetric(t *testing.T) {
+	ct := getControllerTest(t)
+
+	invalidBefore := expandFailureCount(t, prometheus.PrometheusFileVolumeType, csifault.CSIInvalidArgumentFault)
+	unimplementedBefore := expandFailureCount(t, prometheus.PrometheusFileVolumeType, csifault.CSIUnimplementedFault)
+
+	reqExpand := &csi.ControllerExpandVolumeRequest{
+		VolumeId: "file:" + uuid.New().String(),
+		VolumeCapability: &csi.VolumeCapability{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+			},
+			AccessType: &csi.VolumeCapability_Mount{
+				Mount: &csi.VolumeCapability_MountVolume{FsType: "nfs4"},
+			},
+		},
+	}
+	_, err := ct.controller.ControllerExpandVolume(ctx, reqExpand)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected code %v, got %v", codes.InvalidArgument, err)
+	}
+
+	got := expandFailureCount(t, prometheus.PrometheusFileVolumeType, csifault.CSIInvalidArgumentFault)
+	if got != invalidBefore+1 {
+		t.Errorf("expected one more file/InvalidArgument expand failure, before=%d after=%d", invalidBefore, got)
+	}
+	got = expandFailureCount(t, prometheus.PrometheusFileVolumeType, csifault.CSIUnimplementedFault)
+	if got != unimplementedBefore {
+		t.Errorf("a malformed request must not count as a file/Unimplemented expand failure, before=%d after=%d",
+			unimplementedBefore, got)
+	}
+}
+
 func TestMigratedExtendVolume(t *testing.T) {
 	ct := getControllerTest(t)
 	reqExpand := &csi.ControllerExpandVolumeRequest{

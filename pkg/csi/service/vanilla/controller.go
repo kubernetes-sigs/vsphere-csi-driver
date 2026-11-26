@@ -35,6 +35,7 @@ import (
 	"github.com/vmware/govmomi/units"
 	"github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
@@ -2001,8 +2002,14 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			log.Error(msg)
 			if isFileVolume {
 				// A rejected file volume expansion (flag off, FVS volume) is an expected
-				// Unimplemented response, not an internal fault.
-				return nil, csifault.CSIUnimplementedFault, err
+				// Unimplemented response, and a malformed request is an invalid argument.
+				// Neither is an internal fault.
+				switch status.Code(err) {
+				case codes.Unimplemented:
+					return nil, csifault.CSIUnimplementedFault, err
+				case codes.InvalidArgument:
+					return nil, csifault.CSIInvalidArgumentFault, err
+				}
 			}
 			return nil, csifault.CSIInternalFault, err
 		}
@@ -2058,13 +2065,14 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 				"failed to expand volume: %q to size: %d with error: %+v", volumeID, volSizeMB, err)
 		}
 
-		// Always set nodeExpansionRequired to true, even if requested size is equal
-		// to current size. Volume expansion may succeed on CNS but external-resizer
-		// may fail to update API server. Requests are requeued in this case. Setting
-		// nodeExpandsionRequired to false marks PVC resize as finished which
-		// prevents kubelet from expanding the filesystem.
+		// For filesystem block volumes always set nodeExpansionRequired to true, even if requested size is
+		// equal to current size. Volume expansion may succeed on CNS but external-resizer may fail to
+		// update API server. Requests are requeued in this case. Setting nodeExpandsionRequired to false
+		// marks PVC resize as finished which prevents kubelet from expanding the filesystem.
 		// Ref: https://github.com/kubernetes-csi/external-resizer/blob/master/pkg/controller/controller.go#L335
-		// Node expansion is not required for raw block volumes and for file volumes.
+		// It is false for raw block volumes, which have no filesystem to grow, and for file volumes: NFS
+		// shares grow on the vSAN file service side, and node expansion looks up a block device from the
+		// mount, so it would fail on NFS.
 		nodeExpansionRequired := isNodeExpansionRequired(isFileVolume, req.GetVolumeCapability())
 		log.Debugf("ControllerExpandVolumeInternal: returns %v as capacity and %v as NodeExpansionRequired",
 			int64(units.FileSize(volSizeMB*common.MbInBytes)), nodeExpansionRequired)
