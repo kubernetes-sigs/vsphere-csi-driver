@@ -35,9 +35,9 @@ import (
 // Tests in this file check that ControllerExpandVolume routes each volume type
 // (FVS file, legacy vSAN file service, multi-node raw block) to the right path.
 
-// setVsanFileVolumeExpansionForTest installs a fake orchestrator with the
-// VsanFileVolumeExpansion FSS set to the given value.
-func setVsanFileVolumeExpansionForTest(t *testing.T, enabled bool) {
+// setLegacyVsanFileShareExpansionForTest installs a fake orchestrator with the
+// LegacyVsanFileShareExpansion FSS set to the given value.
+func setLegacyVsanFileShareExpansionForTest(t *testing.T, enabled bool) {
 	t.Helper()
 	original := commonco.ContainerOrchestratorUtility
 	t.Cleanup(func() { commonco.ContainerOrchestratorUtility = original })
@@ -46,7 +46,7 @@ func setVsanFileVolumeExpansionForTest(t *testing.T, enabled bool) {
 		t.Fatalf("GetFakeContainerOrchestratorInterface: %v", err)
 	}
 	if enabled {
-		if err := orchestrator.EnableFSS(context.Background(), common.VsanFileVolumeExpansion); err != nil {
+		if err := orchestrator.EnableFSS(context.Background(), common.LegacyVsanFileShareExpansion); err != nil {
 			t.Fatalf("EnableFSS: %v", err)
 		}
 	}
@@ -89,7 +89,7 @@ func TestControllerExpandVolume_FileVolumeModes(t *testing.T) {
 		} {
 			t.Run(tc.name+"/"+mode.String(), func(t *testing.T) {
 				setVsanFileVolumeServiceEnabledForTest(t, tc.gate)
-				setVsanFileVolumeExpansionForTest(t, true)
+				setLegacyVsanFileShareExpansionForTest(t, true)
 				pvc := newPVCForExpand(fvsExpandPVC, tc.sc, "10Gi", "10Gi")
 				c := fvsExpandController(t, pvc, pvc)
 
@@ -113,7 +113,7 @@ func TestControllerExpandVolume_FileVolumeModes(t *testing.T) {
 // block requests are not mistaken for file volumes and remain unsupported.
 func TestControllerExpandVolume_MultiNodeRawBlock_Rejected(t *testing.T) {
 	// The expansion gate is on so the raw block rejection itself is exercised.
-	setVsanFileVolumeExpansionForTest(t, true)
+	setLegacyVsanFileShareExpansionForTest(t, true)
 	for _, gate := range []bool{false, true} {
 		setVsanFileVolumeServiceEnabledForTest(t, gate)
 		pvc := newPVCForExpand(fvsExpandPVC, "standard-sc", "10Gi", "10Gi")
@@ -128,11 +128,11 @@ func TestControllerExpandVolume_MultiNodeRawBlock_Rejected(t *testing.T) {
 }
 
 // TestControllerExpandVolume_FileVolume_ExpansionGateDisabled_Rejected verifies that with the
-// VsanFileVolumeExpansion FSS off, file volume requests (including multi-node raw block) are
+// LegacyVsanFileShareExpansion FSS off, file volume requests (including multi-node raw block) are
 // rejected as before and the supervisor PVC is left untouched.
 func TestControllerExpandVolume_FileVolume_ExpansionGateDisabled_Rejected(t *testing.T) {
 	setVsanFileVolumeServiceEnabledForTest(t, false)
-	setVsanFileVolumeExpansionForTest(t, false)
+	setLegacyVsanFileShareExpansionForTest(t, false)
 
 	for _, rawBlock := range []bool{false, true} {
 		pvc := newPVCForExpand(fvsExpandPVC, "standard-sc", "5Gi", "5Gi")
@@ -157,10 +157,10 @@ func TestControllerExpandVolume_FileVolume_ExpansionGateDisabled_Rejected(t *tes
 
 // TestControllerExpandVolume_FVSVolume_NotExpandedAsLegacy verifies the legacy expansion gate does
 // not extend to FVS volumes: with the FVS gate off an FVS storage class PVC is rejected even when
-// VsanFileVolumeExpansion is on, and the supervisor PVC is left untouched.
+// LegacyVsanFileShareExpansion is on, and the supervisor PVC is left untouched.
 func TestControllerExpandVolume_FVSVolume_NotExpandedAsLegacy(t *testing.T) {
 	setVsanFileVolumeServiceEnabledForTest(t, false)
-	setVsanFileVolumeExpansionForTest(t, true)
+	setLegacyVsanFileShareExpansionForTest(t, true)
 
 	pvc := newPVCForExpand(fvsExpandPVC, common.StorageClassVsanFileServicePolicy, "5Gi", "5Gi")
 	c := fvsExpandController(t, pvc, pvc)

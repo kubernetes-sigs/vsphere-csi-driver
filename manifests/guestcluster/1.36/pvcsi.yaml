@@ -767,7 +767,7 @@ data:
   "podvm-v2-support": "false" # effective only with host-local-storage-support and supervisor capabilities supports_host_local_storage + supports_podvm_v2
   "supports_exposing_storage_policy_attributes": "false" # same name as supervisor capability; effective only when supervisor capability is also enabled
   "vks-register-volume": "false"
-  "vsanfs-file-volume-expansion": "false"
+  "legacy-vsan-file-share-expansion": "false"
   "VM_PVC_STORAGE_POLICY_MUTABILITY": "false" # paired with the supports_VM_PVC_storage_policy_mutability supervisor capability; effective only when that capability is also enabled
 kind: ConfigMap
 metadata:

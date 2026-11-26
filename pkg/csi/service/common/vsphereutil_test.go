@@ -595,6 +595,8 @@ func TestShouldQueryVolumeBeforeExpand(t *testing.T) {
 		{"block volume, vSphere 8 and above", "1234-abcd", true, false},
 		{"file volume, vSphere below 8", "file:1234-abcd", false, true},
 		{"file volume, vSphere 8 and above", "file:1234-abcd", true, true},
+		{"FVS handle, vSphere below 8", "fv:ns:name", false, true},
+		{"FVS handle, vSphere 8 and above", "fv:ns:name", true, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

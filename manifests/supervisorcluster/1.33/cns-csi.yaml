@@ -680,7 +680,7 @@ data:
   "improved-volume-visibility": "true"
   "vks-register-volume": "false"
   "vsphere-csi-runtime-config": "false"
-  "vsanfs-file-volume-expansion": "false"
+  "legacy-vsan-file-share-expansion": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states

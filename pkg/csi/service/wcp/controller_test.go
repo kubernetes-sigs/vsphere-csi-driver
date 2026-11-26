@@ -3841,7 +3841,7 @@ func TestCreateBlockVolumeVACPolicyOverride(t *testing.T) {
 	})
 }
 
-// TestWCPExpandFileVolumeGate verifies the VsanFileVolumeExpansion FSS gate on the supervisor
+// TestWCPExpandFileVolumeGate verifies the LegacyVsanFileShareExpansion FSS gate on the supervisor
 // ControllerExpandVolume path for file volumes: legacy file volumes are rejected when it is off,
 // FVS volume ids are never expanded as legacy volumes when FVS is off, and with the gate on a
 // legacy file volume gets past the gate and on to the CNS expand call.
@@ -3850,7 +3850,7 @@ func TestWCPExpandFileVolumeGate(t *testing.T) {
 	oldFVS := isVsanFileVolumeServiceFSSEnabled
 	t.Cleanup(func() {
 		isVsanFileVolumeServiceFSSEnabled = oldFVS
-		_ = commonco.ContainerOrchestratorUtility.DisableFSS(ctx, common.VsanFileVolumeExpansion)
+		_ = commonco.ContainerOrchestratorUtility.DisableFSS(ctx, common.LegacyVsanFileShareExpansion)
 	})
 	isVsanFileVolumeServiceFSSEnabled = false
 
@@ -3869,20 +3869,49 @@ func TestWCPExpandFileVolumeGate(t *testing.T) {
 	const gateMsg = "volume expansion is only supported for block volume type"
 
 	// Gate off: legacy file volume is rejected.
-	assert.NoError(t, commonco.ContainerOrchestratorUtility.DisableFSS(ctx, common.VsanFileVolumeExpansion))
+	assert.NoError(t, commonco.ContainerOrchestratorUtility.DisableFSS(ctx, common.LegacyVsanFileShareExpansion))
 	_, err := ct.controller.ControllerExpandVolume(ctx, expandReq("file:"+uuid.New().String()))
 	assert.Equal(t, codes.Unimplemented, status.Code(err))
 	assert.Contains(t, err.Error(), gateMsg)
 
 	// Gate on, FVS disabled: an FVS volume id is not a legacy volume and is rejected.
-	assert.NoError(t, commonco.ContainerOrchestratorUtility.EnableFSS(ctx, common.VsanFileVolumeExpansion))
+	assert.NoError(t, commonco.ContainerOrchestratorUtility.EnableFSS(ctx, common.LegacyVsanFileShareExpansion))
 	_, err = ct.controller.ControllerExpandVolume(ctx, expandReq(common.FVSVolumeIDPrefix+"ns:fv"))
 	assert.Equal(t, codes.Unimplemented, status.Code(err))
 	assert.Contains(t, err.Error(), gateMsg)
 
-	// Gate on: a legacy file volume gets past the gate. The volume does not exist so the
-	// CNS expand call is what fails, not the gate.
+	// Gate on: a legacy file volume gets past the FSS gate. The simulator is vCenter 7.0.3, so it is
+	// then stopped by the vCenter version gate, not by the FSS gate.
 	_, err = ct.controller.ControllerExpandVolume(ctx, expandReq("file:"+uuid.New().String()))
 	assert.Error(t, err)
 	assert.NotContains(t, err.Error(), gateMsg)
+	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+}
+
+// TestWCPExpandFileVolumeRequiresVCenter90 verifies that expanding a legacy vSAN file share volume is
+// rejected with FailedPrecondition on a vCenter older than 9.0 (the simulator reports 7.0.3), even
+// when the LegacyVsanFileShareExpansion FSS is on, because CNS extend of a file share is confirmed
+// to work only from 9.0. The rejection must be recorded as a file volume, not an unknown one.
+func TestWCPExpandFileVolumeRequiresVCenter90(t *testing.T) {
+	ct := getControllerTest(t)
+	oldFVS := isVsanFileVolumeServiceFSSEnabled
+	t.Cleanup(func() {
+		isVsanFileVolumeServiceFSSEnabled = oldFVS
+		_ = commonco.ContainerOrchestratorUtility.DisableFSS(ctx, common.LegacyVsanFileShareExpansion)
+	})
+	isVsanFileVolumeServiceFSSEnabled = false
+	assert.NoError(t, commonco.ContainerOrchestratorUtility.EnableFSS(ctx, common.LegacyVsanFileShareExpansion))
+
+	_, err := ct.controller.ControllerExpandVolume(ctx, &csi.ControllerExpandVolumeRequest{
+		VolumeId:      "file:" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{RequiredBytes: 2 * common.GbInBytes},
+		VolumeCapability: &csi.VolumeCapability{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+			},
+			AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+		},
+	})
+	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+	assert.Contains(t, err.Error(), "requires vCenter 9.0 or later")
 }

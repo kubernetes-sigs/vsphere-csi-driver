@@ -1971,10 +1971,10 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		// Legacy vSAN file service volumes follow the same flow: the supervisor
 		// CSI driver expands the CNS file share when the supervisor PVC grows,
 		// and status.capacity is updated once the resize completes.
-		// Gated by the VsanFileVolumeExpansion FSS; without it file volumes are rejected as before.
+		// Gated by the LegacyVsanFileShareExpansion FSS; without it file volumes are rejected as before.
 		if common.IsFileVolumeRequest(ctx, []*csi.VolumeCapability{req.GetVolumeCapability()}) {
 			if common.IsFVSPersistentVolumeClaim(svPVC) ||
-				!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VsanFileVolumeExpansion) {
+				!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LegacyVsanFileShareExpansion) {
 				return nil, csifault.CSIInvalidArgumentFault,
 					logger.LogNewErrorCode(log, codes.Unimplemented,
 						"volume expansion is only supported for block volume type")

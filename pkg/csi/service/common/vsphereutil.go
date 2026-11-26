@@ -814,11 +814,12 @@ func DeleteVolumeUtil(ctx context.Context, volManager cnsvolume.Manager, volumeI
 }
 
 // shouldQueryVolumeBeforeExpand returns whether the current volume size must be queried from CNS
-// before calling ExpandVolume. vSphere 8 and above skips the query for block volumes. File volumes
-// always query: CNS rejects an extend of a file share to its current or a smaller capacity, so an
-// expand that is retried after it already succeeded would otherwise fail instead of being a no-op.
+// before calling ExpandVolume. vSphere 8 and above skips the query for block volumes. Legacy file
+// share volumes ("file:<uuid>") always query: CNS rejects an extend of a file share to its current or
+// a smaller capacity, so an expand that is retried after it already succeeded would otherwise fail
+// instead of being a no-op. FVS handles ("fv:<ns>:<name>") are not CNS volumes and are not matched.
 func shouldQueryVolumeBeforeExpand(ctx context.Context, volumeID string, isvSphere8AndAbove bool) bool {
-	return !isvSphere8AndAbove || GetCnsVolumeType(ctx, volumeID) == FileVolumeType
+	return !isvSphere8AndAbove || strings.HasPrefix(volumeID, "file:")
 }
 
 // ExpandVolumeUtil is the helper function to extend CNS volume for given
@@ -865,7 +866,8 @@ func ExpandVolumeUtil(ctx context.Context, vCenterManager vsphere.VirtualCenterM
 		log.Infof("Successfully expanded volume for volumeID %q to new size %d Mb.", volumeID, capacityInMb)
 
 	} else {
-		log.Infof("Requested volume size is equal to current size %d Mb. Expansion not required.", capacityInMb)
+		log.Infof("Requested volume size %d Mb is less than or equal to the current size. "+
+			"Expansion not required.", capacityInMb)
 	}
 	return "", nil
 }

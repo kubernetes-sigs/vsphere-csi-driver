@@ -22,6 +22,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/vmware/govmomi"
+	"github.com/vmware/govmomi/vim25"
+	"github.com/vmware/govmomi/vim25/types"
 	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 )
 
@@ -54,4 +57,48 @@ func TestGetVirtualCenterNormalizesMixedCaseHost(t *testing.T) {
 	assert.NotNil(t, retrieved, "GetVirtualCenter should return the registered vCenter")
 	assert.Equal(t, normalizedHost, retrieved.Config.Host,
 		"Retrieved vCenter should have the normalized host")
+}
+
+// TestIsvSANFileShareExtendSupported verifies that expanding a vSAN file share is reported as
+// supported only from vCenter 9.0, and that an unknown host or a malformed version is an error.
+func TestIsvSANFileShareExtendSupported(t *testing.T) {
+	ctx := context.Background()
+	manager := &defaultVirtualCenterManager{virtualCenters: sync.Map{}}
+
+	registerVCenter := func(host, version string) commontypes.FQDN {
+		fqdn := commontypes.NewFQDN(host)
+		manager.virtualCenters.Store(fqdn, &VirtualCenter{
+			Config: &VirtualCenterConfig{Host: fqdn},
+			Client: &govmomi.Client{Client: &vim25.Client{
+				ServiceContent: types.ServiceContent{About: types.AboutInfo{Version: version}},
+			}},
+		})
+		return fqdn
+	}
+
+	tests := []struct {
+		name    string
+		host    commontypes.FQDN
+		want    bool
+		wantErr bool
+	}{
+		{name: "vCenter 7.0.3", host: registerVCenter("vc-703.example.com", "7.0.3"), want: false},
+		{name: "vCenter 8.0.3", host: registerVCenter("vc-803.example.com", "8.0.3"), want: false},
+		{name: "vCenter 9.0.0.0", host: registerVCenter("vc-900.example.com", "9.0.0.0"), want: true},
+		{name: "vCenter 9.1.0", host: registerVCenter("vc-910.example.com", "9.1.0"), want: true},
+		{name: "malformed version", host: registerVCenter("vc-bad.example.com", "unknown"), wantErr: true},
+		{name: "unregistered vCenter", host: commontypes.NewFQDN("missing.example.com"), wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := manager.IsvSANFileShareExtendSupported(ctx, tc.host)
+			if tc.wantErr {
+				assert.Error(t, err)
+				assert.False(t, got)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
 }
