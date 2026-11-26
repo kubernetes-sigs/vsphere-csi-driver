@@ -478,11 +478,14 @@ func TestProcessDetachRejectsVmNotInSameNamespace(t *testing.T) {
 			vm := &cnsvsphere.VirtualMachine{}
 			clientset := getClientSetWithPvc()
 
-			err := r.processDetach(context.TODO(), clientset, vm, &testCnsNodeVMBatchAttachment, volumesToDetach)
+			failed, err := r.processDetach(context.TODO(), clientset, vm, &testCnsNodeVMBatchAttachment,
+				volumesToDetach)
 			expectedError := fmt.Errorf("failed to find VM with instance UUID %s in namespace %s",
 				tt.instanceUUID, testNamespace)
 			assert.EqualError(t, err, expectedError.Error())
 			assert.Empty(t, mockVolumeManager.detachedIDs, "DetachVolume must not be called")
+			assert.Equal(t, map[string]bool{"pvc-1": true}, failed,
+				"every PVC must be reported as not detached when processDetach fails early")
 		})
 	}
 }
@@ -495,7 +498,7 @@ func TestProcessDetachWithNoVolumesSkipsNamespaceCheck(t *testing.T) {
 	mockVolumeManager := &detachTrackingMockVolumeManager{}
 	r.volumeManager = mockVolumeManager
 
-	err := r.processDetach(context.TODO(), getClientSetWithPvc(), &cnsvsphere.VirtualMachine{},
+	_, err := r.processDetach(context.TODO(), getClientSetWithPvc(), &cnsvsphere.VirtualMachine{},
 		&testCnsNodeVMBatchAttachment, map[string]string{})
 	assert.NoError(t, err)
 	assert.Empty(t, mockVolumeManager.detachedIDs)
@@ -924,6 +927,37 @@ func TestUpdatePvcStatusEntryName_SkipsIfAlreadyHasSuffix(t *testing.T) {
 	}
 }
 
+// The detaching entry may come after the regular entry in the status. A single pass which
+// records detaching PVCs while iterating would rename the regular entry before seeing the
+// detaching one, and create a duplicate name.
+func TestUpdatePvcStatusEntryName_NoDuplicateWhenDetachingEntryComesLater(t *testing.T) {
+	ctx := context.TODO()
+
+	instance := &v1alpha1.CnsNodeVMBatchAttachment{
+		Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+			VolumeStatus: []v1alpha1.VolumeStatus{
+				{
+					Name:                  "vol1",
+					PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{ClaimName: "pvc-1"},
+				},
+				{
+					Name:                  "vol1" + detachSuffix,
+					PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{ClaimName: "pvc-1"},
+				},
+			},
+		},
+	}
+
+	updatePvcStatusEntryName(ctx, instance, map[string]string{"pvc-1": ""})
+
+	if got := instance.Status.VolumeStatus[0].Name; got != "vol1" {
+		t.Fatalf("expected first entry to remain %q, got %q", "vol1", got)
+	}
+	if got := instance.Status.VolumeStatus[1].Name; got != "vol1"+detachSuffix {
+		t.Fatalf("expected second entry %q, got %q", "vol1"+detachSuffix, got)
+	}
+}
+
 func TestUpdatePvcStatusEntryName_SkipsNonTargetPVC(t *testing.T) {
 	ctx := context.TODO()
 
@@ -951,6 +985,34 @@ func TestUpdatePvcStatusEntryName_SkipsNonTargetPVC(t *testing.T) {
 
 	if got != want {
 		t.Fatalf("expected volume name %q (unchanged), got %q", want, got)
+	}
+}
+
+func TestUpdatePvcStatusEntryName_NoDuplicateWhenDetachingEntryExists(t *testing.T) {
+	ctx := context.TODO()
+
+	instance := &v1alpha1.CnsNodeVMBatchAttachment{
+		Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+			VolumeStatus: []v1alpha1.VolumeStatus{
+				{
+					Name:                  "vol1" + detachSuffix,
+					PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{ClaimName: "pvc-1"},
+				},
+				{
+					Name:                  "vol1",
+					PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{ClaimName: "pvc-1"},
+				},
+			},
+		},
+	}
+
+	updatePvcStatusEntryName(ctx, instance, map[string]string{"pvc-1": ""})
+
+	if got := instance.Status.VolumeStatus[0].Name; got != "vol1"+detachSuffix {
+		t.Fatalf("expected first entry %q, got %q", "vol1"+detachSuffix, got)
+	}
+	if got := instance.Status.VolumeStatus[1].Name; got != "vol1" {
+		t.Fatalf("expected second entry to remain %q, got %q", "vol1", got)
 	}
 }
 
@@ -2570,4 +2632,207 @@ func TestSyncCBTBeforeBatchAttach_ClientNil(t *testing.T) {
 
 	assert.False(t, mockVM.setCalled)
 	assert.False(t, mockVM.clearCalled)
+}
+
+// terminalFaultMockVolumeManager fails DetachVolume with a terminal error for the volume IDs
+// in terminalIDs, with a transient error for the IDs in failedIDs, and succeeds otherwise.
+type terminalFaultMockVolumeManager struct {
+	unittestcommon.MockVolumeManager
+	terminalIDs map[string]bool
+	failedIDs   map[string]bool
+}
+
+func (m *terminalFaultMockVolumeManager) DetachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine,
+	volumeID string) (string, error) {
+	if m.terminalIDs[volumeID] {
+		return "vim.fault.InvalidDeviceSpec", &volumes.TerminalError{
+			Cause: "the disk is part of a VM snapshot",
+			Err:   fmt.Errorf("failed to detach cns volume: %q", volumeID),
+		}
+	}
+	if m.failedIDs[volumeID] {
+		return "vim.fault.InvalidDeviceSpec", fmt.Errorf("failed to detach cns volume: %q", volumeID)
+	}
+	return "", nil
+}
+
+func testVM() *cnsvsphere.VirtualMachine {
+	return &cnsvsphere.VirtualMachine{VirtualMachine: &object.VirtualMachine{}}
+}
+
+func TestProcessDetachWhenAllDetachesFailWithTerminalFaults(t *testing.T) {
+	testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
+	r := setTestEnvironment(&testCnsNodeVMBatchAttachment, false)
+	r.volumeManager = &terminalFaultMockVolumeManager{terminalIDs: map[string]bool{"123-456": true}}
+	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+	failed, err := r.processDetach(context.TODO(), getClientSetWithPvc(), testVM(),
+		&testCnsNodeVMBatchAttachment, map[string]string{"pvc-1": "123-456"})
+	require.Error(t, err)
+	assert.True(t, volumes.IsTerminalError(err))
+	assert.Equal(t, map[string]bool{"pvc-1": true}, failed)
+
+	var cond *metav1.Condition
+	for _, vol := range testCnsNodeVMBatchAttachment.Status.VolumeStatus {
+		if vol.PersistentVolumeClaim.ClaimName == "pvc-1" {
+			cond = findVolumeDetachedCondition(vol)
+		}
+	}
+	require.NotNil(t, cond, "expected a VolumeDetached condition for pvc-1")
+	assert.Equal(t, v1alpha1.ReasonDetachFailedTerminal, cond.Reason)
+}
+
+func TestProcessDetachWhenOnlySomeDetachesFailWithTerminalFaults(t *testing.T) {
+	testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
+	r := setTestEnvironment(&testCnsNodeVMBatchAttachment, false)
+	r.volumeManager = &terminalFaultMockVolumeManager{
+		terminalIDs: map[string]bool{"123-456": true},
+		failedIDs:   map[string]bool{"789-012": true},
+	}
+	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+	failed, err := r.processDetach(context.TODO(), getClientSetWithPvc(), testVM(),
+		&testCnsNodeVMBatchAttachment, map[string]string{"pvc-1": "123-456", "pvc-2": "789-012"})
+	require.Error(t, err)
+	assert.False(t, volumes.IsTerminalError(err),
+		"the reconcile must be retried when some detaches failed with transient faults")
+	assert.Equal(t, map[string]bool{"pvc-1": true, "pvc-2": true}, failed)
+}
+
+func TestReconcileWithoutDeletionTimestampSkipsAttachAfterTerminalDetachFailure(t *testing.T) {
+	testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
+	r := setTestEnvironment(&testCnsNodeVMBatchAttachment, false)
+	r.volumeManager = &terminalFaultMockVolumeManager{terminalIDs: map[string]bool{"123-456": true}}
+	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+	// getVolumesToDetachForVmFromVC has already renamed the entry of the PVC being detached.
+	testCnsNodeVMBatchAttachment.Status.VolumeStatus[0].Name = "disk-1" + detachSuffix
+
+	volumesToAttach := map[string]string{"pvc-1": "123-456"}
+	err := r.reconcileInstanceWithoutDeletionTimestamp(context.TODO(), getClientSetWithPvc(),
+		&testCnsNodeVMBatchAttachment, map[string]string{"pvc-1": "123-456"}, volumesToAttach, testVM())
+	require.Error(t, err)
+	assert.True(t, volumes.IsTerminalError(err), "a skipped attach must not make the error non-terminal")
+	assert.Empty(t, volumesToAttach, "attach must be skipped for a PVC whose detach failed with a terminal fault")
+
+	// The skipped attach must be visible under the spec volume name, where readers such as
+	// VM Operator look it up. The detach error stays on the detaching entry.
+	var attachedCond, detachedCond *metav1.Condition
+	for _, vol := range testCnsNodeVMBatchAttachment.Status.VolumeStatus {
+		switch vol.Name {
+		case "disk-1":
+			assert.Equal(t, "pvc-1", vol.PersistentVolumeClaim.ClaimName)
+			for i, cond := range vol.PersistentVolumeClaim.Conditions {
+				if cond.Type == v1alpha1.ConditionAttached {
+					attachedCond = &vol.PersistentVolumeClaim.Conditions[i]
+				}
+			}
+		case "disk-1" + detachSuffix:
+			detachedCond = findVolumeDetachedCondition(vol)
+		}
+	}
+	require.NotNil(t, attachedCond, "expected an Attached condition under the spec volume name")
+	assert.Equal(t, metav1.ConditionFalse, attachedCond.Status)
+	assert.Equal(t, v1alpha1.ReasonAttachFailed, attachedCond.Reason)
+	require.NotNil(t, detachedCond, "expected the detach error on the detaching entry")
+	assert.Equal(t, v1alpha1.ReasonDetachFailedTerminal, detachedCond.Reason)
+}
+
+func TestCompleteReconciliationWithErrorRequeuesTerminalErrorsAfterMaxBackOff(t *testing.T) {
+	testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
+	r := setTestEnvironment(&testCnsNodeVMBatchAttachment, false)
+	namespacedName := types.NamespacedName{Name: testCnsNodeVMBatchAttachment.Name,
+		Namespace: testCnsNodeVMBatchAttachment.Namespace}
+	terminalErr := &volumes.TerminalError{Cause: "the disk is part of a VM snapshot",
+		Err: errors.New("failed to detach volumes: pvc-1")}
+
+	res, reconcileErr := r.completeReconciliationWithError(context.TODO(), &testCnsNodeVMBatchAttachment,
+		namespacedName, time.Second, errors.Join(nil, terminalErr))
+	require.NoError(t, reconcileErr)
+	assert.Equal(t, reconcile.Result{RequeueAfter: cnsoperatortypes.MaxBackOffDurationForReconciler}, res,
+		"terminal errors must be requeued after the max backoff")
+
+	recorder := r.recorder.(*record.FakeRecorder)
+	select {
+	case event := <-recorder.Events:
+		assert.Contains(t, event, terminalFaultEventReason)
+	default:
+		t.Fatal("expected a terminal fault event")
+	}
+
+	// A terminal error joined with a transient one must use the regular backoff.
+	res, reconcileErr = r.completeReconciliationWithError(context.TODO(), &testCnsNodeVMBatchAttachment,
+		namespacedName, time.Second, errors.Join(errors.New("attach failed"), terminalErr))
+	require.NoError(t, reconcileErr)
+	assert.Equal(t, time.Second, res.RequeueAfter)
+
+	// An instance being deleted is requeued after the max backoff too.
+	now := metav1.Now()
+	testCnsNodeVMBatchAttachment.DeletionTimestamp = &now
+	res, reconcileErr = r.completeReconciliationWithError(context.TODO(), &testCnsNodeVMBatchAttachment,
+		namespacedName, time.Second, terminalErr)
+	require.NoError(t, reconcileErr)
+	assert.Equal(t, cnsoperatortypes.MaxBackOffDurationForReconciler, res.RequeueAfter)
+}
+
+// When the status update fails, a terminal error must still be requeued after the max backoff,
+// so that the failing operations are not issued again only to retry the status update.
+func TestCompleteReconciliationWithErrorStatusUpdateFailure(t *testing.T) {
+	testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
+	r := setTestEnvironment(&testCnsNodeVMBatchAttachment, false)
+	namespacedName := types.NamespacedName{Name: testCnsNodeVMBatchAttachment.Name,
+		Namespace: testCnsNodeVMBatchAttachment.Namespace}
+	terminalErr := &volumes.TerminalError{Cause: "the disk is part of a VM snapshot",
+		Err: errors.New("failed to detach volumes: pvc-1")}
+
+	// A stale resourceVersion makes the status update fail with a conflict.
+	stale := testCnsNodeVMBatchAttachment.DeepCopy()
+	stale.ResourceVersion = "999"
+	res, reconcileErr := r.completeReconciliationWithError(context.TODO(), stale,
+		namespacedName, time.Second, terminalErr)
+	require.NoError(t, reconcileErr)
+	assert.Equal(t, cnsoperatortypes.MaxBackOffDurationForReconciler, res.RequeueAfter)
+
+	// A transient error still uses the regular backoff.
+	stale = testCnsNodeVMBatchAttachment.DeepCopy()
+	stale.ResourceVersion = "999"
+	res, reconcileErr = r.completeReconciliationWithError(context.TODO(), stale,
+		namespacedName, time.Second, errors.New("attach failed"))
+	require.NoError(t, reconcileErr)
+	assert.Equal(t, time.Second, res.RequeueAfter)
+}
+
+// When processDetach fails before detaching anything, for example on the VM namespace check,
+// a PVC whose backing changed is still attached with its old backing, so its attach with the
+// new backing must be skipped too.
+func TestReconcileWithoutDeletionTimestampSkipsAttachWhenDetachFailsEarly(t *testing.T) {
+	testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
+	// No VM with this instance UUID exists in the namespace, so the namespace check fails.
+	testCnsNodeVMBatchAttachment.Spec.InstanceUUID = "uuid-not-in-namespace"
+	r := setTestEnvironment(&testCnsNodeVMBatchAttachment, false)
+	mockVolumeManager := &detachTrackingMockVolumeManager{}
+	r.volumeManager = mockVolumeManager
+	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+	volumesToAttach := map[string]string{"pvc-1": "123-456"}
+	err := r.reconcileInstanceWithoutDeletionTimestamp(context.TODO(), getClientSetWithPvc(),
+		&testCnsNodeVMBatchAttachment, map[string]string{"pvc-1": "123-456"}, volumesToAttach, testVM())
+	require.Error(t, err)
+	assert.False(t, volumes.IsTerminalError(err))
+	assert.Empty(t, mockVolumeManager.detachedIDs, "DetachVolume must not be called")
+	assert.Empty(t, volumesToAttach, "attach must be skipped for a PVC which was not detached")
+}
+
+func TestReconcileWithoutDeletionTimestampSkipsAttachAfterTransientDetachFailure(t *testing.T) {
+	testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
+	r := setTestEnvironment(&testCnsNodeVMBatchAttachment, false)
+	r.volumeManager = &terminalFaultMockVolumeManager{failedIDs: map[string]bool{"123-456": true}}
+	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+	volumesToAttach := map[string]string{"pvc-1": "123-456"}
+	err := r.reconcileInstanceWithoutDeletionTimestamp(context.TODO(), getClientSetWithPvc(),
+		&testCnsNodeVMBatchAttachment, map[string]string{"pvc-1": "123-456"}, volumesToAttach, testVM())
+	require.Error(t, err)
+	assert.False(t, volumes.IsTerminalError(err))
+	assert.Empty(t, volumesToAttach, "attach must be skipped for a PVC whose detach failed")
 }

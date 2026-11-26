@@ -681,3 +681,82 @@ func IsCnsNotRegisteredFault(ctx context.Context, fault *types.LocalizedMethodFa
 	}
 	return false
 }
+
+// terminalFaultMessageKeys maps vCenter fault message keys to a description of the cause, for
+// faults which cannot be resolved by retrying the same operation. vCenter often reports these
+// using generic fault types such as InvalidDeviceSpec, which are also used for transient
+// reasons, so faults are classified by message key and not by fault type.
+var terminalFaultMessageKeys = map[string]string{
+	"removeDiskAfterVMSnapshot": "the disk is part of a VM snapshot",
+}
+
+// TerminalError is an error caused by a fault which cannot be resolved by retrying
+// the same operation right away. It can be resolved once its cause goes away,
+// for example when the VM snapshot holding the disk is deleted.
+type TerminalError struct {
+	// Cause describes why the operation cannot succeed.
+	Cause string
+	Err   error
+}
+
+func (e *TerminalError) Error() string {
+	return fmt.Sprintf("%s (terminal fault: %s)", e.Err, e.Cause)
+}
+
+func (e *TerminalError) Unwrap() error {
+	return e.Err
+}
+
+// IsTerminalError returns true if retrying err right away cannot succeed, so callers should
+// retry it only at a long interval. An error joined with errors.Join is terminal only if
+// every error in it is terminal, so that a joined transient error still gets the regular retry.
+func IsTerminalError(err error) bool {
+	switch e := err.(type) {
+	case nil:
+		return false
+	case *TerminalError:
+		return true
+	case interface{ Unwrap() []error }:
+		found := false
+		for _, joinedErr := range e.Unwrap() {
+			if joinedErr == nil {
+				continue
+			}
+			if !IsTerminalError(joinedErr) {
+				return false
+			}
+			found = true
+		}
+		return found
+	}
+	return IsTerminalError(errors.Unwrap(err))
+}
+
+// GetTerminalFaultCause returns the cause of the fault and true if the fault is terminal.
+// CNS reports vCenter task failures as a CnsFault whose FaultCause holds the actual fault,
+// so the whole FaultCause chain is checked.
+func GetTerminalFaultCause(fault *types.LocalizedMethodFault) (string, bool) {
+	for fault != nil && fault.Fault != nil {
+		methodFault := fault.Fault.GetMethodFault()
+		if methodFault == nil {
+			return "", false
+		}
+		for _, msg := range methodFault.FaultMessage {
+			for key, cause := range terminalFaultMessageKeys {
+				if strings.Contains(msg.Key, key) {
+					return cause, true
+				}
+			}
+		}
+		fault = methodFault.FaultCause
+	}
+	return "", false
+}
+
+// wrapIfTerminalFault wraps err in a TerminalError if the fault is terminal.
+func wrapIfTerminalFault(fault *types.LocalizedMethodFault, err error) error {
+	if cause, ok := GetTerminalFaultCause(fault); ok {
+		return &TerminalError{Cause: cause, Err: err}
+	}
+	return err
+}
