@@ -1,5 +1,9 @@
 REGISTRY ?= gcr.io/cloud-provider-vsphere
 
+# Exported so the login recipe reads the credentials from the shell environment
+# instead of having make expand (and echo) them into the command line.
+export DOCKER_USERNAME DOCKER_PASSWORD
+
 .PHONY: login-to-image-registry
 login-to-image-registry:
 # Push images to a gcr.io registry.
@@ -23,7 +27,7 @@ else # begin docker
 ifneq (,$(strip $(DOCKER_USERNAME))) # begin docker-username
 ifneq (,$(strip $(DOCKER_PASSWORD))) # begin docker-password
 	@echo "logging into docker registry with username and password"
-	docker login -u="$(DOCKER_USERNAME)" -p="$(DOCKER_PASSWORD)"
+	@printf '%s' "$$DOCKER_PASSWORD" | docker login -u "$$DOCKER_USERNAME" --password-stdin
 endif # end docker-password
 endif # end docker-username
 endif # end docker

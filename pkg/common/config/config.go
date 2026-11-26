@@ -886,6 +886,10 @@ func GetSessionUserAgent(ctx context.Context) (string, error) {
 	return useragent, nil
 }
 
+// redactedValue is the fixed placeholder written in place of sensitive fields. It is deliberately
+// independent of the secret's length so that logs do not reveal how long a credential is.
+const redactedValue = "****"
+
 // String returns a string representation of VirtualCenterConfig with sensitive fields redacted
 func (vc VirtualCenterConfig) String() string {
 	val := reflect.ValueOf(vc)
@@ -897,7 +901,7 @@ func (vc VirtualCenterConfig) String() string {
 		value := val.Field(i)
 
 		if field.Tag.Get("sensitive") == "true" {
-			fields = append(fields, fmt.Sprintf("%s:%s", field.Name, strings.Repeat("*", value.Len())))
+			fields = append(fields, fmt.Sprintf("%s:%s", field.Name, redactedValue))
 		} else {
 			fields = append(fields, fmt.Sprintf("%s:%v", field.Name, value.Interface()))
 		}
