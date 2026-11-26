@@ -2,7 +2,9 @@ package volume
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,12 +23,16 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 )
 
-type blockingSessionTransport struct{ started chan struct{} }
-
 type blockingListViewTransport struct {
 	started  chan struct{}
 	deadline chan time.Time
 	unblock  chan struct{}
+	// answerRemoves makes a Remove succeed at once (or fail with removeErr)
+	// instead of blocking, and counts it, so tests can observe the cleanup
+	// of an interrupted Add.
+	answerRemoves bool
+	removeErr     error
+	removes       atomic.Int32
 }
 
 func (b *blockingListViewTransport) RoundTrip(ctx context.Context, req, res soap.HasFault) error {
@@ -39,6 +45,14 @@ func (b *blockingListViewTransport) RoundTrip(ctx context.Context, req, res soap
 		}}}}
 		return nil
 	case *methods.ModifyListViewBody:
+		if b.answerRemoves && len(req.Req.Remove) > 0 {
+			b.removes.Add(1)
+			if b.removeErr != nil {
+				return b.removeErr
+			}
+			res.(*methods.ModifyListViewBody).Res = &types.ModifyListViewResponse{}
+			return nil
+		}
 		deadline, _ := ctx.Deadline()
 		b.deadline <- deadline
 		close(b.started)
@@ -77,12 +91,6 @@ func (v *taskUpdateView) AddTask(_ context.Context, ref types.ManagedObjectRefer
 func (v *taskUpdateView) RemoveTask(_ context.Context, ref types.ManagedObjectReference) error {
 	v.view.taskMap.Delete(ref)
 	return nil
-}
-
-func (b *blockingSessionTransport) RoundTrip(ctx context.Context, _, _ soap.HasFault) error {
-	close(b.started)
-	<-ctx.Done()
-	return ctx.Err()
 }
 
 func TestCreateVolumeMonitoringInterruptionPreservesTask(t *testing.T) {
@@ -369,46 +377,20 @@ func TestCanceledAddDoesNotWaitForBusyView(t *testing.T) {
 }
 
 func TestViewLockWaitHonorsDeadline(t *testing.T) {
-	var lock contextMutex
+	var lock viewLock
 	require.NoError(t, lock.Lock(context.Background()))
 	defer lock.Unlock()
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
 	require.ErrorIs(t, lock.Lock(ctx), context.DeadlineExceeded)
-}
-
-func TestStalledSessionCheckDoesNotTrapCanceledRequests(t *testing.T) {
-	sessionRef := types.ManagedObjectReference{Type: "SessionManager", Value: "session"}
-	collectorRef := types.ManagedObjectReference{Type: "PropertyCollector", Value: "collector"}
-	transport := &blockingSessionTransport{started: make(chan struct{})}
-	client := &vim25.Client{RoundTripper: transport, ServiceContent: types.ServiceContent{
-		SessionManager: &sessionRef, PropertyCollector: collectorRef,
-	}}
-	sharedCtx, sharedCancel := context.WithCancel(context.Background())
-	defer sharedCancel()
-	l := &ListViewImpl{isReady: true, virtualCenter: newTestVirtualCenter(client), client: client,
-		waitForUpdatesContext: sharedCtx, waitForUpdatesCancelFunc: sharedCancel}
-	firstCtx, cancelFirst := context.WithCancel(logger.NewContextWithLogger(context.Background()))
-	firstDone := make(chan error, 1)
-	go func() {
-		firstDone <- l.AddTask(firstCtx, types.ManagedObjectReference{Type: "Task", Value: "task-1"},
-			make(chan TaskResult, 1))
-	}()
-	<-transport.started
-	secondCtx, cancelSecond := context.WithCancel(logger.NewContextWithLogger(context.Background()))
-	cancelSecond()
-	err := l.AddTask(secondCtx, types.ManagedObjectReference{Type: "Task", Value: "task-2"}, make(chan TaskResult, 1))
-	require.ErrorIs(t, err, context.Canceled)
-	cancelFirst()
-	require.ErrorIs(t, <-firstDone, context.Canceled)
-	require.True(t, l.IsListViewReady())
-	require.NoError(t, sharedCtx.Err())
+	require.ErrorIs(t, lock.RLock(ctx), context.DeadlineExceeded)
 }
 
 func TestStalledListViewAddHonorsCancellation(t *testing.T) {
 	sessionRef := types.ManagedObjectReference{Type: "SessionManager", Value: "session"}
 	collectorRef := types.ManagedObjectReference{Type: "PropertyCollector", Value: "collector"}
-	transport := &blockingListViewTransport{started: make(chan struct{}), deadline: make(chan time.Time, 1)}
+	transport := &blockingListViewTransport{started: make(chan struct{}), deadline: make(chan time.Time, 1),
+		answerRemoves: true}
 	client := &vim25.Client{RoundTripper: transport, ServiceContent: types.ServiceContent{
 		SessionManager: &sessionRef, PropertyCollector: collectorRef,
 	}}
@@ -444,8 +426,41 @@ func TestStalledListViewAddHonorsCancellation(t *testing.T) {
 	}
 	require.NoError(t, l.viewMu.Lock(context.Background()))
 	l.viewMu.Unlock()
-	// Add may have reached vCenter before cancellation, so the view is
-	// invalidated and existing waiters will receive a monitoring error.
+	// Add may have reached vCenter before cancellation. The task is removed
+	// again so a retry gets a fresh initial update, and the view every other
+	// pending task relies on is left alone.
+	require.EqualValues(t, 1, transport.removes.Load(), "interrupted Add must be cleaned up")
+	require.True(t, l.IsListViewReady())
+	require.NoError(t, sharedCtx.Err())
+}
+
+// TestInterruptedAddCleanupFailureInvalidatesView covers the fallback: when
+// the task cannot be taken out again either, rebuilding the view is the only
+// way to be sure no stray registration is left behind.
+func TestInterruptedAddCleanupFailureInvalidatesView(t *testing.T) {
+	transport := &blockingListViewTransport{started: make(chan struct{}), deadline: make(chan time.Time, 1),
+		answerRemoves: true, removeErr: errors.New("connection reset by peer")}
+	client := &vim25.Client{RoundTripper: transport, ServiceContent: types.ServiceContent{
+		SessionManager:    &types.ManagedObjectReference{Type: "SessionManager", Value: "session"},
+		PropertyCollector: types.ManagedObjectReference{Type: "PropertyCollector", Value: "collector"},
+	}}
+	sharedCtx, sharedCancel := context.WithCancel(context.Background())
+	defer sharedCancel()
+	l := &ListViewImpl{isReady: true, taskMap: NewTaskMap(),
+		virtualCenter: newTestVirtualCenter(client), client: client,
+		listView:              view.NewListView(client, types.ManagedObjectReference{Type: "ListView", Value: "view"}),
+		waitForUpdatesContext: sharedCtx, waitForUpdatesCancelFunc: sharedCancel}
+	ctx, cancel := context.WithCancel(logger.NewContextWithLogger(context.Background()))
+	result := make(chan error, 1)
+	go func() {
+		result <- l.AddTask(ctx, types.ManagedObjectReference{Type: "Task", Value: "task-1"}, make(chan TaskResult, 1))
+	}()
+	<-transport.started
+	<-transport.deadline
+	cancel()
+	require.ErrorIs(t, <-result, ErrListViewTaskAddition)
+	require.EqualValues(t, 1, transport.removes.Load())
+	require.False(t, l.IsListViewReady())
 	require.ErrorIs(t, sharedCtx.Err(), context.Canceled)
 }
 
@@ -495,8 +510,24 @@ func TestTerminalTaskUpdateIsTaskFailure(t *testing.T) {
 	l := &ListViewImpl{ctx: logger.NewContextWithLogger(context.Background()), taskMap: NewTaskMap()}
 	l.taskMap.Upsert(ref, TaskDetails{Reference: ref, ResultCh: ch})
 	l.processTaskUpdate(types.PropertyChange{Val: types.TaskInfo{Task: ref, State: types.TaskInfoStateError,
-		Error: &types.LocalizedMethodFault{LocalizedMessage: "task failed"}}})
-	require.ErrorIs(t, (<-ch).Err, ErrTaskFailed)
+		Error: &types.LocalizedMethodFault{LocalizedMessage: "task failed", Fault: &types.InvalidState{}}}})
+	err := (<-ch).Err
+	require.ErrorIs(t, err, ErrTaskFailed)
+	require.Contains(t, err.Error(), "task failed")
+	require.Contains(t, err.Error(), "(vim.fault.InvalidState)", "the fault type must reach CR status and events")
+}
+
+// TestTerminalTaskUpdateWithoutFaultDetail must not panic on a task error
+// that carries no fault.
+func TestTerminalTaskUpdateWithoutFaultDetail(t *testing.T) {
+	ref := types.ManagedObjectReference{Type: "Task", Value: "task-failed"}
+	ch := make(chan TaskResult, 1)
+	l := &ListViewImpl{ctx: logger.NewContextWithLogger(context.Background()), taskMap: NewTaskMap()}
+	l.taskMap.Upsert(ref, TaskDetails{Reference: ref, ResultCh: ch})
+	l.processTaskUpdate(types.PropertyChange{Val: types.TaskInfo{Task: ref, State: types.TaskInfoStateError}})
+	err := (<-ch).Err
+	require.ErrorIs(t, err, ErrTaskFailed)
+	require.Contains(t, err.Error(), "(unknown fault)")
 }
 
 func TestTaskWaitLockDoesNotReplaceExistingWaiter(t *testing.T) {
