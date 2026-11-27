@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -57,6 +58,10 @@ var (
 	// removePvcFinalizerFn is a package-level function variable so tests can
 	// inject a fake implementation without architecture-specific monkey patching.
 	removePvcFinalizerFn = removePvcFinalizer
+
+	// listAttachedFcdsForVMFn is a package-level function variable so tests can
+	// list the volumes attached to a VM without a vCenter.
+	listAttachedFcdsForVMFn = listAttachedFcdsForVM
 )
 
 const (
@@ -183,16 +188,38 @@ func removeFinalizerFromCRDInstance(ctx context.Context,
 	return k8s.PatchFinalizers(ctx, c, instance, finalizersOnInstance)
 }
 
+// detachResult holds the volumes to detach, found by comparing the volumes attached to the VM with
+// the instance spec, and the volumes whose detach cannot be handled in this reconcile.
+type detachResult struct {
+	// pvcsToDetach maps each PVC to detach to its volumeID.
+	pvcsToDetach map[string]string
+	// pvcsNotDetached maps each PVC whose detach cannot be completed in this reconcile to the error.
+	pvcsNotDetached map[string]error
+	// unknownVolumes maps each attached volumeID whose PVC could not be found to the error.
+	unknownVolumes map[string]error
+}
+
 // getVolumesToDetachFromInstance finds out which are the volumes to detach by finding out which are
 // the volumes present in attachedFCDs but not in spec of the instance.
+// A volume whose PVC has been deleted is detached if it is not in spec.
+// A volume is not detached if reading its PVC object fails with an error other than NotFound, or if
+// its PVC has been deleted while the volume is still in spec. Its PVC is returned in pvcsNotDetached
+// with the error, and the other volumes are still detached.
+// A volume whose PVC cannot be found is not detached either. It is returned in unknownVolumes.
+// unresolvedSpecPVCs are the PVCs in spec whose volumeID could not be found. Their attached
+// volumes are not detached, as the volumes may be the ones the spec refers to.
 func getVolumesToDetachFromInstance(ctx context.Context,
 	instance *v1alpha1.CnsNodeVMBatchAttachment,
+	k8sClient kubernetes.Interface,
 	attachedFCDs map[string]FCDBackingDetails,
-	volumeIdsInSpec map[string]FCDBackingDetails) (pvcsToDetach map[string]string, err error) {
+	volumeIdsInSpec map[string]FCDBackingDetails,
+	unresolvedSpecPVCs map[string]error) detachResult {
 	log := logger.GetLogger(ctx)
 
 	// Map contains PVCs which need to be detached.
-	pvcsToDetach = make(map[string]string)
+	pvcsToDetach := make(map[string]string)
+	unresolvedPVCs := make(map[string]error)
+	unknownVolumes := make(map[string]error)
 
 	/// Add those volumes to to pvcsToDetach
 	// which are present in attachedFCDs list but not in
@@ -201,21 +228,23 @@ func getVolumesToDetachFromInstance(ctx context.Context,
 		// Get PVC name for the given FCD.
 		pvcName, pvcNs, exists := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(attachedFcdId)
 		if !exists {
-			msg := fmt.Sprintf("failed to find PVC for volumeID %s in cluster", attachedFcdId)
-			return pvcsToDetach, errors.New(msg)
+			// listAttachedFcdsForVM leaves out the volumes which have no PVC, so the PV of this volume
+			// has been deleted since. Do not detach it, and look at it again on the next reconcile.
+			unknownVolumes[attachedFcdId] = fmt.Errorf("failed to find PVC for volumeID %s in cluster", attachedFcdId)
+			log.Error(unknownVolumes[attachedFcdId])
+			continue
 		}
 
-		// Get PVC object for the given PVC name.
-		pvcObj, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(ctx, pvcName, pvcNs)
-		if err != nil {
-			return pvcsToDetach, fmt.Errorf("failed to find PVC obj for PVC name %s in namespace %s: %w. "+
-				"Verify the PVC still exists and the CSI node informer cache is in sync",
-				pvcName, pvcNs, err)
+		if _, unresolved := unresolvedSpecPVCs[pvcName]; unresolved && pvcNs == instance.Namespace {
+			log.Infof("Not detaching volume %s of PVC %s, as the PVC is in spec but its volumeID "+
+				"could not be found", attachedFcdId, pvcName)
+			continue
 		}
 
 		addPVCToDetachList := false
 
-		if volumeInSpec, ok := volumeIdsInSpec[attachedFcdId]; !ok {
+		volumeInSpec, inSpec := volumeIdsInSpec[attachedFcdId]
+		if !inSpec {
 			// If PVC is not present in CR spec but is attached to the VM, then add it to PVCs to detach list.
 			addPVCToDetachList = true
 		} else if volumeInSpec.ControllerKey != attachedFcdIdBacking.ControllerKey ||
@@ -227,6 +256,27 @@ func getVolumesToDetachFromInstance(ctx context.Context,
 		}
 
 		if addPVCToDetachList {
+			// Get PVC object for the given PVC name.
+			pvcObj, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(ctx, pvcName, pvcNs)
+			if apierrors.IsNotFound(err) {
+				// The informer cache may not be in sync, so check with the API server.
+				pvcObj, err = k8sClient.CoreV1().PersistentVolumeClaims(pvcNs).Get(ctx, pvcName, metav1.GetOptions{})
+			}
+			if apierrors.IsNotFound(err) && !inSpec {
+				// The PVC has been deleted and its volume is no longer in spec, so detach the volume.
+				log.Infof("PVC %s of volume %s has been deleted. Detaching the volume as it is not in spec.",
+					pvcName, attachedFcdId)
+				pvcsToDetach[pvcName] = attachedFcdId
+				continue
+			}
+			if err != nil {
+				unresolvedPVCs[pvcName] = fmt.Errorf("failed to find PVC obj for PVC name %s in namespace %s "+
+					"to detach volume %s: %w. Verify the PVC still exists and the CSI node informer cache is in sync",
+					pvcName, pvcNs, attachedFcdId, err)
+				log.Error(unresolvedPVCs[pvcName])
+				continue
+			}
+
 			// This check is required only for RWO volumes because before 9.1 we never supported RWX block volumes.
 			// If an RWO PVC does not have usedby-vm annotation,
 			// it means that it wasn't attached via the CnsNodeVMBatchAttachment CR.
@@ -253,7 +303,7 @@ func getVolumesToDetachFromInstance(ctx context.Context,
 		}
 	}
 	log.Infof("Obtained volumes to detach %+v for instance %s", pvcsToDetach, instance.Name)
-	return pvcsToDetach, nil
+	return detachResult{pvcsToDetach: pvcsToDetach, pvcsNotDetached: unresolvedPVCs, unknownVolumes: unknownVolumes}
 }
 
 // isConditionFailed returns true if the given condition type has status set to False.
@@ -274,11 +324,12 @@ func isConditionFailed(conditionType string, conds []metav1.Condition) bool {
 // 1. The volumes which are present in instance spec but not in attachedFCDs list.
 // 2. The volumes which are present in instance spec and in attachedFCDs list but have different backing details.
 // 3. The volumes whose status entry is missing in the CR or is in error state.
+// A PVC which is not in pvcNameToVolumeIDInSpec, as its volumeID could not be found, is skipped.
 func getVolumesToAttach(ctx context.Context,
 	instance *v1alpha1.CnsNodeVMBatchAttachment,
 	attachedFCDs map[string]FCDBackingDetails,
 	volumeIdsInSpec map[string]FCDBackingDetails,
-	pvcNameToVolumeIDInSpec map[string]string) (pvcsToAttach map[string]string, err error) {
+	pvcNameToVolumeIDInSpec map[string]string) (pvcsToAttach map[string]string) {
 	log := logger.GetLogger(ctx)
 
 	// Map contains volumes which need to be attached.
@@ -298,10 +349,11 @@ func getVolumesToAttach(ctx context.Context,
 	for _, pvc := range instance.Spec.Volumes {
 		volumeIDForPVC, ok := pvcNameToVolumeIDInSpec[pvc.PersistentVolumeClaim.ClaimName]
 		if !ok {
-			msg := fmt.Sprintf("failed to find volumeID for PVC %s", pvc.PersistentVolumeClaim.ClaimName)
-			log.Errorf(msg)
-			err = errors.New(msg)
-			return
+			// getVolumeMetadataMaps could not find its volumeID. Its error requeues the instance, so
+			// that the attach is retried on a later reconcile.
+			log.Infof("Skipping attach for PVC %s as its volumeID could not be found. "+
+				"Retrying on a later reconcile.", pvc.PersistentVolumeClaim.ClaimName)
+			continue
 		}
 
 		attachedFcdIDBacking, found := attachedFCDs[volumeIDForPVC]
@@ -327,7 +379,7 @@ func getVolumesToAttach(ctx context.Context,
 	}
 
 	log.Infof("Obtained volumes to attach %+v for instance %s", pvcsToAttach, instance.Name)
-	return pvcsToAttach, nil
+	return pvcsToAttach
 }
 
 // isSharedPvc returns true for PVCs which allow multi attach.
@@ -369,55 +421,75 @@ func isSharedPvc(pvcObj v1.PersistentVolumeClaim) bool {
 // Volumes in spec: pvc-1
 // Volumes in status: pvc-1
 // Volumes on vCenter: pvc-1
+//
+// The entries of unresolvedSpecPVCs, the PVCs in spec whose volumeID could not be found, are kept,
+// as it is not known whether their volumes are still attached.
+// If the finalizer of a PVC cannot be removed, its entries are kept with the error, so that this is
+// retried on the next reconcile, and the entries of the other PVCs are still removed. Such PVCs are
+// returned in failedPVCs with their errors.
 func removeStaleEntriesFromInstanceStatus(ctx context.Context,
 	client client.Client,
 	k8sClient kubernetes.Interface,
 	cnsOperatorClient client.Client,
 	instance *v1alpha1.CnsNodeVMBatchAttachment,
-	pvcsToDetach map[string]string, volumeNamesInSpec map[string]string) error {
+	pvcsToDetach map[string]string, volumeNamesInSpec map[string]string,
+	unresolvedSpecPVCs map[string]error) (failedPVCs map[string]error) {
 	log := logger.GetLogger(ctx)
 
-	// Add the stale PVCs which need to be removed to this list.
-	pvcsEntriesToRemove := make([]string, 0)
+	// staleEntries maps each PVC with stale entries to the names of these entries.
+	staleEntries := make(map[string][]string)
 
-	// Remove entries them from instance status and update the instance.
 	// For each entry in status, find corresponding entry in Spec and in pvcsToDetach.
 	for _, volumeStatus := range instance.Status.VolumeStatus {
-		if _, existsInSpec := volumeNamesInSpec[volumeStatus.Name]; !existsInSpec {
-			// Volume not found in status, check if it is being detached.
-			if _, existsInDetachList := pvcsToDetach[volumeStatus.PersistentVolumeClaim.ClaimName]; !existsInDetachList {
-				// Volume not getting detached also, it means it is a stale entry.
-
-				// First ensure that the PVC does not have CNS protection finalizer.
-				// This kind of situation can happen when detach is successful but finalizer could not be removed
-				// because of which the instance is back in queue.
-				err := removePvcFinalizer(ctx, client, k8sClient,
-					cnsOperatorClient,
-					volumeStatus.PersistentVolumeClaim.ClaimName, instance.Namespace,
-					instance.Spec.InstanceUUID)
-				if err != nil {
-					log.Errorf("failed to ensure that PVC finalizers are removed.")
-					return err
-				}
-
-				log.Infof("Status for a PVC %s found in instance %s but it is not present in Spec. "+
-					"Removing it from instance", volumeStatus.PersistentVolumeClaim.ClaimName, instance.Name)
-				pvcsEntriesToRemove = append(pvcsEntriesToRemove, volumeStatus.PersistentVolumeClaim.ClaimName)
-			}
+		pvc := volumeStatus.PersistentVolumeClaim.ClaimName
+		if _, existsInSpec := volumeNamesInSpec[volumeStatus.Name]; existsInSpec {
+			continue
 		}
+		// Volume not found in spec, check if it is being detached.
+		if _, existsInDetachList := pvcsToDetach[pvc]; existsInDetachList {
+			continue
+		}
+		if _, unresolved := unresolvedSpecPVCs[pvc]; unresolved {
+			log.Infof("Keeping status entry %s of PVC %s, as the volumeID of the PVC could not be found",
+				volumeStatus.Name, pvc)
+			continue
+		}
+		// Volume not getting detached also, it means it is a stale entry.
+		staleEntries[pvc] = append(staleEntries[pvc], volumeStatus.Name)
 	}
 
-	// Go does not support in slice mutation as it shifts the indices.
-	// Hence, it is important to delete the entries separately.
-	for _, pvcToDeleteFromStatus := range pvcsEntriesToRemove {
-		deleteVolumeFromStatus(pvcToDeleteFromStatus, instance)
-	}
+	failedPVCs = make(map[string]error)
+	for _, pvc := range slices.Sorted(maps.Keys(staleEntries)) {
+		// First ensure that the PVC does not have CNS protection finalizer.
+		// This kind of situation can happen when detach is successful but finalizer could not be removed
+		// because of which the instance is back in queue.
+		err := removePvcFinalizer(ctx, client, k8sClient, cnsOperatorClient, pvc, instance.Namespace,
+			instance.Spec.InstanceUUID)
+		if err != nil {
+			err = fmt.Errorf("failed to remove finalizer %s from PVC %s of stale status entry: %w",
+				cnsoperatortypes.CNSPvcFinalizer, pvc, err)
+			log.Error(err)
+			failedPVCs[pvc] = err
+			for _, volumeName := range staleEntries[pvc] {
+				updateInstanceVolumeStatus(ctx, instance, volumeName, pvc, "", "", err,
+					v1alpha1.ConditionDetached, v1alpha1.ReasonDetachFailed)
+			}
+			continue
+		}
 
-	return nil
+		log.Infof("Status for a PVC %s found in instance %s but it is not present in Spec. "+
+			"Removing it from instance", pvc, instance.Name)
+		deleteVolumeFromStatus(pvc, instance)
+	}
+	return failedPVCs
 }
 
 // getVolumesToDetach returns list of volumes to detach by taking a diff of
 // volumes in spec and in attachedFCDs list.
+// It also returns the PVCs whose detach cannot be completed in this reconcile, with their errors,
+// which it records in their status entries: the PVCs that getVolumesToDetachFromInstance did not
+// detach because of their PVC object, and the PVCs whose finalizer could not be removed after an
+// earlier detach. See detachResult.
 func getVolumesToDetachForVmFromVC(ctx context.Context,
 	instance *v1alpha1.CnsNodeVMBatchAttachment,
 	client client.Client,
@@ -425,26 +497,38 @@ func getVolumesToDetachForVmFromVC(ctx context.Context,
 	cnsOperatorClient client.Client,
 	attachedFCDs map[string]FCDBackingDetails,
 	volumeIdsInSpec map[string]FCDBackingDetails,
-	volumeNamesInSpec map[string]string) (map[string]string, error) {
-	log := logger.GetLogger(ctx)
-
+	volumeNamesInSpec map[string]string,
+	unresolvedSpecPVCs map[string]error) detachResult {
 	// Find out the volumes to detach by taking a diff between
 	// the instance spec and the FCDs currently attached to the VM on vCenter.
-	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, instance, attachedFCDs, volumeIdsInSpec)
-	if err != nil {
-		log.Errorf("failed to find volumes to attach and volumes to detach from instance spec. Err: %s", err)
-		return pvcsToDetach, err
+	detach := getVolumesToDetachFromInstance(ctx, instance, k8sClient, attachedFCDs,
+		volumeIdsInSpec, unresolvedSpecPVCs)
+	pvcsToDetach, pvcsNotDetached := detach.pvcsToDetach, detach.pvcsNotDetached
+
+	// The volumes of the PVCs in pvcsNotDetached are still attached and may still need to be
+	// detached: reading their PVC object failed with an error other than NotFound, or their PVC
+	// has been deleted while the volume is still in spec. So the status entries of their PVCs are
+	// handled like those of the PVCs being detached.
+	pvcsPendingDetach := maps.Clone(pvcsToDetach)
+	for pvc := range pvcsNotDetached {
+		pvcsPendingDetach[pvc] = ""
 	}
-	updatePvcStatusEntryName(ctx, instance, pvcsToDetach)
+	updatePvcStatusEntryName(ctx, instance, pvcsPendingDetach)
+	for _, pvc := range slices.Sorted(maps.Keys(pvcsNotDetached)) {
+		updateInstanceVolumeStatus(ctx, instance, "", pvc, "", "", pvcsNotDetached[pvc],
+			v1alpha1.ConditionDetached, v1alpha1.ReasonDetachFailed)
+	}
 
 	// Ensure that there are no extra entries in instance status from a previous detach call.
-	err = removeStaleEntriesFromInstanceStatus(ctx, client, k8sClient, cnsOperatorClient,
-		instance, pvcsToDetach, volumeNamesInSpec)
-	if err != nil {
-		log.Errorf("failed to remove stale entried from instance spec. Err: %s", err)
-		return pvcsToDetach, err
+	pvcsFinalizerNotRemoved := removeStaleEntriesFromInstanceStatus(ctx, client, k8sClient, cnsOperatorClient,
+		instance, pvcsPendingDetach, volumeNamesInSpec, unresolvedSpecPVCs)
+
+	// The detach of a PVC whose finalizer could not be removed did not complete either.
+	for pvc, err := range pvcsFinalizerNotRemoved {
+		pvcsNotDetached[pvc] = err
 	}
-	return pvcsToDetach, nil
+	return detachResult{pvcsToDetach: pvcsToDetach, pvcsNotDetached: pvcsNotDetached,
+		unknownVolumes: detach.unknownVolumes}
 }
 
 // updatePvcStatusEntryName goes through each of the PVCs to detach and updates their
@@ -512,31 +596,47 @@ func deleteVolumeFromStatus(pvc string, instance *v1alpha1.CnsNodeVMBatchAttachm
 		})
 }
 
+// specVolumeMaps are the lookups of the volumes in the instance spec.
+type specVolumeMaps struct {
+	// volumeIdsInSpec maps the volumeID of each PVC to the device backing the spec asks for.
+	volumeIdsInSpec map[string]FCDBackingDetails
+	// volumeNamesInSpec maps each volume name to its PVC, including the PVCs in unresolvedPVCs.
+	volumeNamesInSpec map[string]string
+	// pvcNameToVolumeIDInSpec maps each PVC to its volumeID.
+	pvcNameToVolumeIDInSpec map[string]string
+	// unresolvedPVCs maps each PVC whose volumeID could not be found to the error.
+	unresolvedPVCs map[string]error
+}
+
 // getVolumeMetadataMaps returns the volumes in instance spec.
-// It returns three maps:
+// It returns four maps:
 // 1. volumeID to FCD backing details
 // 2. VolumeName to PVC name
 // 3. PVC name to volumeID
+// 4. PVC name to error, for the PVCs whose volumeID could not be found
+// A PVC whose volumeID cannot be found, for example because the PVC does not exist or is not bound,
+// is left out of maps 1 and 3, so that the other volumes can still be attached and detached.
+// It stays in map 2, so that its status entry is not removed as stale.
 func getVolumeMetadataMaps(ctx context.Context,
-	instance *v1alpha1.CnsNodeVMBatchAttachment) (volumeIdsInSpec map[string]FCDBackingDetails,
-	volumeNamesInSpec map[string]string,
-	pvcNameToVolumeIDInSpec map[string]string,
-	err error) {
+	instance *v1alpha1.CnsNodeVMBatchAttachment) specVolumeMaps {
 	log := logger.GetLogger(ctx)
 
-	volumeIdsInSpec = make(map[string]FCDBackingDetails)
-	volumeNamesInSpec = make(map[string]string)
-	pvcNameToVolumeIDInSpec = make(map[string]string)
+	volumeIdsInSpec := make(map[string]FCDBackingDetails)
+	volumeNamesInSpec := make(map[string]string)
+	pvcNameToVolumeIDInSpec := make(map[string]string)
+	unresolvedPVCs := make(map[string]error)
 	for _, volume := range instance.Spec.Volumes {
+		volumeNamesInSpec[volume.Name] = volume.PersistentVolumeClaim.ClaimName
 		volumeId, ok := commonco.ContainerOrchestratorUtility.GetVolumeIDFromPVCName(
 			instance.Namespace, volume.PersistentVolumeClaim.ClaimName)
 		if !ok {
-			msg := fmt.Sprintf("failed to find volumeID for PVC %s", volume.PersistentVolumeClaim.ClaimName)
-			log.Errorf(msg)
-			err = errors.New(msg)
-			return
+			// VM Operator detects this error by the text "failed to find volumeID for PVC" in the
+			// condition messages of the instance and of its volumes. Do not change this message.
+			err := fmt.Errorf("failed to find volumeID for PVC %s", volume.PersistentVolumeClaim.ClaimName)
+			log.Error(err)
+			unresolvedPVCs[volume.PersistentVolumeClaim.ClaimName] = err
+			continue
 		}
-		volumeNamesInSpec[volume.Name] = volume.PersistentVolumeClaim.ClaimName
 		volumeIdsInSpec[volumeId] = FCDBackingDetails{
 			ControllerKey: *volume.PersistentVolumeClaim.ControllerKey,
 			UnitNumber:    *volume.PersistentVolumeClaim.UnitNumber,
@@ -544,7 +644,8 @@ func getVolumeMetadataMaps(ctx context.Context,
 			DiskMode:      string(volume.PersistentVolumeClaim.DiskMode)}
 		pvcNameToVolumeIDInSpec[volume.PersistentVolumeClaim.ClaimName] = volumeId
 	}
-	return
+	return specVolumeMaps{volumeIdsInSpec: volumeIdsInSpec, volumeNamesInSpec: volumeNamesInSpec,
+		pvcNameToVolumeIDInSpec: pvcNameToVolumeIDInSpec, unresolvedPVCs: unresolvedPVCs}
 }
 
 // getAllPvcsAttachedToVM returns PVC name to volumeID map for all the FCDs which are attached to the VM.
@@ -627,33 +728,44 @@ func listAttachedFcdsForVM(ctx context.Context,
 	return attachedFCDs, nil
 }
 
+// attachBatch is the CNS batch attach request for a set of PVCs, with the lookups that map the
+// results of the request back to the volumes in the instance spec.
+type attachBatch struct {
+	// pvcsInSpec maps each PVC in batchAttachRequest to its volume name in the instance spec.
+	pvcsInSpec map[string]string
+	// volumeIdsInSpec maps each volumeID in batchAttachRequest to its PVC.
+	volumeIdsInSpec map[string]string
+	// batchAttachRequest holds the attach request of each volume.
+	batchAttachRequest []volumes.BatchAttachRequest
+	// unresolvedPVCs maps each PVC left out of batchAttachRequest, as its PVC object could not be
+	// found, to the error.
+	unresolvedPVCs map[string]error
+}
+
 // constructBatchAttachRequest goes through all volumes in volumes to attach list and
 // constructs the batchAttach request for each of them.
+// A PVC whose object cannot be found is left out of the request, so that the other volumes can
+// still be attached. Its PVC is returned in unresolvedPVCs with the error.
 func constructBatchAttachRequest(ctx context.Context,
 	volumesToAttach map[string]string,
-	instance *v1alpha1.CnsNodeVMBatchAttachment) (pvcsInSpec map[string]string,
-	volumeIdsInSpec map[string]string,
-	batchAttachRequest []volumes.BatchAttachRequest, err error) {
+	instance *v1alpha1.CnsNodeVMBatchAttachment) attachBatch {
 	log := logger.GetLogger(ctx)
 	log.Infof("Constructing batch attach request for instance %s", instance.Name)
 
-	batchAttachRequest = make([]volumes.BatchAttachRequest, 0)
+	batchAttachRequest := make([]volumes.BatchAttachRequest, 0)
+	unresolvedPVCs := make(map[string]error)
 
 	// Initialize these 2 maps which will be required for easy lookup later on.
 	// This map has mapping of PVC to VolumeName
-	pvcsInSpec = make(map[string]string)
+	pvcsInSpec := make(map[string]string)
 	// This map has mapping of volumeID to PVC.
-	volumeIdsInSpec = make(map[string]string)
+	volumeIdsInSpec := make(map[string]string)
 
 	for pvcName, volumeID := range volumesToAttach {
 		for _, volume := range instance.Spec.Volumes {
 			if volume.PersistentVolumeClaim.ClaimName != pvcName {
 				continue
 			}
-
-			// Populate these 2 maps as these values are required later during batch attach.
-			pvcsInSpec[volume.PersistentVolumeClaim.ClaimName] = volume.Name
-			volumeIdsInSpec[volumeID] = volume.PersistentVolumeClaim.ClaimName
 
 			pvcObj, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(ctx, pvcName, instance.Namespace)
 			if err != nil {
@@ -662,8 +774,13 @@ func constructBatchAttachRequest(ctx context.Context,
 					pvcName, instance.Namespace, err)
 				log.With("pvc", pvcName).With("namespace", instance.Namespace).
 					Error(err)
-				return pvcsInSpec, volumeIdsInSpec, batchAttachRequest, err
+				unresolvedPVCs[pvcName] = err
+				continue
 			}
+
+			// Populate these 2 maps as these values are required later during batch attach.
+			pvcsInSpec[volume.PersistentVolumeClaim.ClaimName] = volume.Name
+			volumeIdsInSpec[volumeID] = volume.PersistentVolumeClaim.ClaimName
 
 			isPvcEncrypted := isPvcEncrypted(pvcObj.Annotations)
 			log.Infof("PVC %s has encryption enabled: %t", pvcName, isPvcEncrypted)
@@ -687,7 +804,8 @@ func constructBatchAttachRequest(ctx context.Context,
 			batchAttachRequest = append(batchAttachRequest, currentBatchAttachRequest)
 		}
 	}
-	return pvcsInSpec, volumeIdsInSpec, batchAttachRequest, nil
+	return attachBatch{pvcsInSpec: pvcsInSpec, volumeIdsInSpec: volumeIdsInSpec,
+		batchAttachRequest: batchAttachRequest, unresolvedPVCs: unresolvedPVCs}
 }
 
 // getPvcsFromSpecAndStatus returns all the PVCs in spec as well as in status of the given instance.
@@ -740,20 +858,25 @@ func getVmObject(ctx context.Context, client client.Client, configInfo *config.C
 	return vm, nil
 }
 
+// getVolumesToAttachAndDetach returns the PVCs to attach and the PVCs to detach, mapped to their volumeIDs.
+// A PVC whose volume cannot be attached or detached in this reconcile, for example because the PVC
+// does not exist or is not bound, is left out of both, so that the other volumes are still attached
+// and detached. Its error is recorded in its status and returned in volumeErr, so that the instance
+// is requeued to retry it.
+// err is returned when the volumes to attach and detach cannot be found at all.
 func getVolumesToAttachAndDetach(ctx context.Context, instance *v1alpha1.CnsNodeVMBatchAttachment,
 	vm *cnsvsphere.VirtualMachine, client client.Client, k8sClient kubernetes.Interface,
-	cnsOperatorClient client.Client) (map[string]string,
-	map[string]string, error) {
+	cnsOperatorClient client.Client) (pvcsToAttach map[string]string,
+	pvcsToDetach map[string]string, volumeErr error, err error) {
 	log := logger.GetLogger(ctx)
 
-	pvcsToAttach := make(map[string]string, 0)
-	pvcsToDetach := make(map[string]string, 0)
+	pvcsToAttach = make(map[string]string, 0)
 
 	// Query vCenter to find the list of FCDs which are attached to the VM.
-	attachedFcdList, err := listAttachedFcdsForVM(ctx, vm)
+	attachedFcdList, err := listAttachedFcdsForVMFn(ctx, vm)
 	if err != nil {
 		log.Errorf("failed to find the FCDs attached to VM %s. Err: %s", vm, err)
-		return map[string]string{}, map[string]string{}, err
+		return map[string]string{}, map[string]string{}, nil, err
 	}
 	log.Infof("List of attached FCDs %+v to VM %s", attachedFcdList, instance.Spec.InstanceUUID)
 
@@ -762,53 +885,63 @@ func getVolumesToAttachAndDetach(ctx context.Context, instance *v1alpha1.CnsNode
 			instance.Name)
 		volumesToDetach := getAllPvcsAttachedToVM(ctx, attachedFcdList)
 		log.Debugf("Volumes to detach list %+v for instance %s", volumesToDetach, instance.Name)
-		return pvcsToAttach, volumesToDetach, nil
+		return pvcsToAttach, volumesToDetach, nil, nil
 	}
 
 	// Get all PVCs and their corresponding volumeID mapping from instance spec.
-	volumeIdsInSpec, volumeNamesInSpec, pvcNameToVolumeIDInSpec, err := getVolumeMetadataMaps(ctx, instance)
-	if err != nil {
-		log.Errorf("failed to get PVCs in spec. Err: %s", err)
-		return pvcsToAttach, pvcsToDetach, err
-	}
+	specVolumes := getVolumeMetadataMaps(ctx, instance)
+	volumeIdsInSpec, volumeNamesInSpec, pvcNameToVolumeIDInSpec, unresolvedSpecPVCs := specVolumes.volumeIdsInSpec,
+		specVolumes.volumeNamesInSpec, specVolumes.pvcNameToVolumeIDInSpec, specVolumes.unresolvedPVCs
 
 	// Find the volumes to detach from the vCenter.
-	pvcsToDetach, err = getVolumesToDetach(ctx, client, k8sClient, cnsOperatorClient, instance, vm,
-		attachedFcdList, volumeIdsInSpec, volumeNamesInSpec)
-	if err != nil {
-		log.Errorf("failed to find volumes to detach from the vCenter for instance %s", instance.Name)
-		return pvcsToAttach, pvcsToDetach, err
-	}
+	detach := getVolumesToDetach(ctx, client, k8sClient, cnsOperatorClient,
+		instance, vm, attachedFcdList, volumeIdsInSpec, volumeNamesInSpec, unresolvedSpecPVCs)
+	pvcsToDetach, pvcsNotDetached, unknownVolumes := detach.pvcsToDetach, detach.pvcsNotDetached, detach.unknownVolumes
 
 	// Find the volumes to attach from the vCenter.
-	pvcsToAttach, err = getVolumesToAttach(ctx, instance,
+	pvcsToAttach = getVolumesToAttach(ctx, instance,
 		attachedFcdList, volumeIdsInSpec, pvcNameToVolumeIDInSpec)
-	if err != nil {
-		log.Errorf("failed to find volumes to attach from the vCenter for instance %s", instance.Name)
-		return pvcsToAttach, pvcsToDetach, err
+
+	// The errors are recorded only now that getVolumesToDetach has renamed the status entries of the
+	// PVCs pending detach, so that they are not recorded in the entry of another PVC under the same
+	// volume name. They go first in volumeErr, see Reconcile.
+	for _, pvc := range slices.Sorted(maps.Keys(unresolvedSpecPVCs)) {
+		markAttachFailed(ctx, instance, pvc, "", unresolvedSpecPVCs[pvc])
+		volumeErr = errors.Join(volumeErr, unresolvedSpecPVCs[pvc])
 	}
-	return pvcsToAttach, pvcsToDetach, nil
+	// getVolumesToDetach has recorded the errors of the PVCs whose detach did not complete.
+	for _, pvc := range slices.Sorted(maps.Keys(pvcsNotDetached)) {
+		volumeErr = errors.Join(volumeErr, pvcsNotDetached[pvc])
+		// The attach of such a PVC is skipped, as after a failed detach: if its volume is still
+		// attached with its previous backing, it cannot be attached with the new one. If only its
+		// finalizer could not be removed, retrying that on the next reconcile would remove the
+		// finalizer of an attached PVC.
+		if volumeID, ok := pvcsToAttach[pvc]; ok {
+			log.Infof("Skipping attach for PVC %s as its detach did not complete", pvc)
+			delete(pvcsToAttach, pvc)
+			markSkippedAttachFailed(ctx, instance, pvc, volumeID)
+		}
+	}
+	// An attached volume whose PVC could not be found has no status entry to record its error in.
+	// Its error only requeues the instance, so that the next reconcile looks at the volume again.
+	for _, volumeID := range slices.Sorted(maps.Keys(unknownVolumes)) {
+		volumeErr = errors.Join(volumeErr, unknownVolumes[volumeID])
+	}
+	return pvcsToAttach, pvcsToDetach, volumeErr, nil
 }
 
 // getVolumesToDetach queries vCenter to find the list of FCDs
-// which have to be detached from the VM.
+// which have to be detached from the VM, see getVolumesToDetachForVmFromVC.
 func getVolumesToDetach(ctx context.Context, client client.Client,
 	k8sClient kubernetes.Interface,
 	cnsOperatorClient client.Client,
 	instance *v1alpha1.CnsNodeVMBatchAttachment,
 	vm *cnsvsphere.VirtualMachine, attachedFcdList map[string]FCDBackingDetails,
-	volumeIdsInSpec map[string]FCDBackingDetails, volumeNamesInSpec map[string]string) (map[string]string, error) {
-	log := logger.GetLogger(ctx)
-
+	volumeIdsInSpec map[string]FCDBackingDetails, volumeNamesInSpec map[string]string,
+	unresolvedSpecPVCs map[string]error) detachResult {
 	// Find volumes to be detached from the VM by takinga diff with FCDs attached to VM on vCenter.
-	volumesToDetach, err := getVolumesToDetachForVmFromVC(ctx, instance, client, k8sClient,
-		cnsOperatorClient, attachedFcdList, volumeIdsInSpec, volumeNamesInSpec)
-	if err != nil {
-		log.Errorf("failed to find volumes to attach and detach. Err: %s", err)
-		return map[string]string{}, err
-	}
-
-	return volumesToDetach, nil
+	return getVolumesToDetachForVmFromVC(ctx, instance, client, k8sClient,
+		cnsOperatorClient, attachedFcdList, volumeIdsInSpec, volumeNamesInSpec, unresolvedSpecPVCs)
 }
 
 // addPvcAnnotation adds the vmInstanceUUID as an annotation to the given PVC.

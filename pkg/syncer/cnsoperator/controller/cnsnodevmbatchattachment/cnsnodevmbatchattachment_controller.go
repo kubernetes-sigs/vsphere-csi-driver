@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -316,6 +318,9 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 
 	volumesToDetach := make(map[string]string)
 	volumesToAttach := make(map[string]string)
+	// volumeErr holds the errors of individual volumes found before attaching and detaching, such as a
+	// PVC which could not be looked up.
+	var volumeErr error
 	if vm == nil {
 		// If VM is nil, it means it is deleted from the vCenter.
 		if instance.DeletionTimestamp == nil {
@@ -330,8 +335,8 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 			request.NamespacedName)
 	} else {
 		// If VM was found on vCenter, find the volumes to be attached and detached.
-		volumesToAttach, volumesToDetach, err = getVolumesToAttachAndDetach(batchAttachCtx, instance, vm, r.client, k8sClient,
-			r.cnsOperatorClient)
+		volumesToAttach, volumesToDetach, volumeErr, err = getVolumesToAttachAndDetach(batchAttachCtx, instance, vm,
+			r.client, k8sClient, r.cnsOperatorClient)
 		if err != nil {
 			log.Errorf("failed to find volumes to detach for instance %s. Err: %s",
 				request.NamespacedName.String(), err)
@@ -378,7 +383,10 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 		// Call reconcile when deletion timestamp is not set on the instance.
 		err := r.reconcileInstanceWithoutDeletionTimestamp(batchAttachCtx, k8sClient, instance, volumesToDetach,
 			volumesToAttach, vm)
-		if err != nil {
+		// volumeErr goes first, starting with the errors of the PVCs whose volumeID could not be found,
+		// so that trimming the condition message does not remove them. VM Operator looks for them in
+		// the condition messages.
+		if err = errors.Join(volumeErr, err); err != nil {
 			log.Errorf("failed to reconcile instance %s. Err: %s", request.NamespacedName.String(), err)
 			return r.completeReconciliationWithError(batchAttachCtx, instance, request.NamespacedName, timeout, err)
 		}
@@ -480,19 +488,25 @@ func (r *Reconciler) reconcileInstanceWithoutDeletionTimestamp(ctx context.Conte
 // failed.
 func markSkippedAttachFailed(ctx context.Context, instance *v1alpha1.CnsNodeVMBatchAttachment,
 	pvc, volumeID string) {
+	markAttachFailed(ctx, instance, pvc, volumeID, fmt.Errorf("PVC %s is not attached with its new device backing, "+
+		"as detaching it with its previous backing did not complete", pvc))
+}
+
+// markAttachFailed records a failed Attached condition with err for the given PVC under its
+// spec volume name, where readers such as VM Operator look up a volume's status.
+func markAttachFailed(ctx context.Context, instance *v1alpha1.CnsNodeVMBatchAttachment,
+	pvc, volumeID string, err error) {
 	log := logger.GetLogger(ctx)
 
 	for _, volume := range instance.Spec.Volumes {
 		if volume.PersistentVolumeClaim.ClaimName != pvc {
 			continue
 		}
-		err := fmt.Errorf("PVC %s is not attached with its new device backing, "+
-			"as detaching it with its previous backing did not complete", pvc)
 		updateInstanceVolumeStatus(ctx, instance, volume.Name, pvc, volumeID, "", err,
 			v1alpha1.ConditionAttached, v1alpha1.ReasonAttachFailed)
 		return
 	}
-	log.Infof("PVC %s not found in spec of instance %s. Not recording its skipped attach.",
+	log.Infof("PVC %s not found in spec of instance %s. Not recording its failed attach.",
 		pvc, instance.Name)
 }
 
@@ -685,12 +699,19 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 			instance.Namespace)
 	}
 
-	// Construct batch attach request
-	pvcsInAttachList, volumeIdsInAttachList, batchAttachRequest, err := constructBatchAttachRequest(ctx,
-		volumesToAttach, instance)
-	if err != nil {
-		log.Errorf("failed to construct batch attach request. Err: %s", err)
-		return err
+	// Construct batch attach request. A PVC whose object cannot be found is left out of it, so that
+	// the other volumes are still attached. Its error is recorded in its status.
+	batch := constructBatchAttachRequest(ctx, volumesToAttach, instance)
+	pvcsInAttachList, volumeIdsInAttachList, batchAttachRequest, unresolvedPVCs := batch.pvcsInSpec,
+		batch.volumeIdsInSpec, batch.batchAttachRequest, batch.unresolvedPVCs
+	var unresolvedErr error
+	for _, pvc := range slices.Sorted(maps.Keys(unresolvedPVCs)) {
+		markAttachFailed(ctx, instance, pvc, volumesToAttach[pvc], unresolvedPVCs[pvc])
+		unresolvedErr = errors.Join(unresolvedErr, unresolvedPVCs[pvc])
+	}
+	if len(batchAttachRequest) == 0 {
+		log.Infof("No volumes left to attach to VM %q", instance.Spec.InstanceUUID)
+		return unresolvedErr
 	}
 
 	// Manage CBT for each volume before batch attach.
@@ -792,7 +813,7 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 		updateInstanceVolumeStatus(ctx, instance, res.volumeName, res.pvcName, res.volumeID, res.diskUUID, statusErr,
 			v1alpha1.ConditionAttached, reason)
 	}
-	return attachErr
+	return errors.Join(attachErr, unresolvedErr)
 }
 
 // recordEvent records the event, sets the backOffDuration for the instance
