@@ -66,15 +66,13 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/vsphereinfra"
 )
 
-// zonesProvider is the narrow slice of COCommonInterface that this controller
-// actually needs. Declaring it here lets tests inject a minimal stub instead of
-// implementing the entire COCommonInterface.
+// zonesProvider reports the zones assigned to a namespace, from its namespace-scoped Zone CRs.
+// It is a cacheZonesProvider, which reads Zone CRs from the same informer that
+// delivers this controller's Zone watch events.
 type zonesProvider interface {
-	// StartZonesInformer starts the dynamic informer watching Zone CRs. It must
-	// be called before GetZonesForNamespace; otherwise GetZonesForNamespace will
-	// dereference a nil informer and panic.
-	StartZonesInformer(ctx context.Context, restClientConfig *restclient.Config, namespace string) error
-	GetZonesForNamespace(ns string) map[string]struct{}
+	// GetZonesForNamespace returns the names of the zones assigned to ns, i.e. its Zone CRs
+	// that are not being deleted.
+	GetZonesForNamespace(ctx context.Context, ns string) (map[string]struct{}, error)
 	// GetActiveClustersForNamespaceInRequestedZones returns the cluster morefs the namespace
 	// is actually active on within the given zones (from the namespace-scoped Zone CR's
 	// spec.namespace.clusterMoIDs), as opposed to GetZonesForNamespace, which only reports
@@ -167,12 +165,11 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	}
 
 	return add(mgr, newReconciler(mgr, configInfo, recorder,
-		commonco.ContainerOrchestratorUtility,
 		k8sclient, dynamicClient, IsVsanFileVolumeService))
 }
 
 func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
-	recorder record.EventRecorder, zp zonesProvider,
+	recorder record.EventRecorder,
 	k8sClient kubernetes.Interface, dynamicClient dynamic.Interface,
 	IsVsanFileVolumeService bool) *ReconcileStoragePolicyInfo {
 
@@ -181,7 +178,7 @@ func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
 		scheme:                  mgr.GetScheme(),
 		configInfo:              configInfo,
 		recorder:                recorder,
-		zonesProvider:           zp,
+		zonesProvider:           newCacheZonesProvider(mgr.GetCache()),
 		k8sClient:               k8sClient,
 		dynamicClient:           dynamicClient,
 		IsVsanFileVolumeService: IsVsanFileVolumeService,
@@ -321,25 +318,6 @@ func registerController(mgr manager.Manager, r *ReconcileStoragePolicyInfo) erro
 		},
 	}
 
-	// zonePredicate admits only Zone events that can change a namespace's accessible
-	// zone set: create, or a deletionTimestamp-set update. Delete is disabled — Zone
-	// deletion is finalizer-gated, so the deletionTimestamp update already triggers
-	// the re-reconcile; the later terminal Delete would just repeat it.
-	zonePredicate := predicate.Funcs{
-		CreateFunc: func(e event.CreateEvent) bool {
-			return e.Object != nil
-		},
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			if e.ObjectOld == nil || e.ObjectNew == nil {
-				return false
-			}
-			return (e.ObjectOld.GetDeletionTimestamp() == nil) != (e.ObjectNew.GetDeletionTimestamp() == nil)
-		},
-		DeleteFunc: func(_ event.DeleteEvent) bool {
-			return false
-		},
-	}
-
 	zoneObj := &unstructured.Unstructured{}
 	zoneObj.SetGroupVersionKind(zoneGVK)
 
@@ -364,7 +342,7 @@ func registerController(mgr manager.Manager, r *ReconcileStoragePolicyInfo) erro
 		Watches(
 			zoneObj,
 			handler.EnqueueRequestsFromMapFunc(r.mapZoneToSPIs),
-			builder.WithPredicates(zonePredicate),
+			builder.WithPredicates(zonePredicates()),
 		).
 		WatchesRawSource(source.Channel(resyncCh, &handler.EnqueueRequestForObject{}))
 
@@ -517,6 +495,52 @@ func (r *ReconcileStoragePolicyInfo) mapFVSNamespaceToMarkerSPIs(ctx context.Con
 		}
 	}
 	return reqs
+}
+
+// zonePredicates admits only the Zone events that can change a namespace's accessible
+// zone set:
+//   - Create: a zone was assigned to the namespace.
+//   - Update that sets or clears deletionTimestamp: the zone is being unassigned.
+//   - Update that changes spec.namespace.clusterMoIDs: the namespace's active clusters in the
+//     zone changed. WCP can create a Zone CR before filling in spec.namespace.clusterMoIDs (seen
+//     when a namespace is created with storage policies in the same request); the reconcile
+//     triggered by the create then finds no active cluster in the zone and excludes it, so this
+//     update is the only event that brings the zone back before the periodic resync.
+//
+// Delete is disabled — Zone deletion is finalizer-gated, so the deletionTimestamp update
+// already triggers the re-reconcile; the later terminal Delete would just repeat it.
+func zonePredicates() predicate.Funcs {
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			return e.Object != nil
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			if e.ObjectOld == nil || e.ObjectNew == nil {
+				return false
+			}
+			if (e.ObjectOld.GetDeletionTimestamp() == nil) != (e.ObjectNew.GetDeletionTimestamp() == nil) {
+				return true
+			}
+			return !slices.Equal(zoneNamespaceClusterMoIDs(e.ObjectOld), zoneNamespaceClusterMoIDs(e.ObjectNew))
+		},
+		DeleteFunc: func(_ event.DeleteEvent) bool {
+			return false
+		},
+	}
+}
+
+// zoneNamespaceClusterMoIDs returns spec.namespace.clusterMoIDs of a Zone CR, or nil if the
+// object is not unstructured or the field is unset or malformed.
+func zoneNamespaceClusterMoIDs(obj client.Object) []string {
+	u, ok := obj.(*unstructured.Unstructured)
+	if !ok {
+		return nil
+	}
+	clusters, _, err := unstructured.NestedStringSlice(u.Object, "spec", "namespace", "clusterMoIDs")
+	if err != nil {
+		return nil
+	}
+	return clusters
 }
 
 // mapZoneToSPIs maps a Zone CR event to reconcile requests for every
@@ -918,8 +942,11 @@ func (r *ReconcileStoragePolicyInfo) syncTopologyFromInfraSPI(ctx context.Contex
 		return nil, nil
 	}
 
-	accessibleZones, activeClustersByZone := r.namespaceFilteredZones(ctx, instance.Namespace,
+	accessibleZones, activeClustersByZone, err := r.namespaceFilteredZones(ctx, instance.Namespace,
 		infraSPI.Status.Topology.AccessibleZones)
+	if err != nil {
+		return nil, err
+	}
 
 	instance.Status.Topology = &spiv1alpha1.Topology{
 		TopologyType:    infraSPI.Status.Topology.TopologyType,
@@ -1241,14 +1268,23 @@ func (r *ReconcileStoragePolicyInfo) syncMarkerPolicyTopology(ctx context.Contex
 		return nil
 	}
 
+	var zonesErr error
 	zonesFn := func(ns string) map[string]struct{} {
-		return r.zonesProvider.GetZonesForNamespace(ns)
+		nsZones, err := r.zonesProvider.GetZonesForNamespace(ctx, ns)
+		if err != nil && zonesErr == nil {
+			zonesErr = err
+		}
+		return nsZones
 	}
 	zones, err := util.GetZonesForvSANFileServiceMarkerPolicyByNamespace(ctx, r.dynamicClient, r.k8sClient,
 		instance.Namespace, zonesFn)
 	if err != nil {
 		return fmt.Errorf("failed to compute marker-policy zones for namespace %q: %w",
 			instance.Namespace, err)
+	}
+	if zonesErr != nil {
+		return fmt.Errorf("failed to read FVS instance zones for marker policy in namespace %q: %w",
+			instance.Namespace, zonesErr)
 	}
 	instance.Status.Topology = &spiv1alpha1.Topology{
 		TopologyType:    infraSPI.Status.Topology.TopologyType,
@@ -1266,10 +1302,13 @@ func (r *ReconcileStoragePolicyInfo) syncMarkerPolicyTopology(ctx context.Contex
 // re-resolving the same per-zone data via another GetActiveClustersForNamespaceInRequestedZones
 // scan.
 func (r *ReconcileStoragePolicyInfo) namespaceFilteredZones(ctx context.Context,
-	namespace string, clusterZones []string) ([]string, map[string]map[string]bool) {
+	namespace string, clusterZones []string) ([]string, map[string]map[string]bool, error) {
 	log := logger.GetLogger(ctx)
 
-	nsZones := r.zonesProvider.GetZonesForNamespace(namespace)
+	nsZones, err := r.zonesProvider.GetZonesForNamespace(ctx, namespace)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get zones for namespace %q: %w", namespace, err)
+	}
 	if len(nsZones) == 0 {
 		// No Zone CRs assigned to this namespace means no zone has been assigned to
 		// it yet. Return empty rather than falling back to all cluster zones —
@@ -1277,7 +1316,7 @@ func (r *ReconcileStoragePolicyInfo) namespaceFilteredZones(ctx context.Context,
 		// WDI/zonal deployment.
 		log.Debugf("Namespace %q has no zone assignments; accessibleZones will be empty",
 			namespace)
-		return []string{}, map[string]map[string]bool{}
+		return []string{}, map[string]map[string]bool{}, nil
 	}
 
 	// Intersect cluster-accessible zones with namespace-assigned zones.
@@ -1306,7 +1345,7 @@ func (r *ReconcileStoragePolicyInfo) namespaceFilteredZones(ctx context.Context,
 	}
 	log.Infof("Namespace %q has zone assignments %v; filtered %d cluster zones → %d namespace-accessible zones",
 		namespace, nsZones, len(clusterZones), len(filtered))
-	return filtered, activeClustersByZone
+	return filtered, activeClustersByZone, nil
 }
 
 // setSPIError sets the error status and records a Warning event on the instance.

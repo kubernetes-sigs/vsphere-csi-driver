@@ -33,7 +33,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	dynfake "k8s.io/client-go/dynamic/fake"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
-	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -195,15 +194,11 @@ type mockZonesProvider struct {
 	inactiveZones     map[string]map[string]struct{}
 }
 
-func (m *mockZonesProvider) StartZonesInformer(_ context.Context, _ *restclient.Config, _ string) error {
-	return nil
-}
-
-func (m *mockZonesProvider) GetZonesForNamespace(ns string) map[string]struct{} {
+func (m *mockZonesProvider) GetZonesForNamespace(_ context.Context, ns string) (map[string]struct{}, error) {
 	if m.zonesForNamespace != nil {
-		return m.zonesForNamespace[ns]
+		return m.zonesForNamespace[ns], nil
 	}
-	return nil
+	return nil, nil
 }
 
 func (m *mockZonesProvider) GetActiveClustersForNamespaceInRequestedZones(_ context.Context,
@@ -471,6 +466,70 @@ func TestMapZoneToSPIs_NoSPIsInNamespace(t *testing.T) {
 	r := &ReconcileStoragePolicyInfo{client: cli, scheme: scheme}
 
 	assert.Empty(t, r.mapZoneToSPIs(ctx, newZone("ns1", "az1")))
+}
+
+// TestZonePredicates verifies which Zone events enqueue StoragePolicyInfo reconciles. In
+// particular, an update that fills in spec.namespace.clusterMoIDs on a Zone created without
+// it must be admitted: the reconcile triggered by the create excluded that zone because it had
+// no active cluster yet, and nothing else would recompute it before the periodic resync.
+func TestZonePredicates(t *testing.T) {
+	zone := func(clusters []string, deleting bool, mutate func(*unstructured.Unstructured)) client.Object {
+		z := newZone("ns1", "az1")
+		if clusters != nil {
+			require.NoError(t, unstructured.SetNestedStringSlice(z.Object, clusters,
+				"spec", "namespace", "clusterMoIDs"))
+		}
+		if deleting {
+			now := metav1.Now()
+			z.SetDeletionTimestamp(&now)
+		}
+		if mutate != nil {
+			mutate(z)
+		}
+		return z
+	}
+	p := zonePredicates()
+
+	assert.True(t, p.Create(event.CreateEvent{Object: zone(nil, false, nil)}), "create must be admitted")
+	assert.False(t, p.Create(event.CreateEvent{}), "create without object must be ignored")
+	assert.False(t, p.Delete(event.DeleteEvent{Object: zone([]string{"domain-c9"}, true, nil)}),
+		"delete must be ignored")
+
+	for _, tc := range []struct {
+		name     string
+		old, new client.Object
+		want     bool
+	}{
+		{name: "clusterMoIDs populated after create",
+			old: zone(nil, false, nil), new: zone([]string{"domain-c9"}, false, nil), want: true},
+		{name: "cluster added",
+			old: zone([]string{"domain-c9"}, false, nil), new: zone([]string{"domain-c9", "domain-c10"}, false, nil),
+			want: true},
+		{name: "cluster removed",
+			old: zone([]string{"domain-c9", "domain-c10"}, false, nil), new: zone([]string{"domain-c9"}, false, nil),
+			want: true},
+		{name: "clusterMoIDs cleared",
+			old: zone([]string{"domain-c9"}, false, nil), new: zone(nil, false, nil), want: true},
+		{name: "deletionTimestamp set",
+			old: zone([]string{"domain-c9"}, false, nil), new: zone([]string{"domain-c9"}, true, nil), want: true},
+		{name: "clusterMoIDs unchanged",
+			old: zone([]string{"domain-c9"}, false, nil), new: zone([]string{"domain-c9"}, false, nil)},
+		{name: "unrelated spec and status change",
+			old: zone([]string{"domain-c9"}, false, nil),
+			new: zone([]string{"domain-c9"}, false, func(z *unstructured.Unstructured) {
+				require.NoError(t, unstructured.SetNestedStringSlice(z.Object, []string{"domain-c10"},
+					"spec", "vSpherePods", "clusterMoIDs"))
+				require.NoError(t, unstructured.SetNestedField(z.Object, "Configured", "status", "reason"))
+			})},
+		{name: "already deleting",
+			old: zone([]string{"domain-c9"}, true, nil), new: zone([]string{"domain-c9"}, true, nil)},
+		{name: "nil old object", new: zone([]string{"domain-c9"}, false, nil)},
+		{name: "nil new object", old: zone(nil, false, nil)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, p.Update(event.UpdateEvent{ObjectOld: tc.old, ObjectNew: tc.new}))
+		})
+	}
 }
 
 // TestMergeOwnerReference exercises the four cases of the mergeOwnerReference helper.
@@ -870,7 +929,8 @@ func TestNamespaceFilteredZones(t *testing.T) {
 				},
 			}
 
-			got, _ := r.namespaceFilteredZones(ctx, "ns1", tt.clusterZones)
+			got, _, err := r.namespaceFilteredZones(ctx, "ns1", tt.clusterZones)
+			require.NoError(t, err)
 			if len(tt.expectedZones) == 0 {
 				assert.Empty(t, got)
 			} else {
