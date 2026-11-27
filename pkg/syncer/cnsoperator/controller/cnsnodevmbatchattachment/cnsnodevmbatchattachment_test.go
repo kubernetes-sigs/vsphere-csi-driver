@@ -20,7 +20,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -32,6 +34,7 @@ import (
 	"github.com/vmware/govmomi/object"
 
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -39,6 +42,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	k8sFake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
+	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/record"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -1251,8 +1255,11 @@ func TestGetVolumesToDetachFromInstanceWhenAVolumeIsRemoved(t *testing.T) {
 			SharingMode: "None", DiskMode: "persistent"},
 	}
 
-	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
-	assert.NoError(t, err)
+	detach := getVolumesToDetachFromInstance(ctx, &instance, k8sFake.NewClientset(),
+		attachedFCDs, volumeIdsInSpec, nil)
+	pvcsToDetach, unresolved := detach.pvcsToDetach, detach.pvcsNotDetached
+	assert.Empty(t, unresolved)
+	assert.Empty(t, detach.unknownVolumes)
 	assert.Equal(t, map[string]string{"with-used-by-annotation": "with-used-by-annotation-1"}, pvcsToDetach)
 }
 
@@ -1271,8 +1278,11 @@ func TestGetVolumesToDetachFromInstanceWhenNothingHasChanged(t *testing.T) {
 			UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
 	}
 
-	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
-	assert.NoError(t, err)
+	detach := getVolumesToDetachFromInstance(ctx, &instance, k8sFake.NewClientset(),
+		attachedFCDs, volumeIdsInSpec, nil)
+	pvcsToDetach, unresolved := detach.pvcsToDetach, detach.pvcsNotDetached
+	assert.Empty(t, unresolved)
+	assert.Empty(t, detach.unknownVolumes)
 	assert.Equal(t, map[string]string{}, pvcsToDetach)
 }
 
@@ -1291,8 +1301,11 @@ func TestGetVolumesToDetachFromInstanceWhenControllerKeyIsChanged(t *testing.T) 
 			UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
 	}
 
-	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
-	assert.NoError(t, err)
+	detach := getVolumesToDetachFromInstance(ctx, &instance, k8sFake.NewClientset(),
+		attachedFCDs, volumeIdsInSpec, nil)
+	pvcsToDetach, unresolved := detach.pvcsToDetach, detach.pvcsNotDetached
+	assert.Empty(t, unresolved)
+	assert.Empty(t, detach.unknownVolumes)
 	assert.Equal(t, map[string]string{"with-used-by-annotation": "with-used-by-annotation-2"}, pvcsToDetach)
 }
 
@@ -1311,8 +1324,11 @@ func TestGetVolumesToDetachFromInstanceWhenUnitNumberIsChanged(t *testing.T) {
 			UnitNumber: 4, SharingMode: "None", DiskMode: "persistent"},
 	}
 
-	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
-	assert.NoError(t, err)
+	detach := getVolumesToDetachFromInstance(ctx, &instance, k8sFake.NewClientset(),
+		attachedFCDs, volumeIdsInSpec, nil)
+	pvcsToDetach, unresolved := detach.pvcsToDetach, detach.pvcsNotDetached
+	assert.Empty(t, unresolved)
+	assert.Empty(t, detach.unknownVolumes)
 	assert.Equal(t, map[string]string{"with-used-by-annotation": "with-used-by-annotation-2"}, pvcsToDetach)
 }
 
@@ -1332,8 +1348,11 @@ func TestGetVolumesToDetachFromInstanceWhenSharingIsChanged(t *testing.T) {
 			DiskMode: "persistent"},
 	}
 
-	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
-	assert.NoError(t, err)
+	detach := getVolumesToDetachFromInstance(ctx, &instance, k8sFake.NewClientset(),
+		attachedFCDs, volumeIdsInSpec, nil)
+	pvcsToDetach, unresolved := detach.pvcsToDetach, detach.pvcsNotDetached
+	assert.Empty(t, unresolved)
+	assert.Empty(t, detach.unknownVolumes)
 	assert.Equal(t, map[string]string{"with-used-by-annotation": "with-used-by-annotation-2"}, pvcsToDetach)
 }
 
@@ -1353,8 +1372,11 @@ func TestGetVolumesToDetachFromInstanceWhenDiskModeIsChanged(t *testing.T) {
 			DiskMode: "independent_persistent"},
 	}
 
-	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
-	assert.NoError(t, err)
+	detach := getVolumesToDetachFromInstance(ctx, &instance, k8sFake.NewClientset(),
+		attachedFCDs, volumeIdsInSpec, nil)
+	pvcsToDetach, unresolved := detach.pvcsToDetach, detach.pvcsNotDetached
+	assert.Empty(t, unresolved)
+	assert.Empty(t, detach.unknownVolumes)
 	assert.Equal(t, map[string]string{"with-used-by-annotation": "with-used-by-annotation-2"}, pvcsToDetach)
 }
 
@@ -1374,8 +1396,11 @@ func TestGetVolumesToDetachFromInstanceWhenUsedByAndPvcFinalizerIsMissing(t *tes
 			DiskMode: "independent_persistent"},
 	}
 
-	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
-	assert.NoError(t, err)
+	detach := getVolumesToDetachFromInstance(ctx, &instance, k8sFake.NewClientset(),
+		attachedFCDs, volumeIdsInSpec, nil)
+	pvcsToDetach, unresolved := detach.pvcsToDetach, detach.pvcsNotDetached
+	assert.Empty(t, unresolved)
+	assert.Empty(t, detach.unknownVolumes)
 	assert.Equal(t, map[string]string{"no-finalizer-no-usedby-1": "no-finalizer-no-usedby-1"}, pvcsToDetach)
 }
 
@@ -1395,8 +1420,11 @@ func TestGetVolumesToDetachFromInstanceWhenOnlyPvcFinalizerIsMissing(t *testing.
 			DiskMode: "independent_persistent"},
 	}
 
-	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
-	assert.NoError(t, err)
+	detach := getVolumesToDetachFromInstance(ctx, &instance, k8sFake.NewClientset(),
+		attachedFCDs, volumeIdsInSpec, nil)
+	pvcsToDetach, unresolved := detach.pvcsToDetach, detach.pvcsNotDetached
+	assert.Empty(t, unresolved)
+	assert.Empty(t, detach.unknownVolumes)
 	assert.Equal(t, map[string]string{"no-finalizer-1": "no-finalizer"}, pvcsToDetach)
 }
 
@@ -1416,8 +1444,11 @@ func TestGetVolumesToDetachFromInstanceWhenOnlyUsedByIsMissingFinalizerIsPresent
 			DiskMode: "independent_persistent"},
 	}
 
-	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
-	assert.NoError(t, err)
+	detach := getVolumesToDetachFromInstance(ctx, &instance, k8sFake.NewClientset(),
+		attachedFCDs, volumeIdsInSpec, nil)
+	pvcsToDetach, unresolved := detach.pvcsToDetach, detach.pvcsNotDetached
+	assert.Empty(t, unresolved)
+	assert.Empty(t, detach.unknownVolumes)
 	assert.Equal(t, map[string]string{}, pvcsToDetach)
 }
 
@@ -1453,21 +1484,20 @@ func TestGetVolumesToAttach(t *testing.T) {
 		attachedFCDs            map[string]FCDBackingDetails
 		pvcNameToVolumeIDInSpec map[string]string
 		want                    map[string]string
-		wantErr                 bool
 	}{
 		{
-			name: "missing volumeID mapping → error",
+			name: "missing volumeID mapping → skipped, others still attached",
 			instance: &v1alpha1.CnsNodeVMBatchAttachment{
 				Spec: v1alpha1.CnsNodeVMBatchAttachmentSpec{
 					Volumes: []v1alpha1.VolumeSpec{
 						makeVolSpec("pvc1", v1alpha1.SharingNone, v1alpha1.Persistent),
+						makeVolSpec("pvc2", v1alpha1.SharingNone, v1alpha1.Persistent),
 					},
 				},
 			},
-			pvcNameToVolumeIDInSpec: map[string]string{},
+			pvcNameToVolumeIDInSpec: map[string]string{"pvc2": "vol-2"},
 			attachedFCDs:            map[string]FCDBackingDetails{},
-			want:                    nil,
-			wantErr:                 true,
+			want:                    map[string]string{"pvc2": "vol-2"},
 		},
 		{
 			name: "PVC in spec but not attached → attach",
@@ -1486,7 +1516,6 @@ func TestGetVolumesToAttach(t *testing.T) {
 			pvcNameToVolumeIDInSpec: map[string]string{"pvc1": "vol-1"},
 			attachedFCDs:            map[string]FCDBackingDetails{},
 			want:                    map[string]string{"pvc1": "vol-1"},
-			wantErr:                 false,
 		},
 		{
 			name: "backing mismatch → reattach",
@@ -1511,8 +1540,7 @@ func TestGetVolumesToAttach(t *testing.T) {
 					DiskMode:      string(v1alpha1.Persistent),
 				},
 			},
-			want:    map[string]string{"pvc1": "vol-1"},
-			wantErr: false,
+			want: map[string]string{"pvc1": "vol-1"},
 		},
 		{
 			name: "attached and status missing → attach",
@@ -1529,7 +1557,6 @@ func TestGetVolumesToAttach(t *testing.T) {
 			pvcNameToVolumeIDInSpec: map[string]string{"pvc1": "vol-1"},
 			attachedFCDs:            map[string]FCDBackingDetails{"vol-1": validBacking},
 			want:                    map[string]string{"pvc1": "vol-1"},
-			wantErr:                 false,
 		},
 		{
 			name: "attached but status has error → attach",
@@ -1561,7 +1588,6 @@ func TestGetVolumesToAttach(t *testing.T) {
 			pvcNameToVolumeIDInSpec: map[string]string{"pvc1": "vol-1"},
 			attachedFCDs:            map[string]FCDBackingDetails{"vol-1": validBacking},
 			want:                    map[string]string{"pvc1": "vol-1"},
-			wantErr:                 false,
 		},
 		{
 			name: "attached and status OK → no attach",
@@ -1590,7 +1616,6 @@ func TestGetVolumesToAttach(t *testing.T) {
 			pvcNameToVolumeIDInSpec: map[string]string{"pvc1": "vol-1"},
 			attachedFCDs:            map[string]FCDBackingDetails{"vol-1": validBacking},
 			want:                    map[string]string{},
-			wantErr:                 false,
 		},
 		{
 			name: "attached but status has error with multiple conditions → attach",
@@ -1629,7 +1654,6 @@ func TestGetVolumesToAttach(t *testing.T) {
 			pvcNameToVolumeIDInSpec: map[string]string{"pvc1": "vol-1"},
 			attachedFCDs:            map[string]FCDBackingDetails{"vol-1": validBacking},
 			want:                    map[string]string{"pvc1": "vol-1"},
-			wantErr:                 false,
 		},
 		{
 			name: "attached but status has error for detach and not attach → no attach",
@@ -1668,31 +1692,18 @@ func TestGetVolumesToAttach(t *testing.T) {
 			pvcNameToVolumeIDInSpec: map[string]string{"pvc1": "vol-1"},
 			attachedFCDs:            map[string]FCDBackingDetails{"vol-1": validBacking},
 			want:                    map[string]string{},
-			wantErr:                 false,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := getVolumesToAttach(ctx,
+			got := getVolumesToAttach(ctx,
 				tc.instance,
 				tc.attachedFCDs,
 				nil, // volumeIdsInSpec param unused
 				tc.pvcNameToVolumeIDInSpec,
 			)
 
-			if tc.wantErr {
-				if err == nil {
-					t.Fatalf("expected error but got nil")
-				}
-				if !strings.Contains(err.Error(), "failed to find volumeID") {
-					t.Errorf("unexpected error message: %v", err)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("volumesToAttach mismatch: got %+v, want %+v", got, tc.want)
 			}
@@ -2236,13 +2247,13 @@ func TestConstructBatchAttachRequest(t *testing.T) {
 
 	volumeEncryptedFalse := false
 	tests := []struct {
-		name              string
-		volumesToAttach   map[string]string
-		instance          *v1alpha1.CnsNodeVMBatchAttachment
-		expectError       bool
-		expectedPvcs      map[string]string
-		expectedVolumeIDs map[string]string
-		expectedRequests  []volumes.BatchAttachRequest
+		name               string
+		volumesToAttach    map[string]string
+		instance           *v1alpha1.CnsNodeVMBatchAttachment
+		expectedUnresolved []string
+		expectedPvcs       map[string]string
+		expectedVolumeIDs  map[string]string
+		expectedRequests   []volumes.BatchAttachRequest
 	}{
 		{
 			name: "successfully construct batch attach request",
@@ -2330,6 +2341,61 @@ func TestConstructBatchAttachRequest(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "PVC object not found is left out and the other PVC is still in the request",
+			volumesToAttach: map[string]string{
+				"pvc-1":           "vol-id-1",
+				"not-found-error": "vol-id-2",
+			},
+			instance: &v1alpha1.CnsNodeVMBatchAttachment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-instance",
+					Namespace: "test-ns",
+				},
+				Spec: v1alpha1.CnsNodeVMBatchAttachmentSpec{
+					Volumes: []v1alpha1.VolumeSpec{
+						{
+							Name: "volume-1",
+							PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimSpec{
+								ClaimName:     "pvc-1",
+								SharingMode:   v1alpha1.SharingNone,
+								DiskMode:      v1alpha1.IndependentPersistent,
+								ControllerKey: vim25types.NewInt32(1000),
+								UnitNumber:    vim25types.NewInt32(1),
+							},
+						},
+						{
+							Name: "volume-2",
+							PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimSpec{
+								ClaimName:     "not-found-error",
+								SharingMode:   v1alpha1.SharingNone,
+								DiskMode:      v1alpha1.IndependentPersistent,
+								ControllerKey: vim25types.NewInt32(1000),
+								UnitNumber:    vim25types.NewInt32(2),
+							},
+						},
+					},
+				},
+			},
+			expectedUnresolved: []string{"not-found-error"},
+			expectedPvcs: map[string]string{
+				"pvc-1": "volume-1",
+			},
+			expectedVolumeIDs: map[string]string{
+				"vol-id-1": "pvc-1",
+			},
+			expectedRequests: []volumes.BatchAttachRequest{
+				{
+					VolumeID:        "vol-id-1",
+					SharingMode:     string(v1alpha1.SharingNone),
+					DiskMode:        string(v1alpha1.IndependentPersistent),
+					ControllerKey:   vim25types.NewInt32(1000),
+					UnitNumber:      vim25types.NewInt32(1),
+					BackingType:     string(cnstypes.CnsVolumeBackingTypeFlatVer2BackingInfo),
+					VolumeEncrypted: &volumeEncryptedFalse,
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -2337,18 +2403,13 @@ func TestConstructBatchAttachRequest(t *testing.T) {
 
 			commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
 
-			pvcs, volumeIDs, requests, err :=
-				constructBatchAttachRequest(ctx, tt.volumesToAttach, tt.instance)
+			batch := constructBatchAttachRequest(ctx, tt.volumesToAttach, tt.instance)
+			pvcs, volumeIDs, requests, unresolved := batch.pvcsInSpec, batch.volumeIdsInSpec,
+				batch.batchAttachRequest, batch.unresolvedPVCs
 
-			if tt.expectError {
-				if err == nil {
-					t.Fatalf("expected error, got nil")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+			assert.ElementsMatch(t, tt.expectedUnresolved, slices.Collect(maps.Keys(unresolved)))
+			for _, pvcErr := range unresolved {
+				assert.True(t, apierrors.IsNotFound(pvcErr), "the PVC lookup error must be kept: %v", pvcErr)
 			}
 
 			if !reflect.DeepEqual(pvcs, tt.expectedPvcs) {
@@ -2835,4 +2896,558 @@ func TestReconcileWithoutDeletionTimestampSkipsAttachAfterTransientDetachFailure
 	require.Error(t, err)
 	assert.False(t, volumes.IsTerminalError(err))
 	assert.Empty(t, volumesToAttach, "attach must be skipped for a PVC whose detach failed")
+}
+
+// pvcLookupOrchestrator is a FakeK8SOrchestrator whose PVC lookups are backed by maps, so that tests
+// can make individual PVCs unresolvable.
+type pvcLookupOrchestrator struct {
+	*unittestcommon.FakeK8SOrchestrator
+	// volumeIDs maps the namespace/name of a PVC to the volumeID of the PV bound to it.
+	volumeIDs map[string]string
+	// pvcNames maps a volumeID to the namespace/name of the PVC its PV is bound to.
+	pvcNames map[string]string
+	// pvcs are the PVC objects in the informer cache, by namespace/name.
+	pvcs map[string]*v1.PersistentVolumeClaim
+}
+
+func (o *pvcLookupOrchestrator) GetVolumeIDFromPVCName(namespace string, pvcName string) (string, bool) {
+	volumeID, ok := o.volumeIDs[namespace+"/"+pvcName]
+	return volumeID, ok
+}
+
+func (o *pvcLookupOrchestrator) GetPVCNameFromCSIVolumeID(volumeID string) (string, string, bool) {
+	namespacedName, ok := o.pvcNames[volumeID]
+	if !ok {
+		return "", "", false
+	}
+	namespace, name, _ := strings.Cut(namespacedName, "/")
+	return name, namespace, true
+}
+
+func (o *pvcLookupOrchestrator) GetPvcObjectByName(ctx context.Context, pvcName string,
+	namespace string) (*v1.PersistentVolumeClaim, error) {
+	if pvc, ok := o.pvcs[namespace+"/"+pvcName]; ok {
+		return pvc, nil
+	}
+	return nil, apierrors.NewNotFound(v1.Resource("persistentvolumeclaims"), pvcName)
+}
+
+// usePvcLookupOrchestrator installs a pvcLookupOrchestrator for the duration of the test.
+func usePvcLookupOrchestrator(t *testing.T, o *pvcLookupOrchestrator) {
+	t.Helper()
+	original := commonco.ContainerOrchestratorUtility
+	t.Cleanup(func() { commonco.ContainerOrchestratorUtility = original })
+	o.FakeK8SOrchestrator = &unittestcommon.FakeK8SOrchestrator{}
+	commonco.ContainerOrchestratorUtility = o
+}
+
+// stubAttachedFCDs makes listAttachedFcdsForVMFn return fcds for the duration of the test.
+func stubAttachedFCDs(t *testing.T, fcds map[string]FCDBackingDetails) {
+	t.Helper()
+	original := listAttachedFcdsForVMFn
+	t.Cleanup(func() { listAttachedFcdsForVMFn = original })
+	listAttachedFcdsForVMFn = func(ctx context.Context,
+		vm *cnsvsphere.VirtualMachine) (map[string]FCDBackingDetails, error) {
+		return fcds, nil
+	}
+}
+
+// batchVolumeSpec returns a spec entry attaching pvc as a non-shared persistent disk.
+func batchVolumeSpec(volumeName, pvc string, unitNumber int32) v1alpha1.VolumeSpec {
+	return v1alpha1.VolumeSpec{
+		Name: volumeName,
+		PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimSpec{
+			ClaimName:     pvc,
+			ControllerKey: vim25types.NewInt32(1000),
+			UnitNumber:    vim25types.NewInt32(unitNumber),
+			SharingMode:   v1alpha1.SharingNone,
+			DiskMode:      v1alpha1.Persistent,
+		},
+	}
+}
+
+// batchBacking returns the backing of a disk attached as described by batchVolumeSpec.
+func batchBacking(unitNumber int32) FCDBackingDetails {
+	return FCDBackingDetails{ControllerKey: 1000, UnitNumber: unitNumber,
+		SharingMode: string(v1alpha1.SharingNone), DiskMode: string(v1alpha1.Persistent)}
+}
+
+// attachedVolumeStatus returns the status entry of a successfully attached volume.
+func attachedVolumeStatus(volumeName, pvc, volumeID string) v1alpha1.VolumeStatus {
+	return v1alpha1.VolumeStatus{
+		Name: volumeName,
+		PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
+			ClaimName:   pvc,
+			CnsVolumeID: volumeID,
+			Conditions: []metav1.Condition{{Type: v1alpha1.ConditionAttached, Status: metav1.ConditionTrue,
+				Reason: v1alpha1.ConditionAttached, LastTransitionTime: metav1.Now()}},
+		},
+	}
+}
+
+// batchTestPVC returns an RWO PVC in testNamespace, used by the VM under test if usedBy is set.
+func batchTestPVC(name string, usedBy bool, finalizers ...string) *v1.PersistentVolumeClaim {
+	pvc := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNamespace, Finalizers: finalizers},
+		Spec:       v1.PersistentVolumeClaimSpec{AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce}},
+	}
+	if usedBy {
+		pvc.Annotations = map[string]string{cnsoperatortypes.UsedByVMAnnotationPrefix + "test-uuid": ""}
+	}
+	return pvc
+}
+
+// findVolumeStatus returns the status entry with the given volume name, or nil.
+func findVolumeStatus(instance *v1alpha1.CnsNodeVMBatchAttachment, volumeName string) *v1alpha1.VolumeStatus {
+	for i := range instance.Status.VolumeStatus {
+		if instance.Status.VolumeStatus[i].Name == volumeName {
+			return &instance.Status.VolumeStatus[i]
+		}
+	}
+	return nil
+}
+
+// assertVolumeCondition asserts that the status entry with the given volume name is for pvc and has
+// a condition of the given type with the given status and reason, whose message contains msg.
+func assertVolumeCondition(t *testing.T, instance *v1alpha1.CnsNodeVMBatchAttachment, volumeName, pvc string,
+	conditionType string, status metav1.ConditionStatus, reason, msg string) {
+	t.Helper()
+	volume := findVolumeStatus(instance, volumeName)
+	require.NotNil(t, volume, "expected a status entry %s", volumeName)
+	assert.Equal(t, pvc, volume.PersistentVolumeClaim.ClaimName)
+	for _, cond := range volume.PersistentVolumeClaim.Conditions {
+		if cond.Type != conditionType {
+			continue
+		}
+		assert.Equal(t, status, cond.Status, "status of %s on %s", conditionType, volumeName)
+		if reason != "" {
+			assert.Equal(t, reason, cond.Reason, "reason of %s on %s", conditionType, volumeName)
+		}
+		assert.Contains(t, cond.Message, msg, "message of %s on %s", conditionType, volumeName)
+		return
+	}
+	t.Errorf("expected a %s condition on status entry %s", conditionType, volumeName)
+}
+
+// recordingVolumeManager records the volumes it attaches and detaches, and reports success.
+type recordingVolumeManager struct {
+	unittestcommon.MockVolumeManager
+	attachedIDs []string
+	detachedIDs []string
+}
+
+func (m *recordingVolumeManager) DetachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine,
+	volumeID string) (string, error) {
+	m.detachedIDs = append(m.detachedIDs, volumeID)
+	return "", nil
+}
+
+func (m *recordingVolumeManager) BatchAttachVolumes(ctx context.Context, vm *cnsvsphere.VirtualMachine,
+	requests []volumes.BatchAttachRequest) ([]volumes.BatchAttachResult, string, error) {
+	results := make([]volumes.BatchAttachResult, 0, len(requests))
+	for _, request := range requests {
+		m.attachedIDs = append(m.attachedIDs, request.VolumeID)
+		results = append(results, volumes.BatchAttachResult{VolumeID: request.VolumeID,
+			DiskUUID: "disk-uuid-" + request.VolumeID})
+	}
+	return results, "", nil
+}
+
+// vmOperatorCacheMissText is the text by which VM Operator detects that a PVC in the spec of an
+// instance has no volumeID yet (csiErrFindFailPrefix in vm-operator pkg/util/vmopv1/storage.go).
+// VM Operator looks for it in the messages of the instance conditions and of the volume conditions.
+const vmOperatorCacheMissText = "failed to find volumeID for PVC"
+
+// setupUnresolvablePVCReconcile sets up the reconcile of an instance whose spec has pvc-1, which
+// is attached, pvc-3, which does not exist, and pvc-4, which is to be attached. pvc-2 was
+// removed from spec and is to be detached.
+func setupUnresolvablePVCReconcile(t *testing.T, volumeManager volumes.Manager) (*Reconciler,
+	reconcile.Request, *k8sFake.Clientset) {
+	t.Helper()
+	instance := v1alpha1.CnsNodeVMBatchAttachment{
+		ObjectMeta: metav1.ObjectMeta{Name: testCnsNodeVMBatchAttachmentName, Namespace: testNamespace,
+			ResourceVersion: "1", Finalizers: []string{cnsoperatortypes.CNSFinalizer}},
+		Spec: v1alpha1.CnsNodeVMBatchAttachmentSpec{
+			InstanceUUID: "test-uuid",
+			Volumes: []v1alpha1.VolumeSpec{
+				batchVolumeSpec("disk-1", "pvc-1", 1),
+				batchVolumeSpec("disk-3", "pvc-3", 3),
+				batchVolumeSpec("disk-4", "pvc-4", 4),
+			},
+		},
+		Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+			VolumeStatus: []v1alpha1.VolumeStatus{
+				attachedVolumeStatus("disk-1", "pvc-1", "vol-1"),
+				attachedVolumeStatus("disk-2", "pvc-2", "vol-2"),
+			},
+		},
+	}
+	r := setTestEnvironment(&instance, false)
+	r.volumeManager = volumeManager
+
+	usePvcLookupOrchestrator(t, &pvcLookupOrchestrator{
+		volumeIDs: map[string]string{"test-ns/pvc-1": "vol-1", "test-ns/pvc-2": "vol-2", "test-ns/pvc-4": "vol-4"},
+		pvcNames:  map[string]string{"vol-1": "test-ns/pvc-1", "vol-2": "test-ns/pvc-2", "vol-4": "test-ns/pvc-4"},
+		pvcs: map[string]*v1.PersistentVolumeClaim{
+			"test-ns/pvc-1": batchTestPVC("pvc-1", true, cnsoperatortypes.CNSPvcFinalizer),
+			"test-ns/pvc-2": batchTestPVC("pvc-2", true),
+			"test-ns/pvc-4": batchTestPVC("pvc-4", false),
+		},
+	})
+	stubAttachedFCDs(t, map[string]FCDBackingDetails{"vol-1": batchBacking(1), "vol-2": batchBacking(2)})
+	clientset := k8sFake.NewClientset(batchTestPVC("pvc-2", true),
+		batchTestPVC("pvc-4", false, cnsoperatortypes.CNSPvcFinalizer))
+	originalNewClientFunc, originalGetVMFromVcenter := newClientFunc, GetVMFromVcenter
+	t.Cleanup(func() { newClientFunc, GetVMFromVcenter = originalNewClientFunc, originalGetVMFromVcenter })
+	newClientFunc = func(ctx context.Context) (kubernetes.Interface, error) { return clientset, nil }
+	GetVMFromVcenter = func(ctx context.Context, nodeUUID string,
+		configInfo *config.ConfigurationInfo) (*cnsvsphere.VirtualMachine, error) {
+		return testVM(), nil
+	}
+
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: instance.Name, Namespace: instance.Namespace}}
+	return r, req, clientset
+}
+
+// readyCondition returns the Ready condition of the given instance, or nil.
+func readyCondition(instance *v1alpha1.CnsNodeVMBatchAttachment) *metav1.Condition {
+	for i, cond := range instance.Status.Conditions {
+		if cond.Type == v1alpha1.ConditionReady {
+			return &instance.Status.Conditions[i]
+		}
+	}
+	return nil
+}
+
+// A spec PVC whose volumeID cannot be found, for example because it was not created yet, must not
+// block the reconcile: the volume removed from spec is still detached and the new volume attached.
+// The error is recorded in the status of that PVC, and the instance is requeued to retry it.
+func TestReconcileDoesNotBlockOnUnresolvablePVC(t *testing.T) {
+	ctx := context.TODO()
+	volumeManager := &recordingVolumeManager{}
+	r, req, clientset := setupUnresolvablePVCReconcile(t, volumeManager)
+
+	res, err := r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{RequeueAfter: time.Second}, res,
+		"the instance must be requeued with the regular backoff to retry the unresolvable PVC")
+
+	assert.Equal(t, []string{"vol-2"}, volumeManager.detachedIDs, "the volume removed from spec must be detached")
+	assert.Equal(t, []string{"vol-4"}, volumeManager.attachedIDs, "only the resolvable new volume must be attached")
+
+	pvc2, err := clientset.CoreV1().PersistentVolumeClaims(testNamespace).Get(ctx, "pvc-2", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.False(t, pvcHasUsedByAnnotaion(ctx, pvc2), "the detached PVC must no longer be used by the VM")
+	pvc4, err := clientset.CoreV1().PersistentVolumeClaims(testNamespace).Get(ctx, "pvc-4", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.True(t, pvcHasUsedByAnnotaion(ctx, pvc4), "the attached PVC must be used by the VM")
+
+	updated := &v1alpha1.CnsNodeVMBatchAttachment{}
+	require.NoError(t, r.client.Get(ctx, req.NamespacedName, updated))
+	ready := readyCondition(updated)
+	require.NotNil(t, ready)
+	assert.Equal(t, metav1.ConditionFalse, ready.Status)
+	// The message is the same as when the unresolvable PVC failed the whole reconcile.
+	assert.Equal(t, vmOperatorCacheMissText+" pvc-3", ready.Message)
+
+	assertVolumeCondition(t, updated, "disk-3", "pvc-3", v1alpha1.ConditionAttached, metav1.ConditionFalse,
+		v1alpha1.ReasonAttachFailed, vmOperatorCacheMissText+" pvc-3")
+	for _, cond := range findVolumeStatus(updated, "disk-3").PersistentVolumeClaim.Conditions {
+		assert.Equal(t, vmOperatorCacheMissText+" pvc-3", cond.Message)
+	}
+	assertVolumeCondition(t, updated, "disk-1", "pvc-1", v1alpha1.ConditionAttached, metav1.ConditionTrue, "", "")
+	assertVolumeCondition(t, updated, "disk-4", "pvc-4", v1alpha1.ConditionAttached, metav1.ConditionTrue, "", "")
+	assert.Nil(t, findVolumeStatus(updated, "disk-2"), "the entry of the detached volume must be removed")
+	assert.Nil(t, findVolumeStatus(updated, "disk-2"+detachSuffix), "the entry of the detached volume must be removed")
+}
+
+// longAttachErrorVolumeManager fails every batch attach with an error as long as the longest
+// condition message.
+type longAttachErrorVolumeManager struct {
+	recordingVolumeManager
+}
+
+func (m *longAttachErrorVolumeManager) BatchAttachVolumes(ctx context.Context, vm *cnsvsphere.VirtualMachine,
+	requests []volumes.BatchAttachRequest) ([]volumes.BatchAttachResult, string, error) {
+	return nil, "", errors.New(strings.Repeat("x", MaxConditionMessageLength))
+}
+
+// The Ready condition message is trimmed to MaxConditionMessageLength. The error of an unresolvable
+// PVC must survive the trimming, as VM Operator looks for it there.
+func TestReconcileKeepsUnresolvablePVCErrorInTrimmedReadyCondition(t *testing.T) {
+	ctx := context.TODO()
+	r, req, _ := setupUnresolvablePVCReconcile(t, &longAttachErrorVolumeManager{})
+
+	_, err := r.Reconcile(ctx, req)
+	require.NoError(t, err)
+
+	updated := &v1alpha1.CnsNodeVMBatchAttachment{}
+	require.NoError(t, r.client.Get(ctx, req.NamespacedName, updated))
+	ready := readyCondition(updated)
+	require.NotNil(t, ready)
+	assert.Equal(t, metav1.ConditionFalse, ready.Status)
+	assert.Len(t, []rune(ready.Message), MaxConditionMessageLength, "the message must have been trimmed")
+	assert.Contains(t, ready.Message, vmOperatorCacheMissText+" pvc-3")
+}
+
+// failPVCRequest returns a reactor which fails the requests for the PVC with the given name with
+// an internal server error.
+func failPVCRequest(name string) k8stesting.ReactionFunc {
+	return func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if named, ok := action.(interface{ GetName() string }); !ok || named.GetName() != name {
+			return false, nil, nil
+		}
+		return true, nil, apierrors.NewInternalError(errors.New("etcdserver: request timed out"))
+	}
+}
+
+// A PVC which cannot be looked up must be neither attached nor detached, while the other volumes are.
+func TestGetVolumesToAttachAndDetachSkipsUnresolvablePVCs(t *testing.T) {
+	ctx := context.TODO()
+	instance := v1alpha1.CnsNodeVMBatchAttachment{
+		ObjectMeta: metav1.ObjectMeta{Name: testCnsNodeVMBatchAttachmentName, Namespace: testNamespace,
+			ResourceVersion: "1"},
+		Spec: v1alpha1.CnsNodeVMBatchAttachmentSpec{
+			InstanceUUID: "test-uuid",
+			Volumes: []v1alpha1.VolumeSpec{
+				// pvc-1 is attached at unit number 9 and has to be moved to unit number 1, but it has
+				// been deleted. As the spec still refers to it, it is not detached.
+				batchVolumeSpec("disk-1", "pvc-1", 1),
+				// The volumeID of pvc-3 cannot be found, although an attached disk maps back to it.
+				batchVolumeSpec("disk-3", "pvc-3", 3),
+				// disk-2 now refers to pvc-6, which does not exist yet.
+				batchVolumeSpec("disk-2", "pvc-6", 6),
+			},
+		},
+		Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+			VolumeStatus: []v1alpha1.VolumeStatus{
+				attachedVolumeStatus("disk-1", "pvc-1", "vol-1"),
+				// pvc-2, pvc-5 and pvc-7 were removed from spec. pvc-2 has been deleted, and pvc-7
+				// cannot be read from the API server.
+				attachedVolumeStatus("disk-2", "pvc-2", "vol-2"),
+				attachedVolumeStatus("disk-5", "pvc-5", "vol-5"),
+				attachedVolumeStatus("disk-7", "pvc-7", "vol-7"),
+				// Left behind by an earlier detach of pvc-3 with a previous backing.
+				attachedVolumeStatus("disk-3"+detachSuffix, "pvc-3", "vol-3"),
+			},
+		},
+	}
+	r := setTestEnvironment(&instance, false)
+	usePvcLookupOrchestrator(t, &pvcLookupOrchestrator{
+		volumeIDs: map[string]string{"test-ns/pvc-1": "vol-1", "test-ns/pvc-2": "vol-2", "test-ns/pvc-5": "vol-5",
+			"test-ns/pvc-7": "vol-7"},
+		pvcNames: map[string]string{"vol-1": "test-ns/pvc-1", "vol-2": "test-ns/pvc-2", "vol-3": "test-ns/pvc-3",
+			"vol-5": "test-ns/pvc-5", "vol-7": "test-ns/pvc-7"},
+		pvcs: map[string]*v1.PersistentVolumeClaim{
+			"test-ns/pvc-3": batchTestPVC("pvc-3", true, cnsoperatortypes.CNSPvcFinalizer),
+			"test-ns/pvc-5": batchTestPVC("pvc-5", true, cnsoperatortypes.CNSPvcFinalizer),
+		},
+	})
+	stubAttachedFCDs(t, map[string]FCDBackingDetails{"vol-1": batchBacking(9), "vol-2": batchBacking(2),
+		"vol-3": batchBacking(3), "vol-5": batchBacking(5), "vol-7": batchBacking(7),
+		// The PV of vol-gone was deleted after the attached volumes were listed.
+		"vol-gone": batchBacking(11)})
+	clientset := k8sFake.NewClientset(batchTestPVC("pvc-3", true, cnsoperatortypes.CNSPvcFinalizer))
+	clientset.PrependReactor("get", "persistentvolumeclaims", failPVCRequest("pvc-7"))
+
+	pvcsToAttach, pvcsToDetach, volumeErr, err := getVolumesToAttachAndDetach(ctx, &instance, testVM(),
+		r.client, clientset, r.cnsOperatorClient)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"pvc-2": "vol-2", "pvc-5": "vol-5"}, pvcsToDetach,
+		"the volumes removed from spec must be detached, including the one whose PVC has been deleted")
+	assert.Empty(t, pvcsToAttach, "pvc-1 must not be attached with its new backing as it was not detached")
+	require.Error(t, volumeErr)
+	assert.False(t, volumes.IsTerminalError(volumeErr))
+	for _, pvc := range []string{"pvc-1", "pvc-3", "pvc-6", "pvc-7"} {
+		assert.Contains(t, volumeErr.Error(), pvc)
+	}
+	assert.NotContains(t, volumeErr.Error(), "pvc-2")
+	assert.Contains(t, volumeErr.Error(), "failed to find PVC for volumeID vol-gone in cluster",
+		"a volume whose PVC disappeared must requeue the instance")
+
+	// pvc-1 is pending detach, and its skipped attach is visible under its spec volume name.
+	assertVolumeCondition(t, &instance, "disk-1"+detachSuffix, "pvc-1", v1alpha1.ConditionDetached,
+		metav1.ConditionFalse, v1alpha1.ReasonDetachFailed, "failed to find PVC obj for PVC name pvc-1")
+	assertVolumeCondition(t, &instance, "disk-1", "pvc-1", v1alpha1.ConditionAttached, metav1.ConditionFalse,
+		v1alpha1.ReasonAttachFailed, "detaching it with its previous backing did not complete")
+	// pvc-2 is being detached, and the failed attach of pvc-6 is recorded in a separate entry under
+	// the volume name disk-2, which pvc-2 had.
+	assert.NotNil(t, findVolumeStatus(&instance, "disk-2"+detachSuffix))
+	assertVolumeCondition(t, &instance, "disk-2", "pvc-6", v1alpha1.ConditionAttached, metav1.ConditionFalse,
+		v1alpha1.ReasonAttachFailed, "failed to find volumeID for PVC pvc-6")
+	// pvc-3 failed to attach, and its earlier detaching entry is not removed as stale.
+	assertVolumeCondition(t, &instance, "disk-3", "pvc-3", v1alpha1.ConditionAttached, metav1.ConditionFalse,
+		v1alpha1.ReasonAttachFailed, "failed to find volumeID for PVC pvc-3")
+	assert.NotNil(t, findVolumeStatus(&instance, "disk-3"+detachSuffix))
+	pvc3, err := clientset.CoreV1().PersistentVolumeClaims(testNamespace).Get(ctx, "pvc-3", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.True(t, pvcHasUsedByAnnotaion(ctx, pvc3), "the PVC protection of pvc-3 must not be removed")
+	// pvc-5 is being detached, and pvc-7 is pending detach.
+	assert.NotNil(t, findVolumeStatus(&instance, "disk-5"+detachSuffix))
+	assertVolumeCondition(t, &instance, "disk-7"+detachSuffix, "pvc-7", v1alpha1.ConditionDetached,
+		metav1.ConditionFalse, v1alpha1.ReasonDetachFailed, "failed to find PVC obj for PVC name pvc-7")
+}
+
+// When the PVC object of a volume to detach is not in the informer cache, the API server is checked.
+// A PVC found there is handled as usual. The volume of a deleted PVC is detached unless the spec
+// still refers to it.
+func TestGetVolumesToDetachFromInstanceWhenPVCIsNotInCache(t *testing.T) {
+	ctx := context.TODO()
+	tests := []struct {
+		name string
+		// volumeInSpec is set if the volume is in spec with another backing.
+		volumeInSpec   bool
+		apiPVC         *v1.PersistentVolumeClaim
+		apiFails       bool
+		wantDetach     bool
+		wantUnresolved bool
+	}{
+		{name: "PVC on API server used by the VM is detached", apiPVC: batchTestPVC("pvc-x", true),
+			wantDetach: true},
+		{name: "PVC on API server attached via CnsNodeVmAttachment is not detached",
+			apiPVC: batchTestPVC("pvc-x", false, cnsoperatortypes.CNSPvcFinalizer)},
+		{name: "volume of deleted PVC is detached", wantDetach: true},
+		{name: "volume of deleted PVC in spec is not detached", volumeInSpec: true, wantUnresolved: true},
+		{name: "PVC which cannot be read from API server is not detached", apiFails: true, wantUnresolved: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			instance := setupTestCnsNodeVMBatchAttachment()
+			usePvcLookupOrchestrator(t, &pvcLookupOrchestrator{pvcNames: map[string]string{"vol-x": "test-ns/pvc-x"}})
+			clientset := k8sFake.NewClientset()
+			if tt.apiPVC != nil {
+				clientset = k8sFake.NewClientset(tt.apiPVC)
+			}
+			if tt.apiFails {
+				clientset.PrependReactor("get", "persistentvolumeclaims", failPVCRequest("pvc-x"))
+			}
+			volumeIdsInSpec := map[string]FCDBackingDetails{}
+			if tt.volumeInSpec {
+				volumeIdsInSpec["vol-x"] = batchBacking(1)
+			}
+
+			detach := getVolumesToDetachFromInstance(ctx, &instance, clientset,
+				map[string]FCDBackingDetails{"vol-x": batchBacking(2)}, volumeIdsInSpec, nil)
+			pvcsToDetach, unresolved := detach.pvcsToDetach, detach.pvcsNotDetached
+			if tt.wantDetach {
+				assert.Equal(t, map[string]string{"pvc-x": "vol-x"}, pvcsToDetach)
+			} else {
+				assert.Empty(t, pvcsToDetach)
+			}
+			if tt.wantUnresolved {
+				assert.Contains(t, unresolved, "pvc-x")
+			} else {
+				assert.Empty(t, unresolved)
+			}
+			assert.Empty(t, detach.unknownVolumes)
+		})
+	}
+}
+
+// An attached volume whose PVC can no longer be found, as its PV was deleted after the volumes were
+// listed, must not be detached. It must be reported, so that the instance is requeued to look at it
+// again, and the other volumes must still be detached.
+func TestGetVolumesToDetachFromInstanceReportsVolumeWithoutPVC(t *testing.T) {
+	instance := setupTestCnsNodeVMBatchAttachment()
+	usePvcLookupOrchestrator(t, &pvcLookupOrchestrator{
+		pvcNames: map[string]string{"vol-5": "test-ns/pvc-5"},
+		pvcs:     map[string]*v1.PersistentVolumeClaim{"test-ns/pvc-5": batchTestPVC("pvc-5", true)},
+	})
+
+	detach := getVolumesToDetachFromInstance(context.TODO(), &instance, k8sFake.NewClientset(),
+		map[string]FCDBackingDetails{"vol-5": batchBacking(5), "vol-gone": batchBacking(6)}, nil, nil)
+	pvcsToDetach, unresolved := detach.pvcsToDetach, detach.pvcsNotDetached
+	assert.Equal(t, map[string]string{"pvc-5": "vol-5"}, pvcsToDetach)
+	assert.Empty(t, unresolved)
+	require.Contains(t, detach.unknownVolumes, "vol-gone")
+	assert.EqualError(t, detach.unknownVolumes["vol-gone"], "failed to find PVC for volumeID vol-gone in cluster")
+}
+
+// When the finalizer of the PVC of a stale status entry cannot be removed, the other volumes must
+// still be attached and detached. The entry is kept with the error, so that removing the finalizer
+// is retried, and the attach of the PVC is skipped, as that retry would otherwise remove the
+// finalizer of an attached PVC.
+func TestGetVolumesToAttachAndDetachContinuesWhenStaleEntryCleanupFails(t *testing.T) {
+	ctx := context.TODO()
+	instance := v1alpha1.CnsNodeVMBatchAttachment{
+		ObjectMeta: metav1.ObjectMeta{Name: testCnsNodeVMBatchAttachmentName, Namespace: testNamespace,
+			ResourceVersion: "1"},
+		Spec: v1alpha1.CnsNodeVMBatchAttachmentSpec{
+			InstanceUUID: "test-uuid",
+			Volumes: []v1alpha1.VolumeSpec{
+				batchVolumeSpec("disk-4", "pvc-4", 4),
+				// pvc-8 was detached to change its backing, but its finalizer could not be removed.
+				batchVolumeSpec("disk-8", "pvc-8", 8),
+			},
+		},
+		Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+			VolumeStatus: []v1alpha1.VolumeStatus{
+				// pvc-5 was removed from spec.
+				attachedVolumeStatus("disk-5", "pvc-5", "vol-5"),
+				attachedVolumeStatus("disk-8"+detachSuffix, "pvc-8", "vol-8"),
+				// pvc-9 was detached, but its entry could not be removed.
+				attachedVolumeStatus("disk-9", "pvc-9", "vol-9"),
+			},
+		},
+	}
+	r := setTestEnvironment(&instance, false)
+	usePvcLookupOrchestrator(t, &pvcLookupOrchestrator{
+		volumeIDs: map[string]string{"test-ns/pvc-4": "vol-4", "test-ns/pvc-5": "vol-5", "test-ns/pvc-8": "vol-8"},
+		pvcNames:  map[string]string{"vol-5": "test-ns/pvc-5"},
+		pvcs: map[string]*v1.PersistentVolumeClaim{
+			"test-ns/pvc-5": batchTestPVC("pvc-5", true, cnsoperatortypes.CNSPvcFinalizer),
+			"test-ns/pvc-8": batchTestPVC("pvc-8", true, cnsoperatortypes.CNSPvcFinalizer),
+		},
+	})
+	stubAttachedFCDs(t, map[string]FCDBackingDetails{"vol-5": batchBacking(5)})
+	clientset := k8sFake.NewClientset(batchTestPVC("pvc-8", true, cnsoperatortypes.CNSPvcFinalizer))
+	clientset.PrependReactor("patch", "persistentvolumeclaims", failPVCRequest("pvc-8"))
+
+	pvcsToAttach, pvcsToDetach, volumeErr, err := getVolumesToAttachAndDetach(ctx, &instance, testVM(),
+		r.client, clientset, r.cnsOperatorClient)
+	require.NoError(t, err, "a failed stale entry cleanup must not fail the whole reconcile")
+	assert.Equal(t, map[string]string{"pvc-5": "vol-5"}, pvcsToDetach)
+	assert.Equal(t, map[string]string{"pvc-4": "vol-4"}, pvcsToAttach, "the attach of pvc-8 must be skipped")
+	require.Error(t, volumeErr)
+	assert.False(t, volumes.IsTerminalError(volumeErr))
+	assert.Contains(t, volumeErr.Error(), "from PVC pvc-8")
+
+	assertVolumeCondition(t, &instance, "disk-8"+detachSuffix, "pvc-8", v1alpha1.ConditionDetached,
+		metav1.ConditionFalse, v1alpha1.ReasonDetachFailed, "failed to remove finalizer")
+	assertVolumeCondition(t, &instance, "disk-8", "pvc-8", v1alpha1.ConditionAttached, metav1.ConditionFalse,
+		v1alpha1.ReasonAttachFailed, "detaching it with its previous backing did not complete")
+	assert.Nil(t, findVolumeStatus(&instance, "disk-9"), "the stale entry of pvc-9 must still be removed")
+	assert.NotNil(t, findVolumeStatus(&instance, "disk-5"+detachSuffix))
+}
+
+// A PVC whose object cannot be found must be left out of the batch attach, and the other volumes
+// must still be attached.
+func TestProcessBatchAttachSkipsPVCWhoseObjectIsNotFound(t *testing.T) {
+	ctx := context.TODO()
+	instance := setupTestCnsNodeVMBatchAttachment()
+	instance.Spec.Volumes = []v1alpha1.VolumeSpec{batchVolumeSpec("disk-1", "pvc-1", 1),
+		batchVolumeSpec("disk-2", "pvc-2", 2)}
+	instance.Status.VolumeStatus = nil
+	r := setTestEnvironment(&instance, false)
+	volumeManager := &recordingVolumeManager{}
+	r.volumeManager = volumeManager
+	usePvcLookupOrchestrator(t, &pvcLookupOrchestrator{
+		pvcs: map[string]*v1.PersistentVolumeClaim{"test-ns/pvc-1": batchTestPVC("pvc-1", false)},
+	})
+	clientset := k8sFake.NewClientset(batchTestPVC("pvc-1", false, cnsoperatortypes.CNSPvcFinalizer))
+
+	err := r.processBatchAttach(ctx, clientset, testVM(), &instance,
+		map[string]string{"pvc-1": "vol-1", "pvc-2": "vol-2"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `failed to find the PVC object "pvc-2"`)
+	assert.Equal(t, []string{"vol-1"}, volumeManager.attachedIDs)
+	assertVolumeCondition(t, &instance, "disk-1", "pvc-1", v1alpha1.ConditionAttached, metav1.ConditionTrue, "", "")
+	assertVolumeCondition(t, &instance, "disk-2", "pvc-2", v1alpha1.ConditionAttached, metav1.ConditionFalse,
+		v1alpha1.ReasonAttachFailed, `failed to find the PVC object "pvc-2"`)
+
+	// When no PVC object is found, CNS is not called at all.
+	volumeManager.attachedIDs = nil
+	err = r.processBatchAttach(ctx, clientset, testVM(), &instance, map[string]string{"pvc-2": "vol-2"})
+	require.Error(t, err)
+	assert.Empty(t, volumeManager.attachedIDs)
 }
