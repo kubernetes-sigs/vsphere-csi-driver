@@ -723,3 +723,22 @@ var changeIDPattern = regexp.MustCompile(`^[0-9a-f]{2}(?: [0-9a-f]{2}){7}-[0-9a-
 func IsValidChangeId(changeID string) bool {
 	return changeIDPattern.MatchString(changeID)
 }
+
+// GetStoragePolicyIDFromParams returns the storage policy ID from StorageClass or
+// VolumeAttributesClass parameters. vSphere CSI treats parameter keys as case
+// insensitive, so "storagePolicyID" and "storagepolicyid" name the same parameter.
+// An exact-case key wins if several spellings are present.
+func GetStoragePolicyIDFromParams(params map[string]string) string {
+	if v, ok := params[AttributeStoragePolicyID]; ok {
+		return v
+	}
+	if v, ok := params["storagePolicyID"]; ok {
+		return v
+	}
+	for key, value := range params {
+		if strings.ToLower(key) == AttributeStoragePolicyID {
+			return value
+		}
+	}
+	return ""
+}

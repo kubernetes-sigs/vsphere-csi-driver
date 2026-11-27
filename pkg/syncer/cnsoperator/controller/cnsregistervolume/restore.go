@@ -79,7 +79,7 @@ func (r *ReconcileCnsRegisterVolume) startRestore(ctx context.Context,
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, request reconcile.Request,
 	timeout time.Duration) (unlock func(), stamped bool, result reconcile.Result, proceed bool) {
 	log := logger.GetLogger(ctx)
-	volumeID := instance.Spec.VolumeID
+	volumeID := normalizedVolumeID(instance)
 	if owner := instance.Annotations[cnsvolumeinfov1alpha1.AnnRestoreNotProcessed]; owner != "" {
 		log.Infof("CnsRegisterVolume %s/%s is not processed: volume %q was restored by CnsRegisterVolume %q",
 			instance.Namespace, instance.Name, volumeID, owner)
@@ -174,7 +174,7 @@ func (r *ReconcileCnsRegisterVolume) markRestoreNotProcessed(ctx context.Context
 	timeout time.Duration) reconcile.Result {
 	log := logger.GetLogger(ctx)
 	log.Infof("Volume %q was restored by CnsRegisterVolume %q; marking CnsRegisterVolume %s/%s as not processed",
-		instance.Spec.VolumeID, owner, instance.Namespace, instance.Name)
+		normalizedVolumeID(instance), owner, instance.Namespace, instance.Name)
 	original := instance.DeepCopy()
 	metav1.SetMetaDataAnnotation(&instance.ObjectMeta, cnsvolumeinfov1alpha1.AnnRestoreNotProcessed, owner)
 	if err := r.client.Patch(ctx, instance, client.MergeFrom(original)); err != nil {
@@ -183,7 +183,7 @@ func (r *ReconcileCnsRegisterVolume) markRestoreNotProcessed(ctx context.Context
 		return reconcile.Result{RequeueAfter: timeout}
 	}
 	setInstanceError(ctx, r, instance, fmt.Sprintf("volume %s was restored by CnsRegisterVolume %s; this "+
-		"CnsRegisterVolume is not processed", instance.Spec.VolumeID, owner), falseCondition(
+		"CnsRegisterVolume is not processed", normalizedVolumeID(instance), owner), falseCondition(
 		cnsregistervolumev1alpha1.ConditionRestoreValidated,
 		cnsregistervolumev1alpha1.ReasonRestoreNotProcessed, "Another registration owns this restore"))
 	backOffDurationMapMutex.Lock()
@@ -230,7 +230,7 @@ func (r *ReconcileCnsRegisterVolume) isSnapServiceRestore(ctx context.Context,
 		return false
 	}
 	log.Infof("CnsRegisterVolume %s/%s is a SnapService restore of volume %q", instance.Namespace,
-		instance.Name, instance.Spec.VolumeID)
+		instance.Name, normalizedVolumeID(instance))
 	return true
 }
 

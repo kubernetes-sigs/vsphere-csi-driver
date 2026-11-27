@@ -191,7 +191,9 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 	}
 
 	vcCAFile := cfg.Global.CAFile
-	vcThumbprint := cfg.Global.Thumbprint
+	// Thumbprints are compared uppercase (govmomi's soap.ThumbprintSHA1/256 always
+	// generate uppercase hex), so normalize here as GetVirtualCenterConfigs does.
+	vcThumbprint := strings.ToUpper(cfg.Global.Thumbprint)
 
 	vcConfig := &VirtualCenterConfig{
 		Host:                        host,

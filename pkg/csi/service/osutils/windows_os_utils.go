@@ -499,7 +499,8 @@ func (osUtils *OsUtils) ConvertUUID(uuid string) (string, error) {
 	}
 	// need to add dashes, e.g. "564d395e-d807-e18a-cb25-b79f65eb2b9f"
 	uuid = fmt.Sprintf("%s-%s-%s-%s-%s", uuid[0:8], uuid[8:12], uuid[12:16], uuid[16:20], uuid[20:32])
-	return uuid, nil
+	// vCenter reports VM UUIDs in lowercase; keep the node ID in the same form.
+	return strings.ToLower(uuid), nil
 }
 
 // decides if node should continue

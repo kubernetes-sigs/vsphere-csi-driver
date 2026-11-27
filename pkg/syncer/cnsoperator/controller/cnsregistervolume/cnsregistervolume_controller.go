@@ -402,8 +402,8 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		if err := r.taskTracker.ensureInit(ctx, r.volumeManager, vc); err != nil {
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
-		name := staticPvNamePrefix + instance.Spec.VolumeID
-		if instance.Spec.VolumeID == "" {
+		name := staticPvNamePrefix + normalizedVolumeID(instance)
+		if normalizedVolumeID(instance) == "" {
 			name = staticPvNamePrefix + string(instance.UID)
 		}
 		_, retry, err := r.pollCreateVolume(ctx, instance, vc, &cnstypes.CnsVolumeCreateSpec{Name: name}, timeout)
@@ -527,10 +527,10 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	// the PV exists to carry the stamp.
 	if isRestore && restoreStamped {
 		log.Infof("CnsRegisterVolume %s/%s already stamped volume %q; skipping the restore precheck",
-			instance.Namespace, instance.Name, instance.Spec.VolumeID)
+			instance.Namespace, instance.Name, normalizedVolumeID(instance))
 	}
 	if isRestore && !restoreStamped && instance.Status.CnsTaskID == "" && instance.Status.CnsVolumeID == "" {
-		err = r.volumeInfoService.PrecheckRestore(ctx, instance.Spec.VolumeID, instance.Namespace,
+		err = r.volumeInfoService.PrecheckRestore(ctx, normalizedVolumeID(instance), instance.Namespace,
 			string(instance.UID))
 		if err != nil {
 			log.Errorf("Restore precheck failed for CnsRegisterVolume %s/%s, will retry: %v",
@@ -1642,7 +1642,7 @@ func validateCnsRegisterVolumeSpec(ctx context.Context, instance *cnsregistervol
 	// restore path: CNS locates the VMDK by URL and stamps the provided FCD UUID onto it.
 	// This combination is only permitted when the VSphereDPLPModernApp WCP capability
 	// is active on the Supervisor; on older Supervisors the original rejection is preserved.
-	if instance.Spec.VolumeID != "" && instance.Spec.DiskURLPath != "" {
+	if normalizedVolumeID(instance) != "" && instance.Spec.DiskURLPath != "" {
 		if !isVSphereDPLPModernAppEnabled {
 			return errors.New("VolumeID and DiskURLPath cannot be specified together")
 		}
@@ -1663,16 +1663,16 @@ func validateCnsRegisterVolumeSpec(ctx context.Context, instance *cnsregistervol
 			msg = fmt.Sprintf("DiskURLPath cannot be used with accessMode: %q", instance.Spec.AccessMode)
 		}
 	}
-	if instance.Spec.VolumeID != "" {
+	if normalizedVolumeID(instance) != "" {
 		// Accessmode is required if volumeID is specified by the user.
 		if instance.Spec.AccessMode == "" {
 			msg = "AccessMode cannot be empty when volumeID is specified"
 		} else {
-			pvName, found := commonco.ContainerOrchestratorUtility.GetPVNameFromCSIVolumeID(instance.Spec.VolumeID)
+			pvName, found := commonco.ContainerOrchestratorUtility.GetPVNameFromCSIVolumeID(normalizedVolumeID(instance))
 			if found {
-				if pvName != staticPvNamePrefix+instance.Spec.VolumeID {
+				if pvName != staticPvNamePrefix+normalizedVolumeID(instance) {
 					msg = fmt.Sprintf("PV: %q with the volume ID: %q "+
-						"is already present. Can not create multiple PV with same volume Id.", pvName, instance.Spec.VolumeID)
+						"is already present. Can not create multiple PV with same volume Id.", pvName, normalizedVolumeID(instance))
 				}
 			}
 		}
@@ -2457,7 +2457,7 @@ func (r *ReconcileCnsRegisterVolume) reconcileDelete(ctx context.Context,
 	var pv *v1.PersistentVolume
 	var err error
 
-	if instance.Spec.VolumeID != "" {
+	if normalizedVolumeID(instance) != "" {
 		pv, err = r.findPVByVolumeID(ctx, instance)
 	} else if instance.Spec.DiskURLPath != "" {
 		pv, err = r.findPVByDiskURLPath(ctx, instance)
@@ -2492,7 +2492,7 @@ func (r *ReconcileCnsRegisterVolume) reconcileDelete(ctx context.Context,
 
 	// Step 4: Cleanup CNS volume registration
 	// Extract volumeID from instance spec or PV spec
-	volumeID := instance.Spec.VolumeID
+	volumeID := normalizedVolumeID(instance)
 	if volumeID == "" && pv.Spec.CSI != nil {
 		volumeID = pv.Spec.CSI.VolumeHandle
 	}
@@ -2561,7 +2561,7 @@ func (r *ReconcileCnsRegisterVolume) findPVByVolumeID(
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
 ) (*v1.PersistentVolume, error) {
 	log := logger.GetLogger(ctx)
-	pvName := staticPvNamePrefix + instance.Spec.VolumeID
+	pvName := staticPvNamePrefix + normalizedVolumeID(instance)
 
 	pv, err := k8s.GetPersistentVolume(ctx, r.k8sclient, pvName)
 	if err != nil {
