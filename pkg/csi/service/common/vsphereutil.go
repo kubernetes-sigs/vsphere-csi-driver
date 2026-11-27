@@ -200,8 +200,9 @@ func CreateBlockVolumeUtil(
 					// TODO: Need to figure out which fault need to return when datastore is empty.
 					// Currently, just return csi.fault.Internal.
 					return nil, csifault.CSIInternalFault,
-						logger.LogNewErrorf(log, "datastore URL %q specified in the create volume spec was not found. "+
-							"Verify the datastore URL in the StorageClass.",
+						logger.LogNewErrorf(log, "datastore URL %q (from the StoragePool) was not found, or the datastore is "+
+							"suspended, in the datacenters configured for the vCenter. "+
+							"Verify the StoragePool datastoreUrl and the configured datacenters",
 							spec.VsanDatastoreURL)
 				}
 			} else {

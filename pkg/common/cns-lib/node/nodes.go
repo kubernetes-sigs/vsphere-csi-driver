@@ -109,8 +109,8 @@ func (nodes *Nodes) csiNodeAdd(obj interface{}) {
 		nodeUUID = cnsvsphere.GetUUIDFromProviderID(node.Spec.ProviderID)
 		err = nodes.cnsNodeManager.RegisterNode(ctx, nodeUUID, nodeName)
 		if err != nil {
-			log.Errorf("csiNodeAdd: failed to register node %q with the driver: %v. Verify the node providerID "+
-				"matches a VM in vCenter; the driver will restart", nodeName, err)
+			log.Errorf("csiNodeAdd: failed to register node %q with the driver: %v; the driver will restart",
+				nodeName, err)
 			osExit(1)
 		}
 	}

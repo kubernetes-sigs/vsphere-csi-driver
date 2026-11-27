@@ -540,15 +540,14 @@ func addPvcFinalizer(ctx context.Context,
 
 	original := pvc.DeepCopy()
 	if !controllerutil.AddFinalizer(pvc, cnsoperatortypes.CNSPvcFinalizer) {
-		return fmt.Errorf("failed to add finalizer %q to PVC %s in namespace %s. "+
-			"Verify the PVC exists and is not being deleted", cnsoperatortypes.CNSPvcFinalizer, pvc.Name,
+		return fmt.Errorf("failed to add CNS finalizer to PVC %s in namespace %s", pvc.Name,
 			pvc.Namespace)
 	}
 
 	err = k8s.PatchObject(ctx, client, original, pvc)
 	if err != nil {
-		return fmt.Errorf("failed to add finalizer %s on PVC %s in namespace %s", cnsoperatortypes.CNSPvcFinalizer,
-			instance.Spec.PvcName, instance.Namespace)
+		return fmt.Errorf("failed to add finalizer %s on PVC %s in namespace %s: %v",
+			cnsoperatortypes.CNSPvcFinalizer, instance.Spec.PvcName, instance.Namespace, err)
 	}
 
 	log.Infof("Successfully added finalizer %s to PVC %s in namespace %s", cnsoperatortypes.CNSPvcFinalizer,
@@ -621,8 +620,8 @@ func removeFinalizerFromPVC(ctx context.Context, client client.Client,
 
 	err = k8s.PatchObject(ctx, client, original, pvc)
 	if err != nil {
-		return fmt.Errorf("failed to remove finalizer %s from PVC %s in namespace %s",
-			cnsoperatortypes.CNSPvcFinalizer, pvcName, pvc.Namespace)
+		return fmt.Errorf("failed to remove finalizer %s from PVC %s in namespace %s: %v",
+			cnsoperatortypes.CNSPvcFinalizer, pvcName, pvc.Namespace, err)
 	}
 
 	log.Infof("Successfully removed finalizer %s from PVC %s in namespace %s", cnsoperatortypes.CNSPvcFinalizer,
@@ -674,7 +673,7 @@ func (r *ReconcileCnsFileAccessConfig) removePermissionsForFileVolume(ctx contex
 	err = cnsFileVolumeClientInstance.RemoveClientVMFromIPList(ctx,
 		instance.Namespace+"/"+instance.Spec.PvcName, instance.Spec.VMName, vmIP)
 	if err != nil {
-		return logger.LogNewErrorf(log, "Failed to remove VM %q with IP %q from IPList. Error: %+v",
+		return logger.LogNewErrorf(log, "Failed to remove VM %q with IP %q from the client IP list: %v",
 			instance.Spec.VMName, vmIP, err)
 	}
 	log.Infof("Successfully removed VM IP %q from IPList for CnsFileAccessConfig request with name: %q on "+

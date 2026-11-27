@@ -396,8 +396,8 @@ func (k8sCloudOperator *k8sCloudOperator) getPod(ctx context.Context, pvcName st
 		}
 	}
 
-	return nil, logger.LogNewErrorf(log, "Cannot find a pod using PVC %s in namespace %s on node %s. "+
-		"Verify that the pod is scheduled on that node",
+	return nil, logger.LogNewErrorf(log, "Cannot find a Pending pod that uses PVC %s in namespace %s on node %s; "+
+		"check the pod phase and spec.nodeName",
 		pvcName, pvcNamespace, nodeName)
 }
 

@@ -386,6 +386,6 @@ func TestAsyncRestoreSkipsPrecheckOncePersistedResultExists(t *testing.T) {
 
 	_, got := reconcileAndGetStatus(t, r, cr)
 	require.Empty(t, service.prechecks)
-	require.Contains(t, got.Status.Error, "Unable to connect to vCenter for volume registration",
+	require.Contains(t, got.Status.Error, "Failed to obtain a vCenter session for volume registration",
 		"the registration must continue past the precheck")
 }

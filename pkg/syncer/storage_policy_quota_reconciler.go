@@ -101,8 +101,7 @@ func newStoragePolicyQuotaReconciler(
 	// Start StoragePolicyQuota Informer.
 	dynamicInformerFactory.Start(stopCh)
 	if !cache.WaitForCacheSync(stopCh, rc.svcQuotaSynced) {
-		return nil, fmt.Errorf("the StoragePolicyQuota cache did not sync before the syncer was stopped; " +
-			"verify that the StoragePolicyQuota CRD is installed and the API server is reachable")
+		return nil, fmt.Errorf("the StoragePolicyQuota cache did not sync before the syncer was stopped")
 	}
 
 	return rc, nil

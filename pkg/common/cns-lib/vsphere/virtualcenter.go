@@ -1242,8 +1242,8 @@ func GetVirtualCenterInstanceForVCenterHost(ctx context.Context, vcHost commonty
 	if reconnect {
 		err := vc.Connect(ctx)
 		if err != nil {
-			return nil, logger.LogNewErrorf(log, "failed to connect to vCenter %q: %v. Verify network connectivity and the credentials "+
-				"in the vSphere config secret", vcHost, err)
+			// Connect's error already names the vCenter and carries the troubleshooting advice.
+			return nil, logger.LogNewErrorf(log, "%v", err)
 		}
 	}
 	return vc, nil

@@ -88,8 +88,8 @@ func (r *ReconcileCnsRegisterVolume) submitOrPollCreateVolume(ctx context.Contex
 		return &volumes.CnsVolumeInfo{VolumeID: cnstypes.CnsVolumeId{Id: instance.Status.CnsVolumeID}}, nil, nil
 	}
 	if err := r.taskTracker.ensureInit(ctx, r.volumeManager, vc); err != nil {
-		msg := fmt.Sprintf("Failed to initialize CNS task tracking: %v. "+
-			"Verify vCenter connectivity and CNS service health; the registration will be retried.", err)
+		msg := fmt.Sprintf("Failed to initialize CNS task tracking for CnsRegisterVolume %s/%s: %v",
+			instance.Namespace, instance.Name, err)
 		log.Error(msg)
 		setInstanceError(ctx, r, instance, msg)
 		return nil, &reconcile.Result{RequeueAfter: timeout}, nil

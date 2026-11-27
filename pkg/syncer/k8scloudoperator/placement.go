@@ -156,8 +156,7 @@ func (b relaxedFitMigrationPlanner) getMigrationPlan(ctx context.Context,
 			b.sourceHostNames, b.pvcList, vsanDirectType, false)
 		if err != nil {
 			log.Errorf("Failed to assign SP to PVC %v. Error: %v", pvcName, err)
-			return nil, fmt.Errorf("PVC %v could not be migrated: %v. Check free capacity and accessibility "+
-				"of the other vSAN Direct StoragePools and retry", pvcName, err)
+			return nil, fmt.Errorf("PVC %v could not be migrated: %v", pvcName, err)
 		}
 
 		// Map the volume with SP with highest free space. Update free space in
@@ -358,10 +357,11 @@ func getSPForPVCPlacement(ctx context.Context,
 		if onlinePlacement {
 			stampPVCWithError(ctx, client, curPVC, notEnoughResErr)
 		}
-		return assignedSP, fmt.Errorf("failed to find a StoragePool that satisfies all placement criteria for PVC %s/%s "+
-			"(vSAN Direct type, compatibility with the PVC's StorageClass, health, accessibility from the "+
+		return assignedSP, fmt.Errorf("failed to find a StoragePool that satisfies all placement criteria "+
+			"for PVC %s/%s "+
+			"(StoragePool type %s, compatibility with the PVC's StorageClass, health, accessibility from the "+
 			"candidate hosts, and free capacity); check the StoragePool status and free space",
-			curPVC.Namespace, curPVC.Name)
+			curPVC.Namespace, curPVC.Name, spType)
 	}
 
 	xCapPendingSet := make(map[string]bool)
@@ -666,8 +666,8 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface,
 	if len(sps.Items) == 0 {
 		// There is no available storage pools.
 		stampPVCWithError(ctx, client, curPVC, notEnoughResErr)
-		return fmt.Errorf("failed to find any StoragePool for PVC %s/%s; verify that vSAN Direct StoragePools "+
-			"exist and are healthy", curPVC.Namespace, curPVC.Name)
+		return fmt.Errorf("failed to find any StoragePool for PVC %s/%s; verify that vSAN Direct or vSAN-SNA "+
+			"StoragePools exist and are healthy", curPVC.Namespace, curPVC.Name)
 	}
 
 	hostNames, err := getHostCandidates(ctx, curPVC, tops)

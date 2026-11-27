@@ -468,8 +468,7 @@ func _unregisterVolume(ctx context.Context, volMgr volumes.Manager, request reco
 		faultType, err := volMgr.UnregisterVolume(ctx, params.volumeID, unregDisk)
 		if err != nil {
 			log.Error("failed to unregister CNS volume with error ", err)
-			return faultType, fmt.Errorf("failed to unregister volume %s from CNS: %v. "+
-				"Check the CNS task in vCenter", params.volumeID, err)
+			return faultType, fmt.Errorf("failed to unregister volume %s from CNS: %v", params.volumeID, err)
 		}
 	}
 

@@ -272,8 +272,8 @@ func TestPrecheckRestore(t *testing.T) {
 			objs: []client.Object{testRestoreCVI(stamped(testRestoreUID))}},
 		{name: "live CVI without stamp fails", volumeID: testRestoreVolumeID,
 			objs: []client.Object{testRestoreCVI(nil), testRestoreDVI(testRestoreNamespace, testRestoreSizeBytes)},
-			wantErr: "restore requires a deleted volume: CnsVolumeInfo " + csiNamespace + "/" +
-				testRestoreVolumeID + " is live"},
+			wantErr: "CnsVolumeInfo " + csiNamespace + "/" +
+				testRestoreVolumeID + " of volume"},
 		{name: "live CVI stamped by another registration fails", volumeID: testRestoreVolumeID,
 			objs: []client.Object{testRestoreCVI(stamped("other-uid")),
 				testRestoreDVI(testRestoreNamespace, testRestoreSizeBytes)},

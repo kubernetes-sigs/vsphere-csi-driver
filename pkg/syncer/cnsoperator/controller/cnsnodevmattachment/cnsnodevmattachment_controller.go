@@ -361,9 +361,8 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		}
 		if err != nil {
 			msg := fmt.Sprintf("failed to get virtual center instance with error: %v", err)
-			instance.Status.Error = fmt.Sprintf("Failed to connect to vCenter while processing "+
-				"CnsNodeVmAttachment %s/%s: %v. Verify vCenter reachability and the CSI credentials secret.",
-				request.Namespace, request.Name, err)
+			instance.Status.Error = fmt.Sprintf("Failed to obtain a vCenter session while processing "+
+				"CnsNodeVmAttachment %s/%s: %v", request.Namespace, request.Name, err)
 			err = k8s.UpdateStatus(internalCtx, r.client, instance)
 			if err != nil {
 				log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
@@ -374,7 +373,8 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		err = connectToVCenter(internalCtx, vcenter)
 		if err != nil {
 			msg := fmt.Sprintf("failed to connect to VC with error: %v", err)
-			instance.Status.Error = err.Error()
+			instance.Status.Error = fmt.Sprintf("Failed to connect to vCenter while processing "+
+				"CnsNodeVmAttachment %s/%s: %v", request.Namespace, request.Name, err)
 			err = k8s.UpdateStatus(internalCtx, r.client, instance)
 			if err != nil {
 				log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
@@ -385,7 +385,8 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		dc, err = createDatacenterFromVC(internalCtx, vcenter, dcMoref, host)
 		if err != nil {
 			msg := fmt.Sprintf("failed to create datacenter with error: %v", err)
-			instance.Status.Error = err.Error()
+			instance.Status.Error = fmt.Sprintf("Failed to create datacenter object %q on vCenter %q "+
+				"while processing CnsNodeVmAttachment %s/%s: %v", dcMoref, host, request.Namespace, request.Name, err)
 			err = k8s.UpdateStatus(internalCtx, r.client, instance)
 			if err != nil {
 				log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
@@ -453,7 +454,8 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			volumeID, faulttype, err := getVolumeID(internalCtx, instance.Spec.VolumeName, instance.Namespace)
 			if err != nil {
 				msg := fmt.Sprintf("Failed to get volumeID. Error: %s", err)
-				instance.Status.Error = err.Error()
+				instance.Status.Error = fmt.Sprintf("Failed to get the CNS volume ID for PVC %q in namespace %q: %v",
+					instance.Spec.VolumeName, instance.Namespace, err)
 				err = k8s.UpdateStatus(internalCtx, r.client, instance)
 				if err != nil {
 					log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
@@ -486,14 +488,11 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				log.Errorf("failed to attach disk: %q to nodevm: %+v for CnsNodeVmAttachment "+
 					"request with name: %q on namespace: %q. Err: %+v",
 					volumeID, nodeVM, request.Name, request.Namespace, err)
-				instance.Status.Error = fmt.Sprintf("Failed to attach volume %q to VM with UUID %q: %v. "+
-					"Check the CNS task in vCenter for the underlying fault and verify the volume "+
-					"is not attached to another VM.", volumeID, instance.Spec.NodeUUID, err)
+				instance.Status.Error = fmt.Sprintf("Failed to attach volume %q to VM with UUID %q: %v",
+					volumeID, instance.Spec.NodeUUID, err)
 				_ = k8s.UpdateStatus(internalCtx, r.client, instance)
 				recordEvent(internalCtx, r, instance, v1.EventTypeWarning,
-					fmt.Sprintf("Failed to attach volume %q to VM with UUID %q for CnsNodeVmAttachment %s/%s: %v. "+
-						"Check the CNS task in vCenter for the underlying fault and verify the volume "+
-						"is not attached to another VM.",
+					fmt.Sprintf("Failed to attach volume %q to VM with UUID %q for CnsNodeVmAttachment %s/%s: %v",
 						volumeID, instance.Spec.NodeUUID, request.Namespace, request.Name, err))
 				return reconcile.Result{RequeueAfter: timeout}, faulttype, nil
 			}
@@ -520,7 +519,8 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				if err != nil {
 					msg := fmt.Sprintf("failed to add %q finalizer on the PVC with volumename: %q on namespace: %q. Err: %+v",
 						cnsoptypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
-					instance.Status.Error = err.Error()
+					instance.Status.Error = fmt.Sprintf("Failed to add finalizer %q to PVC %q in namespace %q: %v",
+						cnsoptypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
 					err = k8s.UpdateStatus(internalCtx, r.client, instance)
 					if err != nil {
 						log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
@@ -711,8 +711,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				log.Errorf("failed to detach disk: %q to nodevm: %+v for CnsNodeVmAttachment "+
 					"request with name: %q on namespace: %q. Err: %+v",
 					cnsVolumeID, nodeVM, request.Name, request.Namespace, detachErr)
-				instance.Status.Error = fmt.Sprintf("Failed to detach volume %q from VM with UUID %q: %v. "+
-					"Check the CNS task in vCenter and retry after resolving the fault.",
+				instance.Status.Error = fmt.Sprintf("Failed to detach volume %q from VM with UUID %q: %v",
 					cnsVolumeID, instance.Spec.NodeUUID, detachErr)
 			} else {
 				if !pvcDeleted {
@@ -736,8 +735,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			}
 			if detachErr != nil {
 				recordEvent(internalCtx, r, instance, v1.EventTypeWarning,
-					fmt.Sprintf("Failed to detach volume %q from VM with UUID %q for CnsNodeVmAttachment %s/%s: %v. "+
-						"Check the CNS task in vCenter and retry after resolving the fault.",
+					fmt.Sprintf("Failed to detach volume %q from VM with UUID %q for CnsNodeVmAttachment %s/%s: %v",
 						cnsVolumeID, instance.Spec.NodeUUID,
 						request.Namespace, request.Name, detachErr))
 				return reconcile.Result{RequeueAfter: timeout}, faulttype, nil

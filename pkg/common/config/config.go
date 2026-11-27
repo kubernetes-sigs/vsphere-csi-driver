@@ -168,7 +168,8 @@ var (
 	// ErrInvalidNetPermission is returned when the value of Permission in
 	// NetPermissions is not among the ones listed.
 	ErrInvalidNetPermission = errors.New("invalid value for Permissions under a [NetPermissions] section of the " +
-		"vSphere config: allowed values are READ_WRITE, READ_ONLY and NO_ACCESS; the offending section is named in the driver log")
+		"vSphere config: allowed values are READ_WRITE, READ_ONLY and NO_ACCESS; " +
+		"the offending section is named in the driver log")
 
 	// ErrMissingTopologyCategoriesForMultiVCenterSetup is returned when the TopologyCategories are not specified for
 	// Multi vCenter deployment

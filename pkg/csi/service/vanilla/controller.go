@@ -623,8 +623,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 		cnsVolumeID, _, err := common.ParseCSISnapshotID(contentSourceSnapshotID)
 		if err != nil {
 			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log,
-				codes.InvalidArgument, "invalid VolumeContentSource snapshot ID %q: %v",
-				contentSourceSnapshotID, err)
+				codes.InvalidArgument, "invalid VolumeContentSource snapshot: %v", err)
 		}
 		// Get VC, volumeManager for given volumeID.
 		vCenterHost, volumeManager, err := getVCenterAndVolumeManagerForVolumeID(ctx, c, cnsVolumeID,
@@ -1594,8 +1593,8 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 
 				if isvSANFileServicesDisabledInAllVCs {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.FailedPrecondition,
-						"file volume creation is not supported on vSAN 6.7 U3 or when vSAN file service is "+
-							"not supported on the vCenter. Use a vSAN release that supports file service.")
+						"file volume creation is not supported on vSAN 6.7 U3. "+
+							"Upgrade to a vSAN/vCenter release that supports vSAN file service")
 				}
 				return c.createFileVolume(ctx, req)
 			} else {
@@ -1607,8 +1606,8 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				}
 				if !isvSANFileServicesSupported {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.FailedPrecondition,
-						"file volume creation is not supported on vSAN 6.7 U3 or when vSAN file service is "+
-							"not supported on the vCenter. Use a vSAN release that supports file service.")
+						"file volume creation is not supported on vSAN 6.7 U3. "+
+							"Upgrade to a vSAN/vCenter release that supports vSAN file service")
 				}
 				return c.createFileVolume(ctx, req)
 			}
@@ -2670,7 +2669,7 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 	volumeID, _, err := common.ParseCSISnapshotID(req.SnapshotId)
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
-			"invalid snapshot ID %q in DeleteSnapshot request: %v", req.SnapshotId, err)
+			"DeleteSnapshot request rejected: %v", err)
 	}
 	// Fetch vCenterHost, vCenterManager & volumeManager for given snapshot, based on VC configuration
 	vCenterManager = getVCenterManagerForVCenter(ctx, c)

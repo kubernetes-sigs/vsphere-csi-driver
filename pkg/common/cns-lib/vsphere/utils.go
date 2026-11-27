@@ -280,8 +280,8 @@ func getFirstVirtualCenter(cfg *config.Config) (commontypes.FQDN, *config.Virtua
 	for host, vcConfigEntry := range cfg.VirtualCenter {
 		return host, vcConfigEntry, nil
 	}
-	return commontypes.FQDN{}, nil, errors.New("no vCenter hosts were found in the vSphere config: add a [VirtualCenter] " +
-		"section to the config secret (csi-vsphere.conf)")
+	return commontypes.FQDN{}, nil, errors.New("no vCenter hosts were found in the vSphere config: " +
+		"add a [VirtualCenter] section to the config secret (csi-vsphere.conf)")
 }
 
 // GetLabelsMapFromKeyValue creates a  map object from given parameter.
@@ -404,8 +404,8 @@ func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clu
 		}
 	}
 	if len(sharedDatastores) == 0 && len(vsanDirectDatastores) == 0 {
-		return nil, nil, fmt.Errorf("no candidate datastores were found: no shared or vSAN Direct datastore is accessible from " +
-			"the hosts of the Kubernetes cluster; verify the datastores are mounted on those hosts")
+		return nil, nil, fmt.Errorf("no candidate datastores were found: no shared or vSAN Direct datastore " +
+			"is accessible from the hosts of the Kubernetes cluster; verify the datastores are mounted on those hosts")
 	}
 	log.Debugf("Found shared datastores: %+v and vSAN Direct datastores: %+v", sharedDatastores,
 		vsanDirectDatastores)
@@ -547,8 +547,8 @@ func FilterSuspendedDatastores(ctx context.Context, datastoreInfoList []*Datasto
 	}
 	if len(filteredList) == 0 {
 		return filteredList, logger.LogNewErrorf(log,
-			"no datastores are available: all candidate datastores have volume creation suspended "+
-				"(custom value cns.vmware.com/datastoreSuspended); resume volume creation on a datastore or add another one")
+			"no datastores are available for volume creation: %d candidate datastore(s) were evaluated and those "+
+				"with the custom value cns.vmware.com/datastoreSuspended were excluded", len(datastoreInfoList))
 	}
 	log.Infof("Filtered list of datastores after removing suspended ones are: %+v", filteredList)
 	return filteredList, nil

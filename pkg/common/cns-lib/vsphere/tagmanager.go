@@ -39,15 +39,13 @@ func (vc *VirtualCenter) GetTagManager(ctx context.Context) (*tags.Manager, erro
 	// connect()'s write path at all, since a still-valid session takes its
 	// early-return branch, so it can't catch this).
 	if vc == nil {
-		return nil, fmt.Errorf("vCenter connection is not initialized: retry the operation, and if it persists " +
-			"check the vCenter credentials and connectivity in the vSphere config")
+		return nil, fmt.Errorf("vCenter connection is not initialized; retry the operation")
 	}
 	vc.ClientMutex.Lock()
 	brokenInnerClient := vc.Client != nil && vc.Client.Client == nil
 	vc.ClientMutex.Unlock()
 	if brokenInnerClient {
-		return nil, fmt.Errorf("vCenter connection is not initialized: retry the operation, and if it persists " +
-			"check the vCenter credentials and connectivity in the vSphere config")
+		return nil, fmt.Errorf("vCenter connection is not initialized; retry the operation")
 	}
 
 	if err := vc.Connect(ctx); err != nil {

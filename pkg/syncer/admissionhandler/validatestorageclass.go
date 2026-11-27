@@ -62,8 +62,8 @@ func validateStorageClass(ctx context.Context, ar *admissionv1.AdmissionReview) 
 			log.Error("error deserializing storage class")
 			return &admissionv1.AdmissionResponse{
 				Result: &metav1.Status{
-					Message: fmt.Sprintf("Failed to validate StorageClass: could not decode the request object (%v). "+
-						"Verify the StorageClass manifest is valid YAML/JSON and retry.", err),
+					Message: fmt.Sprintf("Failed to validate StorageClass: the CSI admission webhook "+
+						"could not decode the request object: %v", err),
 				},
 			}
 		}

@@ -681,7 +681,7 @@ func TestUnregisterVolume(t *testing.T) {
 		}
 		mockMgr := volume.NewMockManager(true, errors.New(errMsg), fault.VimFaultCNSFault)
 		params := params{volumeID: "mock-volume-id"}
-		expErr := fmt.Sprintf("failed to unregister volume %s from CNS: %s. Check the CNS task in vCenter",
+		expErr := fmt.Sprintf("failed to unregister volume %s from CNS: %s",
 			params.volumeID, errMsg)
 
 		// Execute

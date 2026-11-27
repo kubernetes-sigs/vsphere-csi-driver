@@ -198,15 +198,21 @@ func (ns *NodeServer) NodePublishVolume(_ context.Context, req *csi.NodePublishV
 		releaseLock = false
 	}
 	if err != nil {
-		const mountFailedFmt = "failed to mount NFS source %q at %q: %v. " +
-			"Verify the export exists, allows this node's IP, and is reachable from the guest cluster nodes"
+		const mountFailedFmt = "failed to mount NFS source %q at %q: %v. %s"
 		if os.IsPermission(err) {
-			return nil, status.Errorf(codes.PermissionDenied, mountFailedFmt, source, targetPath, err)
+			return nil, status.Errorf(codes.PermissionDenied, mountFailedFmt, source, targetPath, err,
+				"Verify that the export allows this node's IP")
 		}
 		if strings.Contains(err.Error(), "invalid argument") {
-			return nil, status.Errorf(codes.InvalidArgument, mountFailedFmt, source, targetPath, err)
+			return nil, status.Errorf(codes.InvalidArgument, mountFailedFmt, source, targetPath, err,
+				"Verify the NFS mount options")
 		}
-		return nil, status.Errorf(codes.Internal, mountFailedFmt, source, targetPath, err)
+		if timedOut {
+			return nil, status.Errorf(codes.Internal, "%v. Verify that the export is reachable "+
+				"from the guest cluster nodes", err)
+		}
+		return nil, status.Errorf(codes.Internal, mountFailedFmt, source, targetPath, err,
+			"Verify that the export exists and is reachable from the guest cluster nodes")
 	}
 
 	// A read-only mount rejects chmod with EROFS. An existing volume whose context omits

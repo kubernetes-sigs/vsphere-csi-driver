@@ -276,7 +276,7 @@ func GetVolumeManagerFromVCHost(ctx context.Context, managers *common.Managers, 
 	log := logger.GetLogger(ctx)
 	volumeMgr, exists := managers.VolumeManagers[vCenterHost]
 	if !exists {
-		return nil, logger.LogNewErrorf(log, "failed to find vCenter %q under volume managers", vCenterHost)
+		return nil, logger.LogNewErrorf(log, "failed to find vCenter %q under volume managers.", vCenterHost)
 	}
 	return volumeMgr, nil
 }

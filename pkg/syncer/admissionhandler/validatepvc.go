@@ -545,8 +545,8 @@ func validateGuestPVCOperation(ctx context.Context, req *admissionv1.AdmissionRe
 		return &admissionv1.AdmissionResponse{
 			Allowed: false,
 			Result: &metav1.Status{
-				Message: fmt.Sprintf("Failed to read the PersistentVolumeClaim in the request: %v. "+
-					"Verify the PVC manifest is valid and retry.", err),
+				Message: fmt.Sprintf("Failed to validate PersistentVolumeClaim: the CSI admission webhook "+
+					"could not decode the request object: %v", err),
 			},
 		}
 	}

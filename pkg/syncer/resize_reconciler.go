@@ -118,8 +118,7 @@ func newResizeReconciler(
 
 	informerFactory.Start(stopCh)
 	if !cache.WaitForCacheSync(stopCh, rc.pvcSynced, rc.pvSynced) {
-		return nil, fmt.Errorf("the PV and PVC informer caches did not sync before the syncer was stopped; " +
-			"check API server connectivity and RBAC for the syncer service account")
+		return nil, fmt.Errorf("the PV and PVC informer caches did not sync before the syncer was stopped")
 	}
 	return rc, nil
 

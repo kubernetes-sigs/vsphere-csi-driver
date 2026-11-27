@@ -576,8 +576,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		msg := fmt.Sprintf("Failed to get virtual center instance with error: %+v", err)
 		log.Error(msg)
 		setInstanceError(ctx, r, instance,
-			fmt.Sprintf("Unable to connect to vCenter for volume registration: %v. "+
-				"Verify vCenter reachability and the vsphere-config-secret credentials.", err))
+			fmt.Sprintf("Failed to obtain a vCenter session for volume registration: %v", err))
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 	var (

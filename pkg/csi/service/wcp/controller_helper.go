@@ -744,7 +744,7 @@ func getVolumeIDToVMMap(ctx context.Context, volumeIDs []string, vmMoidToHostMoi
 	if len(hostNames) == 0 {
 		log.Errorf("no hostnames found in the NodeIDtoName map")
 		return nil, fmt.Errorf("no hostnames found in the NodeIDtoName map; " +
-			"no node has been registered with the CSI driver yet")
+			"the node-to-name map is empty (possibly no node has registered yet)")
 	}
 
 	for volumeID, VMMoID := range volumeIDToVMMap {

@@ -125,8 +125,7 @@ func NewListViewImpl(ctx context.Context, virtualCenter *cnsvsphere.VirtualCente
 	}
 	err := t.createListView(ctx, nil)
 	if err != nil {
-		return nil, logger.LogNewErrorf(log, "failed to create a ListView on vCenter %q: %+v. "+
-			"Verify vCenter connectivity and credentials", virtualCenter.Config.Host.String(), err)
+		return nil, logger.LogNewErrorf(log, "failed to create a ListView: %+v", err)
 	}
 	go t.listenToTaskUpdates()
 	go t.restartContainer()
@@ -198,8 +197,8 @@ func (l *ListViewImpl) createListView(ctx context.Context, tasks []types.Managed
 	log := logger.GetLogger(ctx)
 	vc := l.vc()
 	if err := vc.Connect(ctx); err != nil {
-		return logger.LogNewErrorf(log, "failed to create a ListView on vCenter %q: %+v. "+
-			"Verify vCenter connectivity and credentials", vc.Config.Host.String(), err)
+		// Connect's error already names the vCenter and carries the connectivity/credentials advice.
+		return logger.LogNewErrorf(log, "failed to connect to vCenter for the ListView: %+v", err)
 	} else {
 		log.Debugf("connection to vc successful")
 	}

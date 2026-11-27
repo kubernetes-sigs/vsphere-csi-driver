@@ -130,8 +130,8 @@ func GetSharedToken(ctx context.Context, options SharedTokenOptions) (string, er
 	}
 
 	if token.Token == "" {
-		return "", fmt.Errorf("vc-session-manager at %q returned an empty session token; verify vc-session-manager-url "+
-			"and the credentials used to call it", options.URL)
+		return "", fmt.Errorf("vc-session-manager at %q returned an empty session token; verify "+
+			"vc-session-manager-url", options.URL)
 	}
 	return token.Token, nil
 }

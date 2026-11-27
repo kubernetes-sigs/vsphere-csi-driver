@@ -200,8 +200,8 @@ func GetSharedDatastoresForHosts(ctx context.Context, hosts []*HostSystem) ([]*D
 				host, err)
 		}
 		if len(accessibleDatastores) == 0 {
-			return nil, logger.LogNewErrorf(log, "no accessible datastores were found for ESXi host %s; verify the host is connected "+
-				"to vCenter and has datastores mounted", host.Reference().String())
+			return nil, logger.LogNewErrorf(log, "no accessible datastores were found for ESXi host %s; "+
+				"verify the host is connected to vCenter and has datastores mounted", host.Reference().String())
 		}
 		if len(sharedDatastores) == 0 {
 			sharedDatastores = accessibleDatastores
@@ -241,8 +241,8 @@ func GetAllAccessibleDatastoresForHosts(ctx context.Context, hosts []*HostSystem
 			continue
 		}
 		if len(accessibleDatastores) == 0 {
-			return nil, logger.LogNewErrorf(log, "no accessible datastores were found for ESXi host %s; verify the host is connected "+
-				"to vCenter and has datastores mounted", host.Reference().String())
+			return nil, logger.LogNewErrorf(log, "no accessible datastores were found for ESXi host %s; "+
+				"verify the host is connected to vCenter and has datastores mounted", host.Reference().String())
 		}
 		// Add the accessibleDatastores list to allAccessibleDatastores without duplicates.
 		for _, candidateDS := range accessibleDatastores {

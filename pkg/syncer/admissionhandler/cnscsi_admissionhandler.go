@@ -384,7 +384,9 @@ func (h *CSISupervisorMutationWebhook) mutateNewCnsFileAccessConfig(ctx context.
 
 	newCnsFileAccessConfig := cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
 	if err := json.Unmarshal(req.Object.Raw, &newCnsFileAccessConfig); err != nil {
-		return admission.Errored(http.StatusInternalServerError, err)
+		return admission.Errored(http.StatusInternalServerError,
+			fmt.Errorf("failed to decode the request object for CnsFileAccessConfig %s: %w",
+				admissionObjectRef(req), err))
 	}
 
 	// If CR is created by CSI service account, do not add devops label.
@@ -395,7 +397,9 @@ func (h *CSISupervisorMutationWebhook) mutateNewCnsFileAccessConfig(ctx context.
 	}
 	isPvCSIServiceAccount, err := validatePvCSIServiceAccount(ctx, req.UserInfo.Username, h.Client, cache)
 	if err != nil {
-		return admission.Errored(http.StatusInternalServerError, err)
+		return admission.Errored(http.StatusInternalServerError,
+			fmt.Errorf("failed to check the requesting user for CnsFileAccessConfig %s: %w",
+				admissionObjectRef(req), err))
 	}
 
 	if isPvCSIServiceAccount {
@@ -412,14 +416,18 @@ func (h *CSISupervisorMutationWebhook) mutateNewCnsFileAccessConfig(ctx context.
 	vmUID, err := getVmUID(ctx, newCnsFileAccessConfig.Spec.VMName, newCnsFileAccessConfig.Namespace)
 	if err != nil {
 		log.Errorf("failed to get VM UID for VM %s. Err: %s", newCnsFileAccessConfig.Spec.VMName, err)
-		return admission.Errored(http.StatusInternalServerError, err)
+		return admission.Errored(http.StatusInternalServerError,
+			fmt.Errorf("failed to get the UID of VM %s for CnsFileAccessConfig %s: %w",
+				newCnsFileAccessConfig.Spec.VMName, admissionObjectRef(req), err))
 	}
 
 	// Obtain PVC's UID
 	pvcUID, err := getPVCUID(ctx, newCnsFileAccessConfig.Spec.PvcName, newCnsFileAccessConfig.Namespace)
 	if err != nil {
 		log.Errorf("failed to get PVC UID for PVC %s. Err: %s", newCnsFileAccessConfig.Spec.PvcName, err)
-		return admission.Errored(http.StatusInternalServerError, err)
+		return admission.Errored(http.StatusInternalServerError,
+			fmt.Errorf("failed to get the UID of PVC %s for CnsFileAccessConfig %s: %w",
+				newCnsFileAccessConfig.Spec.PvcName, admissionObjectRef(req), err))
 	}
 
 	// Add VM name and PVC name label.
@@ -504,14 +512,18 @@ func (h *CSISupervisorMutationWebhook) mutateNewPVC(ctx context.Context, req adm
 
 	newPVC := &corev1.PersistentVolumeClaim{}
 	if err := json.Unmarshal(req.Object.Raw, newPVC); err != nil {
-		return admission.Errored(http.StatusInternalServerError, err)
+		return admission.Errored(http.StatusInternalServerError,
+			fmt.Errorf("failed to decode the request object for PersistentVolumeClaim %s: %w",
+				admissionObjectRef(req), err))
 	}
 
 	var wasMutated bool
 
 	if featureGateByokEnabled {
 		if ok, err := setDefaultEncryptionClass(ctx, h.CryptoClient, newPVC); err != nil {
-			return admission.Denied(err.Error())
+			return admission.Denied(fmt.Sprintf(
+				"failed to apply the default encryption class to PersistentVolumeClaim %s: %v",
+				admissionObjectRef(req), err))
 		} else if ok {
 			wasMutated = true
 		}
@@ -668,4 +680,13 @@ func setVerifyPeerCertificate(cfg *tls.Config) {
 		}
 		return nil
 	}
+}
+
+// admissionObjectRef returns "namespace/name" for the object in an admission request. The name is
+// empty on CREATE requests that rely on generateName, so a placeholder is used in that case.
+func admissionObjectRef(req admission.Request) string {
+	if req.Name == "" {
+		return req.Namespace + "/<name generated on create>"
+	}
+	return req.Namespace + "/" + req.Name
 }

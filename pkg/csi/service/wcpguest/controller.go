@@ -738,9 +738,10 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		isBound, boundPVC, err := isPVCInSupervisorClusterBound(ctx, c.supervisorClient,
 			pvc, time.Duration(getProvisionTimeoutInMin(ctx))*time.Minute)
 		if !isBound {
-			msg := fmt.Sprintf("supervisor PVC %q in namespace %q did not become bound: %v. "+
-				"Check the events on the supervisor PVC and the StorageClass and storage quota of the "+
-				"vSphere Namespace; the provisioner will retry", pvc.Name, c.supervisorNamespace, err)
+			unboundMsg := fmt.Sprintf("supervisor PVC %q in namespace %q did not become bound: %v",
+				pvc.Name, c.supervisorNamespace, err)
+			msg := unboundMsg + ". Check the events on the supervisor PVC and the StorageClass and " +
+				"storage quota of the vSphere Namespace; the provisioner will retry"
 			log.Error(msg)
 			eventList, err := c.supervisorClient.CoreV1().Events(c.supervisorNamespace).List(ctx,
 				metav1.ListOptions{
@@ -752,8 +753,8 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				log.Errorf("Unable to fetch events for pvc %q/%q from supervisor cluster with err: %+v",
 					c.supervisorNamespace, pvc.Name, err)
 				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal,
-					"%s. Additionally, could not read the supervisor PVC events: %v. Check the supervisor "+
-						"PVC status and the RBAC permissions of the guest cluster", msg, err)
+					"%s. Additionally, could not read the supervisor PVC events: %v. If this is a "+
+						"permission error, check the guest cluster RBAC on the supervisor", unboundMsg, err)
 			}
 
 			var failureMessage string
@@ -1269,7 +1270,7 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 		// with no VolumeAttachment left to drive its detach.
 		if !c.isAttachStillRequested(ctx, req.VolumeId, req.NodeId) {
 			msg := fmt.Sprintf("attach of volume %q to node %q was abandoned and not added to the spec of "+
-				"virtualmachine %q because it is no longer requested (the VolumeAttachment was deleted or changed "+
+				"virtualmachine %q because it is no longer requested (the VolumeAttachment was deleted "+
 				"while the request was in progress). No action is needed unless the pod is still pending; "+
 				"then check its VolumeAttachment", req.VolumeId, req.NodeId, virtualMachine.Name)
 			log.Error(msg)
@@ -2936,7 +2937,7 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
 		return nil, status.Error(codes.Unimplemented,
 			"ListVolumes is not supported because the list-volumes capability is not enabled on this cluster. "+
-				"Ask the vSphere administrator to enable it or disable the external-attacher ListVolumes sync")
+				"Ask the vSphere administrator to enable it")
 	}
 
 	start := time.Now()

@@ -267,7 +267,8 @@ func (r *ReconcileTriggerCsiFullSync) Reconcile(ctx context.Context,
 	}
 	if fullSyncErr != nil {
 		msg := fmt.Sprintf("Full sync failed for triggerSyncID %d: %v. "+
-			"Check the vsphere-syncer container logs for details, then retry by setting spec.triggerSyncID to the next value.", triggerSyncID, fullSyncErr)
+			"Check the vsphere-syncer container logs for details, then retry by setting "+
+			"spec.triggerSyncID to the next value.", triggerSyncID, fullSyncErr)
 		log.Error(msg)
 		setInstanceError(ctx, r, instance, msg, startTime)
 	} else {

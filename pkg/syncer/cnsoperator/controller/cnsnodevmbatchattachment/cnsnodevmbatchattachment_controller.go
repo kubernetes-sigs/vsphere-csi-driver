@@ -740,8 +740,8 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 		pvcName, ok := volumeIdsInAttachList[result.VolumeID]
 		if !ok {
 			log.Errorf("failed to get pvcName for volumeID %s", result.VolumeID)
-			return fmt.Errorf("could not map CNS volume %s to a PVC in spec.volumes. "+
-				"Verify the PVC exists and is bound to this volume", result.VolumeID)
+			return fmt.Errorf("CNS returned a result for volume %s that does not map to a PVC in spec.volumes",
+				result.VolumeID)
 		}
 		volumeName, ok := pvcsInAttachList[pvcName]
 		if !ok {

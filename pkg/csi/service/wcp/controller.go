@@ -1067,7 +1067,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		if !isValidAccessibilityRequirement(topologyRequirement) {
 			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
 				"invalid accessibility requirements for StoragePool %s: the request must contain "+
-					"topology segments that identify the host", storagePool)
+					"preferred topologies", storagePool)
 		}
 		spAccessibleNodes, storagePoolType, err := getStoragePoolInfo(ctx, storagePool)
 		if err != nil {
@@ -1147,9 +1147,9 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		if err != nil {
 			return nil, csifault.CSIInvalidArgumentFault,
 				logger.LogNewErrorCodef(log, codes.InvalidArgument,
-					"invalid snapshot ID %q in the VolumeContentSource of the CreateVolume request: %v. "+
+					"invalid VolumeContentSource in the CreateVolume request: %v. "+
 						"Verify that the snapshotHandle of the source VolumeSnapshotContent is a valid snapshot ID",
-					contentSourceSnapshotID, err)
+					err)
 		}
 		// The requested volume size when creating a volume from snapshot should be the same as the
 		// snapshot size, since CNS does not support querying the exact snapshot size, we approximate
@@ -1531,14 +1531,12 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			} else {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to create CnsVolumeInfo CR for volumeID %q due to missing storage class name "+
-						"in the CreateVolume request parameters. "+
-						"Verify that csi-provisioner runs with --extra-create-metadata", volumeInfo.VolumeID.Id)
+						"in the CreateVolume request parameters", volumeInfo.VolumeID.Id)
 			}
 		} else {
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to create CnsVolumeInfo CR for volumeID %q due to missing pvc namespace "+
-					"in the CreateVolume request parameters. "+
-					"Verify that csi-provisioner runs with --extra-create-metadata", volumeInfo.VolumeID.Id)
+					"in the CreateVolume request parameters", volumeInfo.VolumeID.Id)
 		}
 	}
 
@@ -1588,9 +1586,8 @@ func (c *controller) getDatastoreAccessibleTopologyForSnapshot(ctx context.Conte
 
 	if c.topologyMgr == nil {
 		return nil, logger.LogNewErrorCode(log, codes.Internal,
-			"topology manager not initialized because the AvailabilityZone CRs were not registered "+
-				"when the CSI controller started. Check the CSI controller logs and restart the "+
-				"CSI controller pod once the AvailabilityZone CRs exist")
+			"topology manager not initialized: the TKGsHA capability is disabled, or the AvailabilityZone "+
+				"CRs were not registered when the CSI controller started")
 	}
 
 	// Query the datastore of snapshot. By design, snapshot is always located at the same datastore
@@ -2537,7 +2534,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		if err != nil {
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 				"cannot get virtual center %s from virtualcentermanager while attaching disk with error %+v",
-				vc.Config.Host, err)
+				vCenterHost, err)
 		}
 
 		// Connect to VC.
@@ -2996,7 +2993,8 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 				len(k8sVolumeIDs), len(cnsVolumeIDs), listVolumeThreshold)
 			return nil, csifault.CSIInternalFault, status.Errorf(codes.FailedPrecondition,
 				"Kubernetes and CNS volumes are out of sync: Kubernetes reports %d volumes and CNS reports %d, "+
-					"which exceeds the ListVolume threshold of %d. Check CNS for orphaned volumes",
+					"which exceeds the ListVolume threshold of %d. Check for volumes that exist in Kubernetes "+
+					"but are missing from CNS, or a stale CNS cache, then retry",
 				len(k8sVolumeIDs), len(cnsVolumeIDs), listVolumeThreshold)
 		}
 
@@ -3594,10 +3592,14 @@ func checkMigrationTerminalConditions(
 		c.Status == metav1.ConditionTrue {
 		// Returning codes.InvalidArgument so csi-resizer marks the PVC Infeasible
 		// and the user can roll back to the original VAC.
+		detail := ""
+		if c.Message != "" {
+			detail = ": " + c.Message
+		}
 		return nil, status.Errorf(codes.InvalidArgument,
-			"Mobility Controller found migration to storage policy %s infeasible for volume %s: %s. "+
+			"Mobility Controller found migration to storage policy %s infeasible for volume %s%s. "+
 				"Revert the PVC to its previous VolumeAttributesClass",
-			targetPolicyID, volumeID, c.Message), true
+			targetPolicyID, volumeID, detail), true
 	}
 	return nil, nil, false
 }

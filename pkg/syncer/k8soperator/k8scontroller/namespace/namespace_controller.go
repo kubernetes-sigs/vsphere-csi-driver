@@ -248,7 +248,8 @@ func (r *ReconcileNamespace) Reconcile(ctx context.Context,
 	err = r.client.List(ctx, &pvcList, &client.ListOptions{Namespace: instance.Name})
 	if err != nil {
 		msg := fmt.Sprintf("Failed to list PVCs in namespace %q while removing CNS finalizers: %v. "+
-			"The operation will be retried; if it persists, check API server health and CNS operator RBAC",
+			"The operation will be retried; if it persists, check API server health and the RBAC "+
+			"permissions of the syncer service account",
 			instance.Name, err)
 		recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 		reconcileLog.Errorf("Operation failed, reporting failure status to Prometheus."+

@@ -690,8 +690,9 @@ func (osUtils *OsUtils) PublishMountVol(
 				if !common.Contains(m.Opts, rwo) {
 					// TODO: make sure that all the mount options match.
 					return nil, logger.LogNewErrorCodef(log, codes.AlreadyExists,
-						"volume at target %q was previously published with different mount options than "+
-							"the requested %q", params.Target, rwo)
+						"volume at target %q was previously published with mount options %v that do not include the "+
+							"requested %q option (rw is read-write, ro is read-only). Unpublish the volume before "+
+							"requesting a different access mode", params.Target, m.Opts, rwo)
 				}
 
 				// Existing mount satisfies request.
@@ -825,8 +826,9 @@ func (osUtils *OsUtils) PublishFileVol(
 			if !common.Contains(m.Opts, rwo) {
 				// TODO: make sure that all the mount options match.
 				return nil, logger.LogNewErrorCodef(log, codes.AlreadyExists,
-					"volume at target %q was previously published with different mount options than "+
-						"the requested %q", params.Target, rwo)
+					"volume at target %q was previously published with mount options %v that do not include the "+
+						"requested %q option (rw is read-write, ro is read-only). Unpublish the volume before "+
+						"requesting a different access mode", params.Target, m.Opts, rwo)
 			}
 
 			// Existing mount satisfies request.
