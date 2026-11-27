@@ -26,6 +26,9 @@ const (
 	// VSphere80u3Version is a 3 digit value to indicate the minimum vSphere
 	// version to ensure calling supported 8.0u3 APIs
 	VSphere80u3Version int = 803
+	// VSphere90VersionInt is a 3 digit value to indicate the minimum vSphere
+	// version on which CNS extend of a vSAN file share (file:<uuid>) is confirmed to work
+	VSphere90VersionInt = 900
 	// VSphere91VersionInt is a 3 digit value to indicate the minimum vSphere
 	// version to ensure calling supported 9.1.0 APIs
 	VSphere91VersionInt = 910
@@ -493,6 +496,31 @@ func IsvSphereVersion80U3orAbove(ctx context.Context, aboutInfo types.AboutInfo)
 	}
 	// For all other versions.
 	return false, nil
+}
+
+// IsvSphereVersion90orAbove checks if specified version is 9.0 or higher.
+// The method takes aboutInfo{} as input which contains details about
+// VC version, build number and so on.
+// If the version is 9.0 or higher, the method returns true, else returns false
+// along with appropriate errors during failure cases
+func IsvSphereVersion90orAbove(ctx context.Context, aboutInfo types.AboutInfo) (bool, error) {
+	log := logger.GetLogger(ctx)
+	items := strings.Split(aboutInfo.Version, ".")
+	if len(items) < 2 {
+		return false, logger.LogNewErrorf(log, "unexpected vCenter version format %q", aboutInfo.Version)
+	}
+	// Compare major and minor separately, so that e.g. "10.0.0" is not read as 100.
+	major, err := strconv.Atoi(items[0])
+	if err != nil {
+		return false, logger.LogNewErrorf(log, "error while converting version %q to integer, err %+v",
+			aboutInfo.Version, err)
+	}
+	minor, err := strconv.Atoi(items[1])
+	if err != nil {
+		return false, logger.LogNewErrorf(log, "error while converting version %q to integer, err %+v",
+			aboutInfo.Version, err)
+	}
+	return major*100+minor >= VSphere90VersionInt, nil
 }
 
 // IsvSphereVersion91orAbove checks if specified version is 9.1 or higher

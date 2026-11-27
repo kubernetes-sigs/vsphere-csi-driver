@@ -18,6 +18,7 @@ package wcpguest
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,7 +29,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/watch"
 	testclient "k8s.io/client-go/kubernetes/fake"
+	clienttesting "k8s.io/client-go/testing"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlclientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
@@ -91,6 +95,28 @@ func fvsExpandController(t *testing.T, runtimePVC, watchPVC *corev1.PersistentVo
 		supervisorRuntimeClient: rtClient,
 		supervisorNamespace:     fvsTestNamespace,
 	}
+}
+
+// signalOnPVCWatch makes the fake clientset close the returned channel once a PVC watch has been
+// registered. Tests wait on this channel instead of sleeping, so they do not depend on timing or on
+// the fake watch replaying objects that exist before the watch starts.
+func signalOnPVCWatch(cs *testclient.Clientset) <-chan struct{} {
+	established := make(chan struct{})
+	var once sync.Once
+	cs.PrependWatchReactor("persistentvolumeclaims", func(action clienttesting.Action) (bool,
+		watch.Interface, error) {
+		var opts metav1.ListOptions
+		if watchAction, ok := action.(clienttesting.WatchActionImpl); ok {
+			opts = watchAction.ListOptions
+		}
+		w, err := cs.Tracker().Watch(action.GetResource(), action.GetNamespace(), opts)
+		if err != nil {
+			return false, nil, err
+		}
+		once.Do(func() { close(established) })
+		return true, w, nil
+	})
+	return established
 }
 
 // expandReqRWX returns a ControllerExpandVolumeRequest with MULTI_NODE_MULTI_WRITER
@@ -203,17 +229,17 @@ func TestCheckForSupervisorPVCCapacityReached_WatchChannelClosed(t *testing.T) {
 	}
 }
 
-// ---- controllerExpandForFVSFileVolume ---------------------------------------
+// ---- controllerExpandForFileVolume ---------------------------------------
 
-// TestControllerExpandForFVSFileVolume_Shrink_Rejected verifies that requesting a
+// TestControllerExpandForFileVolume_Shrink_Rejected verifies that requesting a
 // size smaller than the current supervisor PVC spec is rejected with InvalidArgument.
-func TestControllerExpandForFVSFileVolume_Shrink_Rejected(t *testing.T) {
+func TestControllerExpandForFileVolume_Shrink_Rejected(t *testing.T) {
 	// PVC spec already at 10Gi; request only 5Gi → shrink
 	pvc := newPVCForExpand(fvsExpandPVC, common.StorageClassVsanFileServicePolicy, "10Gi", "10Gi")
 	c := fvsExpandController(t, pvc, pvc)
 
 	req := expandReqRWX(fvsExpandPVC, gi5)
-	_, faultType, err := controllerExpandForFVSFileVolume(context.Background(), req, pvc.DeepCopy(), c)
+	_, faultType, err := controllerExpandForFileVolume(context.Background(), req, pvc.DeepCopy(), c)
 	if err == nil {
 		t.Fatal("expected error for shrink request, got nil")
 	}
@@ -226,15 +252,15 @@ func TestControllerExpandForFVSFileVolume_Shrink_Rejected(t *testing.T) {
 	}
 }
 
-// TestControllerExpandForFVSFileVolume_Equal_CapacityAlreadyMet verifies that
+// TestControllerExpandForFileVolume_Equal_CapacityAlreadyMet verifies that
 // when the spec and status.capacity are both already at the requested size, the
 // function returns success immediately without patching or waiting.
-func TestControllerExpandForFVSFileVolume_Equal_CapacityAlreadyMet(t *testing.T) {
+func TestControllerExpandForFileVolume_Equal_CapacityAlreadyMet(t *testing.T) {
 	pvc := newPVCForExpand(fvsExpandPVC, common.StorageClassVsanFileServicePolicy, "10Gi", "10Gi")
 	c := fvsExpandController(t, pvc, pvc)
 
 	req := expandReqRWX(fvsExpandPVC, gi10)
-	resp, faultType, err := controllerExpandForFVSFileVolume(context.Background(), req, pvc.DeepCopy(), c)
+	resp, faultType, err := controllerExpandForFileVolume(context.Background(), req, pvc.DeepCopy(), c)
 	if err != nil {
 		t.Fatalf("unexpected error: %v (fault=%q)", err, faultType)
 	}
@@ -249,10 +275,10 @@ func TestControllerExpandForFVSFileVolume_Equal_CapacityAlreadyMet(t *testing.T)
 	}
 }
 
-// TestControllerExpandForFVSFileVolume_Equal_CapacityNotYet_Success verifies
+// TestControllerExpandForFileVolume_Equal_CapacityNotYet_Success verifies
 // that when spec is already at the requested size but status.capacity has not
 // caught up, the function waits and returns success once capacity is updated.
-func TestControllerExpandForFVSFileVolume_Equal_CapacityNotYet_Success(t *testing.T) {
+func TestControllerExpandForFileVolume_Equal_CapacityNotYet_Success(t *testing.T) {
 	// spec=10Gi (already patched), status.capacity=5Gi (FVS not yet converged)
 	pvc := newPVCForExpand(fvsExpandPVC, common.StorageClassVsanFileServicePolicy, "10Gi", "5Gi")
 	c := fvsExpandController(t, pvc, pvc)
@@ -264,7 +290,7 @@ func TestControllerExpandForFVSFileVolume_Equal_CapacityNotYet_Success(t *testin
 	respCh := make(chan *csi.ControllerExpandVolumeResponse, 1)
 	go func() {
 		req := expandReqRWX(fvsExpandPVC, gi10)
-		resp, _, err := controllerExpandForFVSFileVolume(ctx, req, pvc.DeepCopy(), c)
+		resp, _, err := controllerExpandForFileVolume(ctx, req, pvc.DeepCopy(), c)
 		respCh <- resp
 		errCh <- err
 	}()
@@ -294,9 +320,9 @@ func TestControllerExpandForFVSFileVolume_Equal_CapacityNotYet_Success(t *testin
 	}
 }
 
-// TestControllerExpandForFVSFileVolume_Equal_CapacityNotYet_ContextCancelled verifies
+// TestControllerExpandForFileVolume_Equal_CapacityNotYet_ContextCancelled verifies
 // that when the context is cancelled while waiting for capacity, an error is returned.
-func TestControllerExpandForFVSFileVolume_Equal_CapacityNotYet_ContextCancelled(t *testing.T) {
+func TestControllerExpandForFileVolume_Equal_CapacityNotYet_ContextCancelled(t *testing.T) {
 	pvc := newPVCForExpand(fvsExpandPVC, common.StorageClassVsanFileServicePolicy, "10Gi", "5Gi")
 	c := fvsExpandController(t, pvc, pvc)
 
@@ -305,7 +331,7 @@ func TestControllerExpandForFVSFileVolume_Equal_CapacityNotYet_ContextCancelled(
 	errCh := make(chan error, 1)
 	go func() {
 		req := expandReqRWX(fvsExpandPVC, gi10)
-		_, _, err := controllerExpandForFVSFileVolume(ctx, req, pvc.DeepCopy(), c)
+		_, _, err := controllerExpandForFileVolume(ctx, req, pvc.DeepCopy(), c)
 		errCh <- err
 	}()
 
@@ -322,9 +348,9 @@ func TestControllerExpandForFVSFileVolume_Equal_CapacityNotYet_ContextCancelled(
 	}
 }
 
-// TestControllerExpandForFVSFileVolume_Grow_Success verifies the full grow path:
+// TestControllerExpandForFileVolume_Grow_Success verifies the full grow path:
 // spec < requested → patch spec via runtime client, wait for capacity → success.
-func TestControllerExpandForFVSFileVolume_Grow_Success(t *testing.T) {
+func TestControllerExpandForFileVolume_Grow_Success(t *testing.T) {
 	// Supervisor PVC starts at 5Gi spec and 5Gi capacity.
 	pvc := newPVCForExpand(fvsExpandPVC, common.StorageClassVsanFileServicePolicy, "5Gi", "5Gi")
 	c := fvsExpandController(t, pvc, pvc)
@@ -336,7 +362,7 @@ func TestControllerExpandForFVSFileVolume_Grow_Success(t *testing.T) {
 	respCh := make(chan *csi.ControllerExpandVolumeResponse, 1)
 	go func() {
 		req := expandReqRWX(fvsExpandPVC, gi10)
-		resp, _, err := controllerExpandForFVSFileVolume(ctx, req, pvc.DeepCopy(), c)
+		resp, _, err := controllerExpandForFileVolume(ctx, req, pvc.DeepCopy(), c)
 		respCh <- resp
 		errCh <- err
 	}()
@@ -373,10 +399,10 @@ func TestControllerExpandForFVSFileVolume_Grow_Success(t *testing.T) {
 	}
 }
 
-// TestControllerExpandForFVSFileVolume_Grow_NilRuntimeClientConfig verifies that
+// TestControllerExpandForFileVolume_Grow_NilRuntimeClientConfig verifies that
 // a nil restClientConfig (and no cached supervisorRuntimeClient) surfaces a clear
 // Internal error rather than a nil-pointer panic.
-func TestControllerExpandForFVSFileVolume_Grow_NilRuntimeClientConfig(t *testing.T) {
+func TestControllerExpandForFileVolume_Grow_NilRuntimeClientConfig(t *testing.T) {
 	pvc := newPVCForExpand(fvsExpandPVC, common.StorageClassVsanFileServicePolicy, "5Gi", "5Gi")
 	c := &controller{
 		supervisorClient:    testclient.NewClientset(pvc),
@@ -385,7 +411,7 @@ func TestControllerExpandForFVSFileVolume_Grow_NilRuntimeClientConfig(t *testing
 	}
 
 	req := expandReqRWX(fvsExpandPVC, gi10)
-	_, faultType, err := controllerExpandForFVSFileVolume(context.Background(), req, pvc.DeepCopy(), c)
+	_, faultType, err := controllerExpandForFileVolume(context.Background(), req, pvc.DeepCopy(), c)
 	if err == nil {
 		t.Fatal("expected error when runtime client cannot be created, got nil")
 	}
@@ -422,50 +448,108 @@ func TestControllerExpandVolume_FVS_RoutedToFVSExpand(t *testing.T) {
 	}
 }
 
-// TestControllerExpandVolume_FVS_GateDisabled_LegacyFileRejected verifies that
-// when the FVS gate is off and the request is for a file (RWX) volume, the
-// legacy guard returns Unimplemented.
-func TestControllerExpandVolume_FVS_GateDisabled_LegacyFileRejected(t *testing.T) {
+// TestControllerExpandVolume_LegacyFile_GateDisabled_AlreadyAtSize verifies that
+// when the FVS gate is off, a legacy vSAN file service (RWX) volume is routed to
+// the file volume expand path and succeeds with NodeExpansionRequired=false.
+func TestControllerExpandVolume_LegacyFile_GateDisabled_AlreadyAtSize(t *testing.T) {
 	setVsanFileVolumeServiceEnabledForTest(t, false)
+	setLegacyVsanFileShareExpansionForTest(t, true)
 
 	// non-FVS storage class so IsFVSPersistentVolumeClaim is false
 	pvc := newPVCForExpand(fvsExpandPVC, "standard-sc", "10Gi", "10Gi")
-	c := &controller{
-		supervisorClient:    testclient.NewClientset(pvc),
-		supervisorNamespace: fvsTestNamespace,
-	}
+	c := fvsExpandController(t, pvc, pvc)
 
-	req := expandReqRWX(fvsExpandPVC, gi10)
-	_, err := c.ControllerExpandVolume(context.Background(), req)
-	if err == nil {
-		t.Fatal("expected error for legacy file volume expansion, got nil")
+	resp, err := c.ControllerExpandVolume(context.Background(), expandReqRWX(fvsExpandPVC, gi10))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	st, ok := status.FromError(err)
-	if !ok || st.Code() != codes.Unimplemented {
-		t.Fatalf("expected Unimplemented, got ok=%v code=%v err=%v", ok, st.Code(), err)
+	if resp.NodeExpansionRequired {
+		t.Error("NodeExpansionRequired must be false for legacy file volumes")
+	}
+	if resp.CapacityBytes != gi10 {
+		t.Errorf("CapacityBytes=%d want %d", resp.CapacityBytes, gi10)
 	}
 }
 
-// TestControllerExpandVolume_FVS_Enabled_NonFVSPVC_LegacyFileRejected verifies that
-// even with the FVS gate on, a non-FVS PVC with file capability goes to the legacy
-// guard and returns Unimplemented.
-func TestControllerExpandVolume_FVS_Enabled_NonFVSPVC_LegacyFileRejected(t *testing.T) {
+// TestControllerExpandVolume_LegacyFile_Grow_Success verifies that with the FVS
+// gate on, a non-FVS supervisor PVC with RWX capability is expanded by patching
+// the supervisor PVC and waiting for status.capacity to converge.
+func TestControllerExpandVolume_LegacyFile_Grow_Success(t *testing.T) {
 	setVsanFileVolumeServiceEnabledForTest(t, true)
+	setLegacyVsanFileShareExpansionForTest(t, true)
+
+	pvc := newPVCForExpand(fvsExpandPVC, "standard-sc", "5Gi", "5Gi")
+	c := fvsExpandController(t, pvc, pvc)
+	watchEstablished := signalOnPVCWatch(c.supervisorClient.(*testclient.Clientset))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	respCh := make(chan *csi.ControllerExpandVolumeResponse, 1)
+	go func() {
+		resp, err := c.ControllerExpandVolume(ctx, expandReqRWX(fvsExpandPVC, gi10))
+		respCh <- resp
+		errCh <- err
+	}()
+
+	// Simulate the supervisor growing the CNS file share and updating status.capacity, once the
+	// expand call is watching the supervisor PVC.
+	select {
+	case <-watchEstablished:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for the supervisor PVC watch to be established")
+	}
+	updated := pvc.DeepCopy()
+	updated.Status.Capacity = corev1.ResourceList{
+		corev1.ResourceStorage: resource.MustParse("10Gi"),
+	}
+	if _, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(fvsTestNamespace).UpdateStatus(
+		ctx, updated, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("UpdateStatus: %v", err)
+	}
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		resp := <-respCh
+		if resp.NodeExpansionRequired {
+			t.Error("NodeExpansionRequired must be false for legacy file volumes")
+		}
+		if resp.CapacityBytes != gi10 {
+			t.Errorf("CapacityBytes=%d want %d", resp.CapacityBytes, gi10)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for legacy file volume expand to complete")
+	}
+
+	// The supervisor PVC spec must have been bumped to the requested size.
+	cur := &corev1.PersistentVolumeClaim{}
+	if err := c.supervisorRuntimeClient.Get(context.Background(),
+		ctrlclient.ObjectKey{Namespace: fvsTestNamespace, Name: fvsExpandPVC}, cur); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	got := cur.Spec.Resources.Requests[corev1.ResourceStorage]
+	if got.Cmp(resource.MustParse("10Gi")) != 0 {
+		t.Errorf("supervisor PVC spec size=%s want 10Gi", got.String())
+	}
+}
+
+// TestControllerExpandVolume_LegacyFile_Shrink_Rejected verifies shrinking a
+// legacy file volume is rejected with InvalidArgument.
+func TestControllerExpandVolume_LegacyFile_Shrink_Rejected(t *testing.T) {
+	setVsanFileVolumeServiceEnabledForTest(t, false)
+	setLegacyVsanFileShareExpansionForTest(t, true)
 
 	pvc := newPVCForExpand(fvsExpandPVC, "standard-sc", "10Gi", "10Gi")
-	c := &controller{
-		supervisorClient:    testclient.NewClientset(pvc),
-		supervisorNamespace: fvsTestNamespace,
-	}
+	c := fvsExpandController(t, pvc, pvc)
 
-	req := expandReqRWX(fvsExpandPVC, gi10)
-	_, err := c.ControllerExpandVolume(context.Background(), req)
-	if err == nil {
-		t.Fatal("expected error for legacy file volume, got nil")
-	}
+	_, err := c.ControllerExpandVolume(context.Background(), expandReqRWX(fvsExpandPVC, gi5))
 	st, ok := status.FromError(err)
-	if !ok || st.Code() != codes.Unimplemented {
-		t.Fatalf("expected Unimplemented, got ok=%v code=%v err=%v", ok, st.Code(), err)
+	if err == nil || !ok || st.Code() != codes.InvalidArgument {
+		t.Fatalf("expected InvalidArgument, got err=%v", err)
 	}
 }
 

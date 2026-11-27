@@ -65,6 +65,9 @@ type VirtualCenterManager interface {
 	// IsCnsTransactionSupported checks if cns transaction is supported
 	// or not on the vCenter Host.
 	IsCnsTransactionSupported(ctx context.Context, host commontypes.FQDN) (bool, error)
+	// IsvSANFileShareExtendSupported checks if CNS extend of a vSAN file share (file:<uuid>) volume
+	// is supported or not on the vCenter Host.
+	IsvSANFileShareExtendSupported(ctx context.Context, host commontypes.FQDN) (bool, error)
 }
 
 var (
@@ -248,5 +251,30 @@ func (m *defaultVirtualCenterManager) IsCnsTransactionSupported(ctx context.Cont
 		return true, nil
 	}
 	log.Infof("CNS Transaction feature is not supported on vCenter version %q", vcVersion)
+	return false, nil
+}
+
+// IsvSANFileShareExtendSupported checks if CNS extend of a vSAN file share volume is supported or not.
+// It is confirmed to work from vCenter 9.0; earlier versions are not verified, so they are treated as unsupported.
+func (m *defaultVirtualCenterManager) IsvSANFileShareExtendSupported(ctx context.Context,
+	host commontypes.FQDN) (bool, error) {
+	log := logger.GetLogger(ctx)
+
+	// Get VC instance.
+	vcenter, err := m.GetVirtualCenter(ctx, host)
+	if err != nil {
+		log.Errorf("Failed to get vCenter. Err: %v", err)
+		return false, err
+	}
+	vcVersion := vcenter.Client.ServiceContent.About.Version
+	isvSphere90orAbove, err := IsvSphereVersion90orAbove(ctx, vcenter.Client.ServiceContent.About)
+	if err != nil {
+		return false, logger.LogNewErrorf(log, "Error while checking the vSphere Version %q , Err= %+v",
+			vcVersion, err)
+	}
+	if isvSphere90orAbove {
+		return true, nil
+	}
+	log.Infof("Expanding a vSAN file share volume is not supported on vCenter version %q", vcVersion)
 	return false, nil
 }

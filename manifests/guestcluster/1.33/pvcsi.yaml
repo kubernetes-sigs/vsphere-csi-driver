@@ -675,6 +675,7 @@ data:
   "linked-clone-support": "true"
   "CSI_Backup_API": "false"
   "vks-register-volume": "false"
+  "legacy-vsan-file-share-expansion": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com

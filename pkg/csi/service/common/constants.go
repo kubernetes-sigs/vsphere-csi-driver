@@ -808,6 +808,13 @@ const (
 	// Supervisor csi-feature-states ConfigMap (two-ConfigMap gating, not associated with
 	// any WCP capability — deliberately absent from WCPFeatureStateAssociatedWithPVCSI).
 	VKSRegisterVolume = "vks-register-volume"
+
+	// LegacyVsanFileShareExpansion is a CSI-only FSS that gates volume expansion of legacy vSAN file
+	// share (CNS file volume, "file:<uuid>") RWX volumes on both supervisor and guest clusters. It does
+	// not apply to the new File Volume Service (FVS) volumes. In the guest cluster it requires the flag
+	// to be true in both the PVCSI ConfigMap and the Supervisor csi-feature-states ConfigMap. Not
+	// associated with any WCP capability.
+	LegacyVsanFileShareExpansion = "legacy-vsan-file-share-expansion"
 )
 
 var WCPFeatureStates = map[string]struct{}{

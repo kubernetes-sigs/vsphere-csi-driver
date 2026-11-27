@@ -1962,17 +1962,34 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		// FVS-backed file volumes are expanded by patching the supervisor PVC and
 		// waiting for status.capacity to converge; the FVS controller drives the
 		// underlying NFS share resize. NodeExpansionRequired is false for NFS.
-		// unlike wcp, here we are checking if the volume is FVS-backed by checking the storage class name
+		// unlike wcp, here we are checking if the volume is FVS-backed by checking the storage class name.
+		// This is safe because the reserved vsan-file-service-policy* storage classes can only back FVS
+		// volumes: the Supervisor rejects them in CreateVolume unless it provisions through FVS, so a
+		// legacy "file:<uuid>" volume never has a supervisor PVC with one of these classes.
 		if IsVsanFileVolumeServiceEnabled && common.IsFVSPersistentVolumeClaim(svPVC) {
 			volumeType = prometheus.PrometheusFileVolumeType
-			return controllerExpandForFVSFileVolume(ctx, req, svPVC, c)
+			return controllerExpandForFileVolume(ctx, req, svPVC, c)
 		}
 
-		// Legacy CNS file volumes do not support expansion.
+		// Legacy vSAN file service volumes follow the same flow: the supervisor
+		// CSI driver expands the CNS file share when the supervisor PVC grows,
+		// and status.capacity is updated once the resize completes.
+		// Gated by the LegacyVsanFileShareExpansion FSS; without it file volumes are rejected as before.
 		if common.IsFileVolumeRequest(ctx, []*csi.VolumeCapability{req.GetVolumeCapability()}) {
-			return nil, csifault.CSIInvalidArgumentFault,
-				logger.LogNewErrorCode(log, codes.Unimplemented,
-					"volume expansion is only supported for block volume type")
+			if common.IsFVSPersistentVolumeClaim(svPVC) ||
+				!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LegacyVsanFileShareExpansion) {
+				return nil, csifault.CSIInvalidArgumentFault,
+					logger.LogNewErrorCode(log, codes.Unimplemented,
+						"volume expansion is only supported for block volume type")
+			}
+			// Multi-node raw block volumes are not NFS shares and remain unsupported.
+			if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
+				return nil, csifault.CSIInvalidArgumentFault,
+					logger.LogNewErrorCode(log, codes.Unimplemented,
+						"volume expansion is not supported for multi-node raw block volumes")
+			}
+			volumeType = prometheus.PrometheusFileVolumeType
+			return controllerExpandForFileVolume(ctx, req, svPVC, c)
 		}
 
 		volumeType = prometheus.PrometheusBlockVolumeType

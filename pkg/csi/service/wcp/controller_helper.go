@@ -130,13 +130,22 @@ func validateWCPControllerUnpublishVolumeRequest(ctx context.Context, req *csi.C
 }
 
 // validateWCPControllerExpandVolumeRequest is the helper function to validate
-// ExpandVolumeRequest for WCP CSI driver. Function returns error if validation
-// fails otherwise returns nil.
+// ExpandVolumeRequest for WCP CSI driver. cnsVolumeType is the volume type resolved from the
+// volume id and isLegacyFileExpansionEnabled is the state of the LegacyVsanFileShareExpansion
+// FSS. Function returns error if validation fails otherwise returns nil.
 func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.ControllerExpandVolumeRequest,
-	manager *common.Manager, isOnlineExpansionEnabled bool) error {
+	manager *common.Manager, cnsVolumeType string, isOnlineExpansionEnabled bool,
+	isLegacyFileExpansionEnabled bool) error {
 	log := logger.GetLogger(ctx)
-	if err := validateControllerExpandVolumeRequestInWcp(ctx, req); err != nil {
+	if err := validateControllerExpandVolumeRequestInWcp(ctx, req, cnsVolumeType,
+		isLegacyFileExpansionEnabled); err != nil {
 		return err
+	}
+
+	// Legacy vSAN file service volumes are NFS shares, not disks attached to VMs,
+	// so the offline-expansion attach check below does not apply to them.
+	if cnsVolumeType == common.FileVolumeType {
+		return nil
 	}
 
 	if !isOnlineExpansionEnabled {
@@ -919,10 +928,13 @@ func validateCreateVolumeRequestInWcp(ctx context.Context, req *csi.CreateVolume
 	return nil
 }
 
-// validateControllerExpandVolumeRequest is the helper function to validate
-// ControllerExpandVolumeRequest for all block controllers.
+// validateControllerExpandVolumeRequestInWcp is the helper function to validate
+// ControllerExpandVolumeRequest for block and legacy vSAN file service volumes.
+// cnsVolumeType is the volume type resolved from the volume id and
+// isLegacyFileExpansionEnabled is the state of the LegacyVsanFileShareExpansion FSS.
 // Function returns error if validation fails otherwise returns nil.
-func validateControllerExpandVolumeRequestInWcp(ctx context.Context, req *csi.ControllerExpandVolumeRequest) error {
+func validateControllerExpandVolumeRequestInWcp(ctx context.Context, req *csi.ControllerExpandVolumeRequest,
+	cnsVolumeType string, isLegacyFileExpansionEnabled bool) error {
 	log := logger.GetLogger(ctx)
 	// Check for required parameters.
 	if len(req.GetVolumeId()) == 0 {
@@ -938,12 +950,38 @@ func validateControllerExpandVolumeRequestInWcp(ctx context.Context, req *csi.Co
 		return logger.LogNewErrorCode(log, codes.InvalidArgument, "volume capabilities is a required parameter")
 	}
 
+	if cnsVolumeType == common.FileVolumeType {
+		// GetCnsVolumeType also reports FVS ("fv:") ids as file volumes. Only legacy vSAN file
+		// service volumes ("file:<uuid>") may be expanded here, and only when the
+		// LegacyVsanFileShareExpansion FSS is enabled. FVS volumes are expanded through the
+		// FileVolume CR before this validation, so an FVS id that reaches it is not a legacy volume.
+		if common.IsFVSVolumeHandle(req.GetVolumeId()) || !isLegacyFileExpansionEnabled {
+			return logger.LogNewErrorCode(log, codes.Unimplemented,
+				"volume expansion is only supported for block volume type")
+		}
+		return nil
+	}
+	// A file volume capability on a block volume id is not a legacy vSAN file service volume.
 	if isFileVolumeRequestInWcp(ctx, []*csi.VolumeCapability{volCaps}) {
-		return logger.LogNewErrorCode(log, codes.Unimplemented,
-			"volume expansion is only supported for block volume type")
+		return logger.LogNewErrorCodef(log, codes.Unimplemented,
+			"volume expansion is not supported for a file volume capability on block volume %q",
+			req.GetVolumeId())
 	}
 
 	return nil
+}
+
+// isNodeExpansionRequired returns whether kubelet must grow the filesystem on
+// the node after a successful controller expansion. Raw block volumes and
+// legacy vSAN file service (NFS) volumes do not need a node-side step.
+func isNodeExpansionRequired(cnsVolumeType string, volCap *csi.VolumeCapability) bool {
+	if cnsVolumeType == common.FileVolumeType {
+		return false
+	}
+	if _, ok := volCap.GetAccessType().(*csi.VolumeCapability_Block); ok {
+		return false
+	}
+	return true
 }
 
 // validateControllerPublishVolumeRequestInWcp is the helper function to validate
