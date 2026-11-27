@@ -128,9 +128,12 @@ var (
 var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
 
 // modifyVolumePollInterval is how often ControllerModifyVolume polls CNSVolumeInfo
-// for migration status updates. A shorter interval provides faster feedback but
-// increases API server load. Declared as a var so it can be adjusted in tests.
-var modifyVolumePollInterval = 30 * time.Second
+// for migration status updates. Each poll reads the local informer cache, not the
+// API server, so a short interval is cheap. Keep it well below the Syncer's
+// migration poll interval (5s): both start from the same PVC update, so an equal
+// interval would just miss each Syncer write and wait a full extra cycle.
+// Declared as a var so it can be adjusted in tests.
+var modifyVolumePollInterval = 2 * time.Second
 
 // Contains list of clusterComputeResourceMoIds on which supervisor cluster is deployed.
 var clusterComputeResourceMoIds = make([]string, 0)
