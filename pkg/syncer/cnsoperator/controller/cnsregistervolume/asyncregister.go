@@ -314,8 +314,8 @@ func (r *ReconcileCnsRegisterVolume) resolveTaskDirectly(ctx context.Context,
 		// also protects deletion in the interval before a replacement task
 		// would otherwise be submitted.
 		filter := cnstypes.CnsQueryFilter{}
-		if instance.Spec.VolumeID != "" {
-			filter.VolumeIds = []cnstypes.CnsVolumeId{{Id: instance.Spec.VolumeID}}
+		if normalizedVolumeID(instance) != "" {
+			filter.VolumeIds = []cnstypes.CnsVolumeId{{Id: normalizedVolumeID(instance)}}
 		} else {
 			filter.Names = []string{createSpec.Name}
 		}
@@ -343,7 +343,7 @@ func (r *ReconcileCnsRegisterVolume) resolveTaskDirectly(ctx context.Context,
 		volumeID := ""
 		if len(result.Volumes) == 1 {
 			volumeID = result.Volumes[0].VolumeId.Id
-			if volumeID == "" || (instance.Spec.VolumeID != "" && instance.Spec.VolumeID != volumeID) {
+			if volumeID == "" || (normalizedVolumeID(instance) != "" && normalizedVolumeID(instance) != volumeID) {
 				return nil, &reconcile.Result{RequeueAfter: timeout}, nil
 			}
 		}
@@ -448,8 +448,8 @@ func (r *ReconcileCnsRegisterVolume) resolveInFlightTaskForDelete(ctx context.Co
 			}
 			// Monitoring/deletion must not depend on a StorageClass that may
 			// have disappeared since submission. Only the stable name is needed.
-			name := staticPvNamePrefix + instance.Spec.VolumeID
-			if instance.Spec.VolumeID == "" {
+			name := staticPvNamePrefix + normalizedVolumeID(instance)
+			if normalizedVolumeID(instance) == "" {
 				name = staticPvNamePrefix + string(instance.UID)
 			}
 			spec := &cnstypes.CnsVolumeCreateSpec{Name: name}

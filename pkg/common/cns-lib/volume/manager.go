@@ -667,7 +667,7 @@ func (m *defaultManager) createVolumeWithImprovedIdempotency(ctx context.Context
 				// refuse rather than guess, and leave the record untouched for a
 				// retry that reaches the recorded vCenter.
 				if recordedVC := volumeOperationDetails.OperationDetails.VCenterServer; recordedVC != "" &&
-					recordedVC != m.virtualCenter.Config.Host.String() {
+					!m.virtualCenter.Config.Host.Equal(recordedVC) {
 					// fmt.Errorf, not logger.LogNewErrorf: the latter flattens the
 					// error to a string, and callers match on ErrTaskMonitoring.
 					finalErr = fmt.Errorf("%w: CreateVolume task %s for volume %s is pending on vCenter %q, "+

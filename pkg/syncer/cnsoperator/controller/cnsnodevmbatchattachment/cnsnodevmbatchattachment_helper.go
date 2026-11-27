@@ -1220,7 +1220,8 @@ func isVmInSameNamespace(ctx context.Context, vmOperatorClient client.Client,
 		log.Errorf("failed to get VM CR %s in namespace %s: %+v", vmName, namespace, err)
 		return false, err
 	}
-	if vm.Status.InstanceUUID != instanceUUID {
+	// UUID text is case insensitive; isVmCrPresent compares it the same way.
+	if !strings.EqualFold(strings.TrimSpace(vm.Status.InstanceUUID), strings.TrimSpace(instanceUUID)) {
 		log.Infof("VM CR %s found in namespace %s but InstanceUUID %s does not match expected %s",
 			vmName, namespace, vm.Status.InstanceUUID, instanceUUID)
 		return false, nil

@@ -167,7 +167,6 @@ const (
 	VMExtensionServiceName               = "vmware-system-vmop-webhook-service"
 	VMSnapshotExtensionServiceName       = "snapshot-vmware-system-vmop-webhook-service"
 	PodVMQuotaExtensionServiceName       = "podvm.cns.vsphere.vmware.com"
-	scParamStoragePolicyID               = "storagePolicyID"
 	StorageQuotaPeriodicSyncInstanceName = "storage-quota-periodic-sync"
 	FileVolumePrefix                     = "file:"
 )
@@ -2165,7 +2164,7 @@ var fetchStorageClassToStoragePolicyMapping = func(ctx context.Context) (map[str
 	}
 	storageClassToStoragePolicy := make(map[string]string)
 	for _, sc := range storageClassList.Items {
-		storageClassToStoragePolicy[sc.Name] = sc.Parameters["storagePolicyID"]
+		storageClassToStoragePolicy[sc.Name] = common.GetStoragePolicyIDFromParams(sc.Parameters)
 	}
 	return storageClassToStoragePolicy, nil
 }
@@ -4769,7 +4768,7 @@ func getOrCreateStoragePolicyUsageCR(ctx context.Context, storagePolicyId string
 	// check if StoragePolicyUsage CR with resource type PVC or Snapshot exists.
 	// If not, create one with all parameters specified.
 	for _, sc := range storageClassList.Items {
-		if sc.Parameters[scParamStoragePolicyID] == storagePolicyId {
+		if common.GetStoragePolicyIDFromParams(sc.Parameters) == storagePolicyId {
 			policyUsageList := &storagepolicyv1alpha3.StoragePolicyUsageList{}
 			err := storageQuotaClient.List(ctx, policyUsageList, &client.ListOptions{
 				Namespace: namespace,
@@ -5126,7 +5125,7 @@ func createStoragePolicyUsageCRS(ctx context.Context, metadataSyncer *metadataSy
 	}
 	scPolicyIdToNameMap := make(map[string][]string)
 	for _, sc := range storageClassList.Items {
-		policyID := sc.Parameters[scParamStoragePolicyID]
+		policyID := common.GetStoragePolicyIDFromParams(sc.Parameters)
 		scPolicyIdToNameMap[policyID] = append(scPolicyIdToNameMap[policyID], sc.Name)
 	}
 

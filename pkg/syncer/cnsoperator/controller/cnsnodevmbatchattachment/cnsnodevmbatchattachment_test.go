@@ -2836,3 +2836,38 @@ func TestReconcileWithoutDeletionTimestampSkipsAttachAfterTransientDetachFailure
 	assert.False(t, volumes.IsTerminalError(err))
 	assert.Empty(t, volumesToAttach, "attach must be skipped for a PVC whose detach failed")
 }
+
+// UUID text is case insensitive: a VM CR holding an upper-case instance UUID
+// must match a lower-case (or padded) expected value, as isVmCrPresent does.
+func TestIsVmInSameNamespaceIgnoresInstanceUUIDCase(t *testing.T) {
+	ctx := context.Background()
+	namespace := "test-ns"
+
+	vm := &vmoperatortypes.VirtualMachine{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-vm", Namespace: namespace},
+		Status: vmoperatortypes.VirtualMachineStatus{
+			InstanceUUID: "50123ABC-1111-2222-3333-444455556666",
+		},
+	}
+	scheme := runtime.NewScheme()
+	if err := vmoperatortypes.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add scheme: %v", err)
+	}
+	vmClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(vm).Build()
+
+	found, err := isVmInSameNamespace(ctx, vmClient, "test-vm", " 50123abc-1111-2222-3333-444455556666 ", namespace)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !found {
+		t.Errorf("expected the VM to be found regardless of instance UUID case")
+	}
+
+	found, err = isVmInSameNamespace(ctx, vmClient, "test-vm", "50123abc-1111-2222-3333-444455556667", namespace)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if found {
+		t.Errorf("a different instance UUID must still not match")
+	}
+}

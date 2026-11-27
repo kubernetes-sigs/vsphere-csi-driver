@@ -52,7 +52,7 @@ func (r *ReconcileCnsRegisterVolume) restoreReservationOwner(ctx context.Context
 	instance *api.CnsRegisterVolume) (string, error) {
 	list := &api.CnsRegisterVolumeList{}
 	if err := r.executionReader().List(ctx, list,
-		client.MatchingLabels{labelRestoreVolumeID: instance.Spec.VolumeID}); err != nil {
+		client.MatchingLabels{labelRestoreVolumeID: normalizedVolumeID(instance)}); err != nil {
 		return "", fmt.Errorf("failed to read restore reservations: %w", err)
 	}
 	for _, other := range list.Items {
@@ -69,14 +69,14 @@ func (r *ReconcileCnsRegisterVolume) restoreReservationOwner(ctx context.Context
 
 func (r *ReconcileCnsRegisterVolume) reserveRestore(ctx context.Context,
 	instance *api.CnsRegisterVolume) error {
-	if instance.Labels[labelRestoreVolumeID] == instance.Spec.VolumeID {
+	if instance.Labels[labelRestoreVolumeID] == normalizedVolumeID(instance) {
 		return nil
 	}
 	original := instance.DeepCopy()
 	if instance.Labels == nil {
 		instance.Labels = map[string]string{}
 	}
-	instance.Labels[labelRestoreVolumeID] = instance.Spec.VolumeID
+	instance.Labels[labelRestoreVolumeID] = normalizedVolumeID(instance)
 	if err := r.client.Patch(ctx, instance,
 		client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
 		instance.Labels = original.Labels

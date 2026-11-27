@@ -447,6 +447,14 @@ func clearKeepAfterDeleteVmIfNonRemovable(ctx context.Context, c ctrlruntimeclie
 	return pvcCopy, nil
 }
 
+// normalizedVolumeID returns CnsRegisterVolume.Spec.VolumeID in the canonical
+// form CNS uses: a lowercase, trimmed UUID. The CRD accepts upper-case hex, but
+// CNS returns lowercase IDs and the PV name derived from the ID must be a valid
+// lowercase Kubernetes name, so every use of the typed ID goes through here.
+func normalizedVolumeID(instance *cnsregistervolumev1alpha1.CnsRegisterVolume) string {
+	return strings.ToLower(strings.TrimSpace(instance.Spec.VolumeID))
+}
+
 // scParamStoragePolicyID is the StorageClass parameter key under which Supervisor
 // storage classes carry the vSphere storage policy ID directly (as opposed to a
 // policy name requiring PBM resolution, which is the vanilla/guest-cluster convention).
@@ -474,7 +482,7 @@ func getStoragePolicyIDForStorageClass(ctx context.Context, k8sClient clientset.
 		return "", fmt.Errorf("StorageClass %q uses WaitForFirstConsumer binding, which is not valid "+
 			"for CnsRegisterVolume; use the corresponding Immediate-binding StorageClass instead", scName)
 	}
-	policyID := sc.Parameters[scParamStoragePolicyID]
+	policyID := common.GetStoragePolicyIDFromParams(sc.Parameters)
 	if policyID == "" {
 		return "", fmt.Errorf("StorageClass %q has no %s parameter", scName, scParamStoragePolicyID)
 	}
@@ -486,8 +494,8 @@ func constructCreateSpecForInstance(ctx context.Context, r *ReconcileCnsRegister
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
 	host commontypes.FQDN, useSupervisorId bool) (*cnstypes.CnsVolumeCreateSpec, error) {
 	var volumeName string
-	if instance.Spec.VolumeID != "" {
-		volumeName = staticPvNamePrefix + instance.Spec.VolumeID
+	if normalizedVolumeID(instance) != "" {
+		volumeName = staticPvNamePrefix + normalizedVolumeID(instance)
 	} else {
 		// Derive the name from the CR UID rather than a fresh random one.
 		//
@@ -526,20 +534,20 @@ func constructCreateSpecForInstance(ctx context.Context, r *ReconcileCnsRegister
 			ContainerCluster: containerCluster,
 		},
 	}
-	if instance.Spec.VolumeID != "" && instance.Spec.DiskURLPath != "" &&
+	if normalizedVolumeID(instance) != "" && instance.Spec.DiskURLPath != "" &&
 		isVSphereDPLPModernAppEnabled {
 		// Both fields supplied and VSphereDPLPModernApp WCP capability is active:
 		// CNS locates the VMDK by URL and stamps the provided UUID onto it
 		// (VKSRegisterVolume restore path — ss-metadata-manager supplies both fields).
 		// Guard is required: older vCenters do not support this combination and would
 		// return an error.
-		createSpec.VolumeId = &cnstypes.CnsVolumeId{Id: instance.Spec.VolumeID}
+		createSpec.VolumeId = &cnstypes.CnsVolumeId{Id: normalizedVolumeID(instance)}
 		createSpec.BackingObjectDetails = &cnstypes.CnsBlockBackingDetails{
 			BackingDiskUrlPath: instance.Spec.DiskURLPath,
 		}
-	} else if instance.Spec.VolumeID != "" {
+	} else if normalizedVolumeID(instance) != "" {
 		createSpec.BackingObjectDetails = &cnstypes.CnsBlockBackingDetails{
-			BackingDiskId: instance.Spec.VolumeID,
+			BackingDiskId: normalizedVolumeID(instance),
 		}
 	} else if instance.Spec.DiskURLPath != "" {
 		createSpec.BackingObjectDetails = &cnstypes.CnsBlockBackingDetails{

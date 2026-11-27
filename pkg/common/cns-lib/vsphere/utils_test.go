@@ -271,3 +271,28 @@ func TestGetVirtualCenterConfigsNormalizesDatacenterEntries(t *testing.T) {
 		})
 	}
 }
+
+// The single-vCenter path must normalize the thumbprint exactly like
+// GetVirtualCenterConfigs: govmomi compares it against uppercase SHA1/SHA256 text.
+func TestGetVirtualCenterConfigNormalizesThumbprint(t *testing.T) {
+	ctx := context.Background()
+
+	cfg := &config.Config{}
+	cfg.Global.QueryLimit = 100
+	cfg.Global.ListVolumeThreshold = 100
+	cfg.Global.Thumbprint = "aa:bb:cc:dd:11:22:33:44:55:66:77:88:99:00:aa:bb:cc:dd:ee:ff"
+	cfg.VirtualCenter = map[commontypes.FQDN]*config.VirtualCenterConfig{
+		commontypes.NewFQDN("vc.example.com"): {
+			User:         "administrator@vsphere.local",
+			Password:     "password",
+			VCenterPort:  "443",
+			InsecureFlag: true,
+		},
+	}
+
+	vcConfig, err := GetVirtualCenterConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assert.Equal(t, "AA:BB:CC:DD:11:22:33:44:55:66:77:88:99:00:AA:BB:CC:DD:EE:FF", vcConfig.Thumbprint)
+}

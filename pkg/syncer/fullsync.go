@@ -964,9 +964,9 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 		}
 		// Create scNameToPolicyIdMap map for easy lookup of PolicyIds for a given storageclass name
 		for _, sc := range storageClassList.Items {
-			if _, ok := scNameToPolicyIdMap[sc.Parameters[scParamStoragePolicyID]]; !ok {
+			if _, ok := scNameToPolicyIdMap[common.GetStoragePolicyIDFromParams(sc.Parameters)]; !ok {
 				scNameToPolicyIdMap[sc.Name] =
-					sc.Parameters[scParamStoragePolicyID]
+					common.GetStoragePolicyIDFromParams(sc.Parameters)
 			}
 		}
 	}
