@@ -554,6 +554,7 @@ func ReadConfig(ctx context.Context, config io.Reader) (*Config, error) {
 	}
 	cfg := &Config{}
 	if err := gcfg.FatalOnly(gcfg.ReadInto(cfg, config)); err != nil {
+		err = redactConfigParseError(err)
 		log.Errorf("error while reading config file: %+v", err)
 		return nil, err
 	}
@@ -662,7 +663,7 @@ func ReadGCConfig(ctx context.Context, config io.Reader) (*Config, error) {
 	}
 	cfg := &Config{}
 	if err := gcfg.FatalOnly(gcfg.ReadInto(cfg, config)); err != nil {
-		return nil, err
+		return nil, redactConfigParseError(err)
 	}
 	if err := buildVirtualCenterMap(ctx, cfg); err != nil {
 		return nil, err
@@ -923,6 +924,44 @@ func (c Config) String() string {
 		c.Global.Password = redactedValue
 	}
 	return fmt.Sprintf("%+v", plain(c))
+}
+
+// redactConfigParseError returns err with any configuration value removed from its message.
+//
+// gcfg reports a value that does not fit its field's type (a bool, an int, a duration, ...) by
+// quoting the value, for example: failed to parse bool `abc` at section "Global", variable
+// "insecure-flag". The config file also holds the vCenter password, so a value misplaced into a
+// typed field would be written to the log in clear text. Syntax errors carry only a "line:column:"
+// position and fixed text, so those are returned unchanged.
+func redactConfigParseError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	if isPositionedSyntaxError(msg) {
+		return err
+	}
+	// The location gcfg appends after the value names only the section, subsection and variable.
+	if i := strings.LastIndex(msg, " at section "); i >= 0 {
+		return fmt.Errorf("invalid value in config file%s", msg[i:])
+	}
+	return fmt.Errorf("failed to parse config file")
+}
+
+// isPositionedSyntaxError reports whether msg starts with a "line:column: " prefix.
+func isPositionedSyntaxError(msg string) bool {
+	i := 0
+	for part := 0; part < 2; part++ {
+		start := i
+		for i < len(msg) && msg[i] >= '0' && msg[i] <= '9' {
+			i++
+		}
+		if i == start || i >= len(msg) || msg[i] != ':' {
+			return false
+		}
+		i++
+	}
+	return i < len(msg) && msg[i] == ' '
 }
 
 // GetCSINamespace returns the namespace in which CSI driver is installed
