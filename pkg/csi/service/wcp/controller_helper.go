@@ -130,18 +130,21 @@ func validateWCPControllerUnpublishVolumeRequest(ctx context.Context, req *csi.C
 }
 
 // validateWCPControllerExpandVolumeRequest is the helper function to validate
-// ExpandVolumeRequest for WCP CSI driver. Function returns error if validation
-// fails otherwise returns nil.
+// ExpandVolumeRequest for WCP CSI driver. cnsVolumeType is the volume type resolved from the
+// volume id and isLegacyFileExpansionEnabled is the state of the LegacyVsanFileShareExpansion
+// FSS. Function returns error if validation fails otherwise returns nil.
 func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.ControllerExpandVolumeRequest,
-	manager *common.Manager, isOnlineExpansionEnabled bool) error {
+	manager *common.Manager, cnsVolumeType string, isOnlineExpansionEnabled bool,
+	isLegacyFileExpansionEnabled bool) error {
 	log := logger.GetLogger(ctx)
-	if err := validateControllerExpandVolumeRequestInWcp(ctx, req); err != nil {
+	if err := validateControllerExpandVolumeRequestInWcp(ctx, req, cnsVolumeType,
+		isLegacyFileExpansionEnabled); err != nil {
 		return err
 	}
 
 	// Legacy vSAN file service volumes are NFS shares, not disks attached to VMs,
 	// so the offline-expansion attach check below does not apply to them.
-	if common.GetCnsVolumeType(ctx, req.GetVolumeId()) == common.FileVolumeType {
+	if cnsVolumeType == common.FileVolumeType {
 		return nil
 	}
 
@@ -927,8 +930,11 @@ func validateCreateVolumeRequestInWcp(ctx context.Context, req *csi.CreateVolume
 
 // validateControllerExpandVolumeRequestInWcp is the helper function to validate
 // ControllerExpandVolumeRequest for block and legacy vSAN file service volumes.
+// cnsVolumeType is the volume type resolved from the volume id and
+// isLegacyFileExpansionEnabled is the state of the LegacyVsanFileShareExpansion FSS.
 // Function returns error if validation fails otherwise returns nil.
-func validateControllerExpandVolumeRequestInWcp(ctx context.Context, req *csi.ControllerExpandVolumeRequest) error {
+func validateControllerExpandVolumeRequestInWcp(ctx context.Context, req *csi.ControllerExpandVolumeRequest,
+	cnsVolumeType string, isLegacyFileExpansionEnabled bool) error {
 	log := logger.GetLogger(ctx)
 	// Check for required parameters.
 	if len(req.GetVolumeId()) == 0 {
@@ -944,12 +950,22 @@ func validateControllerExpandVolumeRequestInWcp(ctx context.Context, req *csi.Co
 		return logger.LogNewErrorCode(log, codes.InvalidArgument, "volume capabilities is a required parameter")
 	}
 
-	// A file volume capability on a block volume id is not a legacy vSAN file
-	// service volume; keep rejecting it as before.
-	if isFileVolumeRequestInWcp(ctx, []*csi.VolumeCapability{volCaps}) &&
-		common.GetCnsVolumeType(ctx, req.GetVolumeId()) != common.FileVolumeType {
-		return logger.LogNewErrorCode(log, codes.Unimplemented,
-			"volume expansion is only supported for block and file volume types")
+	if cnsVolumeType == common.FileVolumeType {
+		// GetCnsVolumeType also reports FVS ("fv:") ids as file volumes. Only legacy vSAN file
+		// service volumes ("file:<uuid>") may be expanded here, and only when the
+		// LegacyVsanFileShareExpansion FSS is enabled. FVS volumes are expanded through the
+		// FileVolume CR before this validation, so an FVS id that reaches it is not a legacy volume.
+		if common.IsFVSVolumeHandle(req.GetVolumeId()) || !isLegacyFileExpansionEnabled {
+			return logger.LogNewErrorCode(log, codes.Unimplemented,
+				"volume expansion is only supported for block volume type")
+		}
+		return nil
+	}
+	// A file volume capability on a block volume id is not a legacy vSAN file service volume.
+	if isFileVolumeRequestInWcp(ctx, []*csi.VolumeCapability{volCaps}) {
+		return logger.LogNewErrorCodef(log, codes.Unimplemented,
+			"volume expansion is not supported for a file volume capability on block volume %q",
+			req.GetVolumeId())
 	}
 
 	return nil

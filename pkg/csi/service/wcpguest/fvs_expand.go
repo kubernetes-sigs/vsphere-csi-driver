@@ -78,8 +78,9 @@ func controllerExpandForFileVolume(ctx context.Context,
 
 	switch gcPvcRequestSize.Cmp(svPvcRequestSize) {
 	case 1:
-		// Requested size is larger than the current supervisor PVC spec: patch it
-		// so the FVS expansion reconciler on the supervisor can act on it.
+		// Requested size is larger than the current supervisor PVC spec: patch it so the
+		// supervisor can act on it: the FVS expansion reconciler for FVS volumes, or the
+		// supervisor CSI ControllerExpandVolume for legacy file volumes.
 		original := svPVC.DeepCopy()
 		clone := svPVC.DeepCopy()
 		clone.Spec.Resources.Requests[corev1.ResourceStorage] = *gcPvcRequestSize
@@ -106,7 +107,8 @@ func controllerExpandForFileVolume(ctx context.Context,
 			}
 			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 		}
-		// Wait for the FVS controller to reflect the new size in status.capacity.
+		// Wait for the supervisor to reflect the new size in status.capacity (the FVS controller
+		// for FVS volumes, the supervisor CSI ControllerExpandVolume for legacy file volumes).
 		if waitErr := checkForSupervisorPVCCapacityReached(ctx, c.supervisorClient, clone,
 			gcPvcRequestSize, timeout); waitErr != nil {
 			msg := fmt.Sprintf("failed to expand file volume %s: %+v", volumeID, waitErr)
@@ -156,9 +158,10 @@ func controllerExpandForFileVolume(ctx context.Context,
 // nil when status.capacity.storage reaches reqSize, or an error if timeout
 // elapses first. Unlike checkForSupervisorPVCCondition (which waits for the
 // FileSystemResizePending condition used by block volumes), this helper is used
-// for FVS file volumes whose NFS share grows on the server side; the supervisor
-// FVS controller signals completion by updating status.capacity rather than
-// setting a filesystem-resize condition.
+// for RWX file volumes, FVS-backed or legacy, whose NFS share grows on the server
+// side; the supervisor signals completion by updating status.capacity rather than
+// setting a filesystem-resize condition. For FVS volumes the supervisor FVS
+// controller does this, for legacy volumes the supervisor CSI ControllerExpandVolume.
 func checkForSupervisorPVCCapacityReached(ctx context.Context, svClient clientset.Interface,
 	claim *corev1.PersistentVolumeClaim, reqSize *resource.Quantity, timeout time.Duration) error {
 

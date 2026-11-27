@@ -17,6 +17,8 @@ limitations under the License.
 package cnsvolumeoperationrequest
 
 import (
+	"strings"
+
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -39,7 +41,21 @@ const (
 	// This status appears when CSI Transaction Support is enabled and the task was never seen to
 	// completion or error, and a retry was initiated.
 	TaskInvocationStatusTrackingAborted = "TrackingAborted"
+	// fileVolumeIDPrefix is the prefix of a legacy vSAN file service volume ID ("file:<uuid>").
+	fileVolumeIDPrefix = "file:"
 )
+
+// ObjectNameForVolumeID returns the volume ID in a form that can be used in a Kubernetes object
+// name, which allows only alphanumeric characters and "-". A legacy vSAN file service volume ID
+// ("file:<uuid>") contains a ":" after the prefix, which is replaced with "-". Any other volume ID
+// is returned unchanged. It is the single place for this rule, so the names of the
+// CnsVolumeOperationRequest and CNSVolumeInfo objects of a volume cannot drift apart.
+func ObjectNameForVolumeID(volumeID string) string {
+	if strings.HasPrefix(volumeID, fileVolumeIDPrefix) {
+		return strings.Replace(volumeID, ":", "-", 1)
+	}
+	return volumeID
+}
 
 // VolumeOperationRequestDetails stores details about a single operation
 // on the given volume. These details are persisted by

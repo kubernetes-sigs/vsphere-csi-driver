@@ -1694,7 +1694,8 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 		// Reference to the DeleteVolume task on CNS.
 		task *object.Task
 		// Name of the CnsVolumeOperationRequest instance.
-		instanceName = "delete-" + volumeID
+		// File volume IDs contain a ":" which is invalid in a Kubernetes object name.
+		instanceName = "delete-" + cnsvolumeoperationrequest.ObjectNameForVolumeID(volumeID)
 		// Local instance of DeleteVolume details that needs to
 		// be persisted.
 		volumeOperationDetails *cnsvolumeoperationrequest.VolumeOperationRequestDetails
@@ -1702,10 +1703,6 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 	var faultType string
 	if m.operationStore == nil {
 		return csifault.CSIInternalFault, logger.LogNewError(log, "operation store cannot be nil")
-	}
-
-	if strings.Contains(instanceName, "file") {
-		instanceName = strings.ReplaceAll(instanceName, ":", "-")
 	}
 
 	// Determine if CNS needs to be invoked.
@@ -2211,7 +2208,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 		volumeOperationDetails *cnsvolumeoperationrequest.VolumeOperationRequestDetails
 		// CnsVolumeOperationRequest instance name.
 		// File volume IDs contain a ":" which is invalid in a Kubernetes object name.
-		instanceName = "expand-" + strings.ReplaceAll(volumeID, ":", "-")
+		instanceName = "expand-" + cnsvolumeoperationrequest.ObjectNameForVolumeID(volumeID)
 		// quotaInfo consists of values required to populate QuotaDetails in CnsVolumeOperationRequest CR.
 		quotaInfo                            *cnsvolumeoperationrequest.QuotaDetails
 		isPodVMOnStretchSupervisorFSSEnabled bool

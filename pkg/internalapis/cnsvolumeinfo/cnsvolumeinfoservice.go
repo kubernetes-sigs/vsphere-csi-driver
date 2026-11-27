@@ -22,6 +22,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	cnsvolumeinfoconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/config"
 	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
@@ -524,10 +525,7 @@ func snapshotDetailsPatch(ctx context.Context, volumeID, resourceVersion string,
 // It replaces the "file:" prefix with "file-" because Kubernetes object names
 // only allow alphanumeric characters and "-".
 func GetCnsVolumeInfoCrName(volumeID string) string {
-	if strings.HasPrefix(volumeID, FileVolumePrefix) {
-		return strings.Replace(volumeID, ":", "-", 1)
-	}
-	return volumeID
+	return cnsvolumeoperationrequest.ObjectNameForVolumeID(volumeID)
 }
 
 // getCnsVolumeInfoCrName replaces "file:" with "file-" as K8s only allows alphanumeric and "-" in object name."

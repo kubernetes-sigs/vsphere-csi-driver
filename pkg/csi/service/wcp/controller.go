@@ -3403,17 +3403,11 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		if shouldExpandFileVolumeViaFVS(req.VolumeId) {
 			return c.expandFileVolumeViaFVS(ctx, req)
 		}
-		// Past this point only legacy vSAN file service volumes ("file:<uuid>") may be expanded
-		// as file volumes, and only when the LegacyVsanFileShareExpansion FSS is enabled. FVS
-		// volume ids that were not handled above (FVS disabled) are not legacy volumes.
-		if cnsVolumeType == common.FileVolumeType &&
-			(common.IsFVSVolumeHandle(req.VolumeId) ||
-				!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LegacyVsanFileShareExpansion)) {
-			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.Unimplemented,
-				"volume expansion is only supported for block volume type")
-		}
 		isOnlineExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
-		err = validateWCPControllerExpandVolumeRequest(ctx, req, c.manager, isOnlineExpansionEnabled)
+		isLegacyFileExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.LegacyVsanFileShareExpansion)
+		err = validateWCPControllerExpandVolumeRequest(ctx, req, c.manager, cnsVolumeType,
+			isOnlineExpansionEnabled, isLegacyFileExpansionEnabled)
 		if err != nil {
 			log.Errorf("validation for ExpandVolume Request: %+v has failed. Error: %v",
 				logger.RedactCSIRequest(req), err)

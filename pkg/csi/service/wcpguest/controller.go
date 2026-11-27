@@ -1962,7 +1962,10 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		// FVS-backed file volumes are expanded by patching the supervisor PVC and
 		// waiting for status.capacity to converge; the FVS controller drives the
 		// underlying NFS share resize. NodeExpansionRequired is false for NFS.
-		// unlike wcp, here we are checking if the volume is FVS-backed by checking the storage class name
+		// unlike wcp, here we are checking if the volume is FVS-backed by checking the storage class name.
+		// This is safe because the reserved vsan-file-service-policy* storage classes can only back FVS
+		// volumes: the Supervisor rejects them in CreateVolume unless it provisions through FVS, so a
+		// legacy "file:<uuid>" volume never has a supervisor PVC with one of these classes.
 		if IsVsanFileVolumeServiceEnabled && common.IsFVSPersistentVolumeClaim(svPVC) {
 			volumeType = prometheus.PrometheusFileVolumeType
 			return controllerExpandForFileVolume(ctx, req, svPVC, c)
