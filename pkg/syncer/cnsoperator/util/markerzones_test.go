@@ -19,6 +19,7 @@ package util
 import (
 	"context"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynfake "k8s.io/client-go/dynamic/fake"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 )
@@ -40,7 +42,25 @@ type vpcCRPair struct {
 // newFakeDynClientWithVPCCRs builds a fake dynamic client pre-populated with one
 // VPCNetworkConfiguration object per pair, each carrying status.vpcs[0].vpcPath.
 func newFakeDynClientWithVPCCRs(pairs ...vpcCRPair) *dynfake.FakeDynamicClient {
+	return newFakeDynClient(pairs)
+}
+
+// newFakeDynClient builds a fake dynamic client that serves VPCNetworkConfiguration CRs (one per
+// pair) plus any extra objects (net-operator Network / VSphereDistributedNetwork CRs).
+func newFakeDynClient(pairs []vpcCRPair, extra ...runtime.Object) *dynfake.FakeDynamicClient {
 	dynScheme := runtime.NewScheme()
+	for _, gvk := range []schema.GroupVersionKind{
+		NetworkGVR.GroupVersion().WithKind("Network"),
+		NetworkGVR.GroupVersion().WithKind("NetworkList"),
+		VSphereDistributedNetworkGVR.GroupVersion().WithKind("VSphereDistributedNetwork"),
+		VSphereDistributedNetworkGVR.GroupVersion().WithKind("VSphereDistributedNetworkList"),
+	} {
+		if strings.HasSuffix(gvk.Kind, "List") {
+			dynScheme.AddKnownTypeWithName(gvk, &unstructured.UnstructuredList{})
+		} else {
+			dynScheme.AddKnownTypeWithName(gvk, &unstructured.Unstructured{})
+		}
+	}
 	dynScheme.AddKnownTypeWithName(
 		vpcNetworkConfigurationGVR.GroupVersion().WithKind("VPCNetworkConfiguration"),
 		&unstructured.Unstructured{},
@@ -60,6 +80,7 @@ func newFakeDynClientWithVPCCRs(pairs ...vpcCRPair) *dynfake.FakeDynamicClient {
 		}, "status", "vpcs")
 		objs = append(objs, cr)
 	}
+	objs = append(objs, extra...)
 
 	return dynfake.NewSimpleDynamicClient(dynScheme, objs...)
 }
@@ -268,6 +289,20 @@ func TestGetZonesForvSANFileServiceMarkerPolicy(t *testing.T) {
 			name:          "no FVS namespaces returns empty zones",
 			expectedZones: []string{},
 		},
+		{
+			name: "includes VDS FVS namespaces that carry no VPC annotation",
+			namespaces: []*v1.Namespace{
+				fvsNamespace("ns-vpc", "vpc-cfg-a"),
+				fvsNamespace("ns-vds", ""),
+				{ObjectMeta: metav1.ObjectMeta{Name: "regular-ns"}},
+			},
+			zonesByNS: map[string][]string{
+				"ns-vpc":     {"zone-1"},
+				"ns-vds":     {"zone-2"},
+				"regular-ns": {"zone-3"},
+			},
+			expectedZones: []string{"zone-1", "zone-2"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -303,10 +338,52 @@ func TestGetZonesForvSANFileServiceMarkerPolicyByNamespace(t *testing.T) {
 		namespaces    []*v1.Namespace
 		vpcCRs        []vpcCRPair
 		lookupNS      string
+		netObjs       []runtime.Object
 		zonesByNS     map[string][]string
 		expectedZones []string
 		expectError   bool
 	}{
+		{
+			name: "VDS: zones from Tier 1 (same portgroup) and Tier 2 (same VDS) instances only",
+			namespaces: []*v1.Namespace{
+				consumerNSNoVPC,
+				fvsNamespace("fvs-same-pg", ""),
+				fvsNamespace("fvs-same-vds", ""),
+				fvsNamespace("fvs-other-vds", ""),
+			},
+			netObjs: []runtime.Object{
+				testVDNObj("vdn-1", "dvportgroup-1", "dvs-a"),
+				testVDNObj("vdn-2", "dvportgroup-2", "DVS-A"),
+				testVDNObj("vdn-3", "dvportgroup-3", "dvs-c"),
+				testNetworkObj("consumer-ns", "net", NetworkTypeVSphereDistributed, "vdn-1", true),
+				testNetworkObj("fvs-same-pg", "net", NetworkTypeVSphereDistributed, "vdn-1", true),
+				testNetworkObj("fvs-same-vds", "net", NetworkTypeVSphereDistributed, "vdn-2", true),
+				testNetworkObj("fvs-other-vds", "net", NetworkTypeVSphereDistributed, "vdn-3", true),
+			},
+			lookupNS: "consumer-ns",
+			zonesByNS: map[string][]string{
+				"fvs-same-pg":   {"zone-1"},
+				"fvs-same-vds":  {"zone-2"},
+				"fvs-other-vds": {"zone-3"},
+			},
+			expectedZones: []string{"zone-1", "zone-2"},
+		},
+		{
+			name: "VDS: no reachable instance returns empty zones",
+			namespaces: []*v1.Namespace{
+				consumerNSNoVPC,
+				fvsNamespace("fvs-other-vds", ""),
+			},
+			netObjs: []runtime.Object{
+				testVDNObj("vdn-1", "dvportgroup-1", "dvs-a"),
+				testVDNObj("vdn-3", "dvportgroup-3", "dvs-c"),
+				testNetworkObj("consumer-ns", "net", NetworkTypeVSphereDistributed, "vdn-1", true),
+				testNetworkObj("fvs-other-vds", "net", NetworkTypeVSphereDistributed, "vdn-3", true),
+			},
+			lookupNS:      "consumer-ns",
+			zonesByNS:     map[string][]string{"fvs-other-vds": {"zone-3"}},
+			expectedZones: []string{},
+		},
 		{
 			name: "only zones from FVS namespaces sharing the consumer's VPC path",
 			namespaces: []*v1.Namespace{
@@ -326,7 +403,7 @@ func TestGetZonesForvSANFileServiceMarkerPolicyByNamespace(t *testing.T) {
 			expectedZones: []string{"zone-1"},
 		},
 		{
-			name:        "consumer namespace missing VPC annotation returns error",
+			name:        "consumer namespace with neither VPC annotation nor VDS Network returns error",
 			namespaces:  []*v1.Namespace{consumerNSNoVPC},
 			lookupNS:    "consumer-ns",
 			expectError: true,
@@ -345,7 +422,7 @@ func TestGetZonesForvSANFileServiceMarkerPolicyByNamespace(t *testing.T) {
 				k8sObjs[i] = ns
 			}
 			k8sClient := k8sfake.NewClientset(k8sObjs...)
-			dc := newFakeDynClientWithVPCCRs(tt.vpcCRs...)
+			dc := newFakeDynClient(tt.vpcCRs, tt.netObjs...)
 
 			zones, err := GetZonesForvSANFileServiceMarkerPolicyByNamespace(
 				ctx, dc, k8sClient, tt.lookupNS, zonesFnFromMap(tt.zonesByNS))

@@ -2263,12 +2263,13 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			}
 			scName := req.Parameters[common.AttributeStorageClassName]
 			pvcNamespace := req.Parameters[common.AttributePvcNamespace]
-			useFVS, err := shouldProvisionVsanFileVolumeViaFVS(ctx, c.dynamicClient, pvcNamespace, scName)
+			useFVS, networkProvider, err := shouldProvisionVsanFileVolumeViaFVS(ctx, c.dynamicClient,
+				pvcNamespace, scName)
 			if err != nil {
 				return nil, csifault.CSIInvalidArgumentFault, err
 			}
 			if useFVS {
-				return c.createFileVolumeViaFVS(ctx, req)
+				return c.createFileVolumeViaFVS(ctx, req, networkProvider)
 			}
 			if isVsanFileServicePolicyStorageClass(scName) {
 				return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
