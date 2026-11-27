@@ -151,6 +151,7 @@ data:
   "trigger-csi-fullsync": "false"
   "pv-to-backingdiskobjectid-mapping": "false"
   "high-pv-node-density": "false" # When enabled, increases the MAX_VOLUMES_PER_NODE from 59 to 255 for guest cluster nodes
+  "improved-volume-visibility": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
