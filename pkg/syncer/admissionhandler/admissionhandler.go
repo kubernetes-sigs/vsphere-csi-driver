@@ -66,6 +66,7 @@ var (
 	featureIsLinkedCloneSupportEnabled     bool
 	featureIsVACPolicyMutabilityEnabled    bool
 	featureIsVsanFileVolumeServiceEnabled  bool
+	featureIsGuestNFSVolumeEnabled         bool
 )
 
 // initWorkloadFSSFlag sets the given flag from the current state of the given Workload (Supervisor)
@@ -185,6 +186,7 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 		}
 		featureIsLinkedCloneSupportEnabled = linkedClonePVCSIFSS && linkedCloneCapability
 		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
+		featureIsGuestNFSVolumeEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.GuestNFSVolume)
 		vacPolicyMutabilityCapability := false
 		vacPolicyMutabilityPVCSIFSS := containerOrchestratorUtility.IsPVCSIFSSEnabled(ctx,
 			common.VMPVCStoragePolicyMutabilityFSS)

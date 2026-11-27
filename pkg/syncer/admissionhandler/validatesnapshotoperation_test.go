@@ -18,6 +18,7 @@ package admissionhandler
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -29,7 +30,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/utils/ptr"
+
 	snapshotclientfake "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fakesnapshot"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 )
 
 var admissionReview_snapshotclass = v1.AdmissionReview{
@@ -115,6 +119,12 @@ func TestValidateVolumeSnapshotInGuestWithFSSDisabled(t *testing.T) {
 	defer func() { newSnapshotterClient = origSnapshotterClient }()
 	newSnapshotterClient = func(ctx context.Context) (snapshotterClientSet.Interface, error) {
 		return snapshotClient, nil
+	}
+	// The source PVC is looked up to tell a guest NFS snapshot apart; it does not exist here.
+	origK8sClient := newK8sClient
+	defer func() { newK8sClient = origK8sClient }()
+	newK8sClient = func(ctx context.Context) (kubernetes.Interface, error) {
+		return fake.NewClientset(), nil
 	}
 
 	// Validate vSphere VolumeSnapshot creation with CSI snapshot FSS disabled
@@ -580,5 +590,160 @@ func TestValidateSnapshotOperationGuestRequestWithLinkedCloneFeatureDisabled(t *
 	// Should be allowed when feature is disabled
 	if !response.Allowed {
 		t.Errorf("Expected request to be allowed when linked clone feature is disabled, got: %v", response)
+	}
+}
+
+// withSnapshotFeatureStates sets the block-volume-snapshot and guest-nfs-volume feature states the
+// snapshot webhook was started with, for the duration of the test.
+func withSnapshotFeatureStates(t *testing.T, blockVolumeSnapshot, guestNFS bool) {
+	t.Helper()
+	origBlock, origNFS := featureGateBlockVolumeSnapshotEnabled, featureIsGuestNFSVolumeEnabled
+	featureGateBlockVolumeSnapshotEnabled, featureIsGuestNFSVolumeEnabled = blockVolumeSnapshot, guestNFS
+	t.Cleanup(func() {
+		featureGateBlockVolumeSnapshotEnabled, featureIsGuestNFSVolumeEnabled = origBlock, origNFS
+	})
+}
+
+func snapshotAdmissionRequest(t *testing.T, kind string, obj interface{}) *v1.AdmissionRequest {
+	t.Helper()
+	raw, err := json.Marshal(obj)
+	if err != nil {
+		t.Fatalf("marshal %s: %v", kind, err)
+	}
+	return &v1.AdmissionRequest{
+		Kind:      metav1.GroupVersionKind{Kind: kind},
+		Namespace: "ns",
+		Operation: v1.Create,
+		Object:    runtime.RawExtension{Raw: raw},
+	}
+}
+
+const (
+	testGuestNFSVolumeHandle   = common.GuestNFSVolumeIDPrefix + "10.0.0.1#export#pvc-nfs##"
+	testGuestNFSSnapshotHandle = common.GuestNFSVolumeIDPrefix + "10.0.0.1#export#snap-1#snap-1#pvc-nfs"
+)
+
+// A VolumeSnapshotClass names no volume, so with block volume snapshots off it is allowed exactly
+// when guest NFS volumes, whose snapshots do not need the Supervisor, are enabled.
+func TestValidateVolumeSnapshotClassInGuestWithGuestNFS(t *testing.T) {
+	class := &snap.VolumeSnapshotClass{ObjectMeta: metav1.ObjectMeta{Name: "nfs-snapshot-class"},
+		Driver: common.VSphereCSIDriverName, DeletionPolicy: snap.VolumeSnapshotContentDelete}
+	for _, guestNFS := range []bool{true, false} {
+		withSnapshotFeatureStates(t, false, guestNFS)
+		resp := validateSnapshotOperationGuestRequest(context.Background(),
+			snapshotAdmissionRequest(t, "VolumeSnapshotClass", class))
+		if resp.Allowed != guestNFS {
+			t.Errorf("guest-nfs-volume=%t: Allowed=%t, want %t (%v)", guestNFS, resp.Allowed, guestNFS, resp.Result)
+		}
+	}
+}
+
+// With block volume snapshots off, a VolumeSnapshotContent of a guest NFS volume or snapshot is
+// allowed, whatever the guest-nfs-volume feature state: refusing updates to an existing one would
+// keep the snapshot controllers from ever removing its finalizers.
+func TestValidateVolumeSnapshotContentInGuestAllowsGuestNFS(t *testing.T) {
+	withSnapshotFeatureStates(t, false, false)
+	contents := map[string]snap.VolumeSnapshotContentSource{
+		"dynamic":         {VolumeHandle: ptr.To(testGuestNFSVolumeHandle)},
+		"pre-provisioned": {SnapshotHandle: ptr.To(testGuestNFSSnapshotHandle)},
+	}
+	for name, src := range contents {
+		vsc := &snap.VolumeSnapshotContent{ObjectMeta: metav1.ObjectMeta{Name: "snapcontent-" + name},
+			Spec: snap.VolumeSnapshotContentSpec{Driver: common.VSphereCSIDriverName,
+				DeletionPolicy: snap.VolumeSnapshotContentDelete, Source: src}}
+		resp := validateSnapshotOperationGuestRequest(context.Background(),
+			snapshotAdmissionRequest(t, "VolumeSnapshotContent", vsc))
+		if !resp.Allowed {
+			t.Errorf("%s guest NFS VolumeSnapshotContent was denied: %v", name, resp.Result)
+		}
+	}
+
+	blockVSC := &snap.VolumeSnapshotContent{ObjectMeta: metav1.ObjectMeta{Name: "snapcontent-block"},
+		Spec: snap.VolumeSnapshotContentSpec{Driver: common.VSphereCSIDriverName,
+			DeletionPolicy: snap.VolumeSnapshotContentDelete,
+			Source:         snap.VolumeSnapshotContentSource{VolumeHandle: ptr.To("cluster-uid-pvc-1")}}}
+	if resp := validateSnapshotOperationGuestRequest(context.Background(),
+		snapshotAdmissionRequest(t, "VolumeSnapshotContent", blockVSC)); resp.Allowed {
+		t.Errorf("block VolumeSnapshotContent must still be denied")
+	}
+}
+
+// With block volume snapshots off, a VolumeSnapshot is allowed only if it is of a guest NFS volume:
+// one whose PVC is bound to a guest NFS PV, or whose content is a guest NFS snapshot.
+func TestValidateVolumeSnapshotInGuestAllowsGuestNFS(t *testing.T) {
+	withSnapshotFeatureStates(t, false, true)
+	class := &snap.VolumeSnapshotClass{ObjectMeta: metav1.ObjectMeta{Name: "nfs-snapshot-class"},
+		Driver: common.VSphereCSIDriverName, DeletionPolicy: snap.VolumeSnapshotContentDelete}
+	nfsContent := &snap.VolumeSnapshotContent{ObjectMeta: metav1.ObjectMeta{Name: "snapcontent-nfs"},
+		Spec: snap.VolumeSnapshotContentSpec{Driver: common.VSphereCSIDriverName,
+			Source: snap.VolumeSnapshotContentSource{SnapshotHandle: ptr.To(testGuestNFSSnapshotHandle)}}}
+	snapshotClient := snapshotclientfake.NewClientset(class, nfsContent)
+	origSnapshotterClient := newSnapshotterClient
+	defer func() { newSnapshotterClient = origSnapshotterClient }()
+	newSnapshotterClient = func(ctx context.Context) (snapshotterClientSet.Interface, error) {
+		return snapshotClient, nil
+	}
+
+	pv := func(name, handle string) *corev1.PersistentVolume {
+		return &corev1.PersistentVolume{ObjectMeta: metav1.ObjectMeta{Name: name},
+			Spec: corev1.PersistentVolumeSpec{PersistentVolumeSource: corev1.PersistentVolumeSource{
+				CSI: &corev1.CSIPersistentVolumeSource{Driver: common.VSphereCSIDriverName, VolumeHandle: handle}}}}
+	}
+	pvc := func(name, volumeName string) *corev1.PersistentVolumeClaim {
+		return &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns"},
+			Spec: corev1.PersistentVolumeClaimSpec{VolumeName: volumeName}}
+	}
+	k8sClient := fake.NewClientset(pv("pv-nfs", testGuestNFSVolumeHandle), pvc("pvc-nfs", "pv-nfs"),
+		pv("pv-block", "cluster-uid-pvc-1"), pvc("pvc-block", "pv-block"), pvc("pvc-pending", ""))
+	origK8sClient := newK8sClient
+	defer func() { newK8sClient = origK8sClient }()
+	newK8sClient = func(ctx context.Context) (kubernetes.Interface, error) {
+		return k8sClient, nil
+	}
+
+	ofPVC := func(claim string) snap.VolumeSnapshotSource {
+		return snap.VolumeSnapshotSource{PersistentVolumeClaimName: ptr.To(claim)}
+	}
+	tests := []struct {
+		name    string
+		source  snap.VolumeSnapshotSource
+		status  *snap.VolumeSnapshotStatus
+		allowed bool
+	}{
+		{name: "guest NFS PVC", source: ofPVC("pvc-nfs"), allowed: true},
+		{name: "pre-provisioned guest NFS content",
+			source: snap.VolumeSnapshotSource{VolumeSnapshotContentName: ptr.To("snapcontent-nfs")}, allowed: true},
+		{name: "bound to guest NFS content", source: ofPVC("pvc-deleted"),
+			status: &snap.VolumeSnapshotStatus{BoundVolumeSnapshotContentName: ptr.To("snapcontent-nfs")}, allowed: true},
+		{name: "bound to deleted content, guest NFS PVC", source: ofPVC("pvc-nfs"),
+			status: &snap.VolumeSnapshotStatus{BoundVolumeSnapshotContentName: ptr.To("gone")}, allowed: true},
+		{name: "block PVC", source: ofPVC("pvc-block")},
+		{name: "unbound PVC", source: ofPVC("pvc-pending")},
+		{name: "missing PVC", source: ofPVC("pvc-deleted")},
+		{name: "missing content", source: snap.VolumeSnapshotSource{VolumeSnapshotContentName: ptr.To("gone")}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			vs := &snap.VolumeSnapshot{ObjectMeta: metav1.ObjectMeta{Name: "vs"},
+				Spec:   snap.VolumeSnapshotSpec{VolumeSnapshotClassName: ptr.To(class.Name), Source: tc.source},
+				Status: tc.status}
+			resp := validateSnapshotOperationGuestRequest(context.Background(),
+				snapshotAdmissionRequest(t, "VolumeSnapshot", vs))
+			if resp.Allowed != tc.allowed {
+				t.Errorf("Allowed=%t, want %t (%v)", resp.Allowed, tc.allowed, resp.Result)
+			}
+		})
+	}
+
+	// The snapshot controller removes the last finalizer of a VolumeSnapshot being deleted only once
+	// its content and, often, its PVC are gone; that update must not be refused.
+	deleting := &snap.VolumeSnapshot{ObjectMeta: metav1.ObjectMeta{Name: "vs",
+		DeletionTimestamp: &metav1.Time{Time: time.Now()}, Finalizers: []string{"bound-protection"}},
+		Spec:   snap.VolumeSnapshotSpec{VolumeSnapshotClassName: ptr.To(class.Name), Source: ofPVC("pvc-deleted")},
+		Status: &snap.VolumeSnapshotStatus{BoundVolumeSnapshotContentName: ptr.To("gone")}}
+	req := snapshotAdmissionRequest(t, "VolumeSnapshot", deleting)
+	req.Operation = v1.Update
+	if resp := validateSnapshotOperationGuestRequest(context.Background(), req); !resp.Allowed {
+		t.Errorf("update of a VolumeSnapshot being deleted was denied: %v", resp.Result)
 	}
 }

@@ -265,6 +265,13 @@ func TarUnpack(srcPath, dstDirPath string, enableCompression bool) (err error) {
 		}
 
 		if fileInfo.Mode()&fs.ModeSymlink != 0 {
+			// Replace what an earlier restore into the same directory left here, as for a regular
+			// file below, so that restoring again after a lost CreateVolume response succeeds.
+			if existing, lErr := os.Lstat(filePath); lErr == nil && !existing.IsDir() {
+				if err = os.Remove(filePath); err != nil {
+					return fmt.Errorf("removing %s before creating a symlink: %w", filePath, err)
+				}
+			}
 			if err := os.Symlink(tarHeader.Linkname, filePath); err != nil {
 				return fmt.Errorf("creating symlink %s: %w", filePath, err)
 			}

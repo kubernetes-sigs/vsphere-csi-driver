@@ -1,6 +1,14 @@
-# A new volume whose directory starts as a copy of pvc-nfs-dynamic (example-pvc.yaml). Both
-# volumes must be on the same NFS server. If the copy fails, the new directory is removed so a
-# retry starts from nothing instead of finishing against a partial copy.
+# A new volume whose directory starts as a copy of pvc-nfs-dynamic (example-pvc.yaml). If the copy
+# fails, the new directory is removed so a retry starts from nothing instead of finishing against
+# a partial copy.
+#
+# - The clone must use an NFS StorageClass such as nfs-csi. The controller makes the copy by
+#   mounting both the source volume's export and the export the StorageClass names, so both must be
+#   exported to the controller pod.
+# - csi-provisioner accepts a PVC data source only from a driver that reports cloning support, which
+#   the driver does only while "guest-nfs-volume" is enabled. csi-provisioner reads that once, when
+#   it starts: after enabling the feature state, restart the vsphere-csi-controller pods.
+# - The clone must request at least as much storage as the source PVC, which must be Bound.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

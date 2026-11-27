@@ -55,13 +55,15 @@ func nodeUnstageGuestNFSVolume(ctx context.Context, req *csi.NodeUnstageVolumeRe
 	return &csi.NodeUnstageVolumeResponse{}, nil
 }
 
-// nodePublishGuestNFSVolume mounts the export onto the target path. The guest-nfs-volume feature
-// state gates provisioning only (see wcpguest.isGuestNFSEnabled): refusing to mount a volume that
-// already exists would turn an FSS reset into an outage, since pods moved to another node, and
-// pods re-mounted after a kubelet restart, could no longer start.
+// nodePublishGuestNFSVolume mounts the export onto the target path, after checking the NFS location
+// in the volume context, which for a statically provisioned volume no StorageClass validation has
+// seen. The guest-nfs-volume feature state gates provisioning only (see
+// wcpguest.isGuestNFSEnabled): refusing to mount a volume that already exists would turn an FSS
+// reset into an outage, since pods moved to another node, and pods re-mounted after a kubelet
+// restart, could no longer start.
 func nodePublishGuestNFSVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (
 	*csi.NodePublishVolumeResponse, error) {
-	return nfsdriver.GetOrCreateDriver().NodeServer().NodePublishVolume(ctx, req)
+	return nfsdriver.GetOrCreateDriver().NodeServer().NodePublishGuestVolume(ctx, req)
 }
 
 // nodeUnpublishGuestNFSVolume unmounts the export. Failing here would leave the pod stuck

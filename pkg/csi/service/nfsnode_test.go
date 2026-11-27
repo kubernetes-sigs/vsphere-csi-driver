@@ -136,6 +136,33 @@ func TestNodePublishVolumeGuestNFSVolumeReachesNFSDriverRegardlessOfFeatureState
 	}
 }
 
+// The volumeAttributes of a statically provisioned PersistentVolume reach the node unvalidated,
+// so the NFS location is checked before kubelet's target path is even created.
+func TestNodePublishVolumeGuestNFSVolumeValidatesStaticVolumeAttributes(t *testing.T) {
+	useFakeOrchestrator(t, false)
+	driver := NewDriver().(*vsphereCSIDriver)
+	mountCap := &csi.VolumeCapability{
+		AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+		AccessMode: &csi.VolumeCapability_AccessMode{Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER},
+	}
+
+	for errPart, attributes := range map[string]map[string]string{
+		"invalid server":   {"server": "10.0.0.1:/exports", "share": "/exports"},
+		"traversal":        {"server": "10.0.0.1", "share": "/exports", "subdir": "../other-team"},
+		"no NFS location":  nil,
+		"must not contain": {"server": "10.0.0.1", "share": "/exports", "subdir": "team#a"},
+	} {
+		target := t.TempDir() + "/target"
+		_, err := driver.NodePublishVolume(context.Background(), &csi.NodePublishVolumeRequest{
+			VolumeId: nfsdriver.VolumeIDPrefix + "pv-nfs-static", TargetPath: target, VolumeCapability: mountCap,
+			VolumeContext: attributes,
+		})
+		require.Equal(t, codes.InvalidArgument, status.Code(err), "%s: %v", errPart, err)
+		require.Contains(t, err.Error(), errPart)
+		require.NoDirExists(t, target)
+	}
+}
+
 // Unmounting must work whether or not the feature is on, so a pod can always be torn down.
 func TestNodeUnpublishVolumeGuestNFSVolumeIsNotGatedOnFeatureState(t *testing.T) {
 	for _, enabled := range []bool{true, false} {

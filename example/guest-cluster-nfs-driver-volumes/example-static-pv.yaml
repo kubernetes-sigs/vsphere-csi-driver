@@ -1,0 +1,70 @@
+# A statically provisioned guest NFS volume: a PersistentVolume, written by hand, for a directory
+# that already exists on an NFS server. example-static-pvc.yaml claims it. As with the volumes of
+# example-sc.yaml, the node mounts the export directly; no Supervisor PVC, CNS volume or vCenter is
+# involved.
+#
+# Prerequisites:
+# - The NFS server must export the share to the guest cluster nodes, and the directory must exist:
+#   the driver does not create it.
+# - Mounting does not need the "guest-nfs-volume" feature state, which gates only creating and
+#   deleting volumes and taking snapshots.
+#
+# Required:
+# - csi.driver: csi.vsphere.vmware.com.
+# - csi.volumeHandle starting with "guestnfs:", which is what makes the driver treat the volume as
+#   NFS; a handle without it is taken for the name of a Supervisor PVC, and attaching the volume
+#   fails. It must be unique among the cluster's PersistentVolumes: use "guestnfs:" followed by a
+#   name without "#", such as the PersistentVolume's own name.
+# - volumeAttributes "server" (an IP address or DNS name) and "share" (the exported path). "subdir"
+#   is optional: a directory below the share to mount instead of the share itself. Neither path may
+#   contain ".." or "#", and ${pvc.metadata.*} in subdir is not expanded. Other attributes are
+#   ignored (the node logs them), so check the spelling: a misspelt subdir mounts the whole share.
+# - accessModes ReadWriteMany or ReadOnlyMany, volumeMode Filesystem (the default) and no fsType.
+# - storageClassName "", so that only a claim asking for no StorageClass can bind to it.
+#
+# Optional:
+# - mountOptions are passed to the NFS mount; csi.readOnly: true mounts it read-only.
+# - volumeAttributes "mountPermissions", e.g. "0777", makes the node chmod the mounted directory on
+#   every mount, which changes the mode of the existing directory on the server. Leave it unset to
+#   keep the directory as it is. kubelet does not apply a pod's fsGroup to these volumes.
+#
+# persistentVolumeReclaimPolicy must be Retain, the default for a PersistentVolume written by hand.
+# The driver never removes the directory of a volume it did not create: with Delete, deleting the
+# claim leaves the PersistentVolume Released with VolumeFailedDelete events, until its policy is
+# changed to Retain and it is deleted. Do not copy the pv.kubernetes.io/provisioned-by annotation
+# from a dynamically provisioned volume: it marks the volume as one the driver created, whose
+# directory it does delete.
+#
+# Limitations: the capacity is not enforced, and a claim without a StorageClass cannot be expanded.
+# Snapshots and clones of the volume need the handle form shown at the end, and the
+# vsphere-csi-controller pod must be able to mount the export; a snapshot is written to a new
+# directory directly under the share.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-nfs-static
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  # Reserves the volume for this claim. Without it, any claim with storageClassName "" that fits
+  # could bind to it first.
+  claimRef:
+    namespace: default
+    name: pvc-nfs-static
+  mountOptions:
+    - nfsvers=4.1
+  csi:
+    driver: csi.vsphere.vmware.com
+    volumeHandle: guestnfs:pv-nfs-static
+    volumeAttributes:
+      server: <nfs-server-ip-or-hostname>
+      share: /<exported-path>
+      subdir: <existing-directory-under-the-share>
+    # Instead of volumeAttributes, the location can be given in the handle, in the form the driver
+    # uses for the volumes it creates: the share without its leading "/", and a subdir, which this
+    # form requires. When both are given, volumeAttributes are mounted.
+    # volumeHandle: guestnfs:<nfs-server-ip-or-hostname>#<exported-path>#<existing-directory>##

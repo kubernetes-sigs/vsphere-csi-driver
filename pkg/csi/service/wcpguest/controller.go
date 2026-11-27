@@ -465,6 +465,15 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				"volume content source %q is a guest NFS snapshot or volume; it can only be restored or "+
 					"cloned with a StorageClass that sets the \"server\" parameter", srcID)
 		}
+		// Only guest NFS volumes can be cloned. CLONE_VOLUME is advertised for them, so the
+		// external-provisioner passes a PVC data source through to this path too; without this check
+		// it would be ignored below unless the block volume snapshot feature is on, and the
+		// provisioner would delete the empty volume created in place of the clone and try again.
+		if src := req.GetVolumeContentSource().GetVolume(); src != nil {
+			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+				"cannot clone volume %q: cloning is supported only for guest NFS volumes, whose StorageClass "+
+					"sets the \"server\" parameter", src.GetVolumeId())
+		}
 		isFileVolumeRequest := common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities())
 		if isFileVolumeRequest {
 			volumeType = prometheus.PrometheusFileVolumeType
@@ -1042,6 +1051,9 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		if IsGuestNFSVolumeID(req.GetVolumeId()) {
 			volumeType = prometheus.PrometheusFileVolumeType
 			return publishGuestNFSVolume(ctx, req)
+		}
+		if err := unprefixedGuestNFSVolumeError(ctx, req.GetVolumeId(), req.GetVolumeContext()); err != nil {
+			return nil, csifault.CSIInvalidArgumentFault, err
 		}
 
 		// File volumes support
@@ -2162,6 +2174,14 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 		localControllerCaps = append(localControllerCaps,
 			csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
 			csi.ControllerServiceCapability_RPC_LIST_VOLUMES_PUBLISHED_NODES)
+	}
+
+	// CLONE_VOLUME is advertised only while the guest-nfs-volume FSS is on, because only guest NFS
+	// volumes can be cloned: without it, external-provisioner itself refuses a PVC data source, as
+	// it always has for clusters that do not use guest NFS. external-provisioner reads it once at
+	// startup, so a change to the FSS reaches it only after the controller pod restarts.
+	if isGuestNFSEnabled(ctx) {
+		localControllerCaps = append(localControllerCaps, csi.ControllerServiceCapability_RPC_CLONE_VOLUME)
 	}
 
 	for _, cap := range localControllerCaps {

@@ -23,6 +23,7 @@ package wcpguest
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -86,6 +87,38 @@ func TestCreateVolumeRejectsGuestNFSContentSourceOnSupervisorStorageClass(t *tes
 			})
 			require.Equal(t, codes.InvalidArgument, status.Code(err), "err: %v", err)
 			require.Contains(t, err.Error(), "guest NFS")
+			require.Empty(t, supervisorClient.Actions(), "no Supervisor object may be read or created")
+		})
+	}
+}
+
+// CLONE_VOLUME is advertised for guest NFS volumes, so external-provisioner also passes a PVC data
+// source on a Supervisor-backed StorageClass through. That must be refused before any Supervisor
+// object is created, whether or not the block volume snapshot feature is on: with it off, the
+// content source used to be ignored and an empty volume created in place of the clone.
+func TestCreateVolumeRejectsCloneOnSupervisorStorageClass(t *testing.T) {
+	for _, blockSnapshot := range []bool{false, true} {
+		t.Run(fmt.Sprintf("block-volume-snapshot=%t", blockSnapshot), func(t *testing.T) {
+			useFakeOrchestrator(t, true)
+			if !blockSnapshot {
+				require.NoError(t, commonco.ContainerOrchestratorUtility.DisableFSS(context.Background(),
+					common.BlockVolumeSnapshot))
+			}
+			supervisorClient := testclient.NewClientset()
+			supervisorClient.PrependReactor("*", "*", func(ktesting.Action) (bool, runtime.Object, error) {
+				return true, nil, errors.New("unexpected Supervisor call")
+			})
+			c := &controller{supervisorClient: supervisorClient, supervisorNamespace: testNamespace}
+
+			_, err := c.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+				Name:               "pvc-12345678",
+				Parameters:         map[string]string{common.AttributeSupervisorStorageClass: "gold"},
+				VolumeCapabilities: []*csi.VolumeCapability{blockMountCap()},
+				VolumeContentSource: &csi.VolumeContentSource{Type: &csi.VolumeContentSource_Volume{
+					Volume: &csi.VolumeContentSource_VolumeSource{VolumeId: "cluster-uid-1234"}}},
+			})
+			require.Equal(t, codes.InvalidArgument, status.Code(err), "err: %v", err)
+			require.Contains(t, err.Error(), "only for guest NFS volumes")
 			require.Empty(t, supervisorClient.Actions(), "no Supervisor object may be read or created")
 		})
 	}

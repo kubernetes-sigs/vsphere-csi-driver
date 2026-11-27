@@ -1,0 +1,18 @@
+# Claims the statically provisioned volume of example-static-pv.yaml. storageClassName "" keeps
+# the default StorageClass from being assigned to the claim, which would then not match the volume;
+# volumeName binds it to that volume only. The requested size must not exceed the volume's capacity,
+# and the access modes must be among the volume's. Mount it as in example-pod.yaml, with claimName
+# pvc-nfs-static.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-nfs-static
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: ""
+  volumeName: pv-nfs-static
