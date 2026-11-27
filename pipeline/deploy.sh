@@ -16,6 +16,10 @@
 
 set +x
 
+# These scripts write credentials (testbed passwords, kubeconfig) to files that
+# the CI system passes between stages. Create them readable by the owner only.
+umask 077
+
 if [[ -z "${VSPHERE_CSI_CONTROLLER_IMAGE}" ]]
 then
 	echo "Env variable unset: VSPHERE_CSI_CONTROLLER_IMAGE."
