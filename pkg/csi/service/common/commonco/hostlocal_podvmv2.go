@@ -55,3 +55,29 @@ func IsHostLocalStorageAndPodVMV2EnabledInGuest(ctx context.Context, co COCommon
 	return co.IsFSSEnabled(ctx, common.HostLocalStorageSupportFSS) &&
 		co.IsFSSEnabled(ctx, common.PodVMV2SupportFSS)
 }
+
+// HostLocalStorageAndPodVMV2CapabilitiesToWatchInGuest returns the Supervisor capabilities
+// that PVCSI must watch for late enablement of the HostLocalStorage + PodVM v2 behavior.
+// It returns nothing unless both PVCSI FSSs (host-local-storage-support and
+// podvm-v2-support) are enabled. Otherwise it returns each of supports_host_local_storage
+// and supports_podvm_v2 that is still disabled on the Supervisor.
+//
+// The PVCSI controller and syncer cache the Supervisor capabilities, and the syncer latches
+// the combined check at startup. A guest cluster upgraded before its Supervisor would
+// therefore keep the HostLocalStorage behavior after the Supervisor enables these
+// capabilities. Each returned capability is passed to HandleLateEnablementOfCapability,
+// which restarts the container once the capability is enabled.
+func HostLocalStorageAndPodVMV2CapabilitiesToWatchInGuest(ctx context.Context, co COCommonInterface) []string {
+	if co == nil || !co.IsPVCSIFSSEnabled(ctx, common.HostLocalStorageSupportFSS) ||
+		!co.IsPVCSIFSSEnabled(ctx, common.PodVMV2SupportFSS) {
+		return nil
+	}
+	var capabilities []string
+	if !co.IsFSSEnabled(ctx, common.HostLocalStorageSupportFSS) {
+		capabilities = append(capabilities, common.HostLocalStorageSupport)
+	}
+	if !co.IsFSSEnabled(ctx, common.PodVMV2SupportFSS) {
+		capabilities = append(capabilities, common.PodVMV2Support)
+	}
+	return capabilities
+}

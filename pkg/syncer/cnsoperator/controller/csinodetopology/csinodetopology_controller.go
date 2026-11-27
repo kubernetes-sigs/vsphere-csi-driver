@@ -126,7 +126,8 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 			// host-local-storage-support and podvm-v2-support PVCSI FSSs and the
 			// supports_host_local_storage and supports_podvm_v2 Supervisor capabilities.
 			// Latched for the life of this process so worker topology does not change
-			// between reconciles.
+			// between reconciles. If a Supervisor capability it needs is enabled later,
+			// the syncer's late-enablement watcher restarts this process.
 			enableHostLocalStorageAndPodVMV2InGuest = commonco.IsHostLocalStorageAndPodVMV2EnabledInGuest(ctx,
 				coCommonInterface)
 			if enableHostLocalStorageAndPodVMV2InGuest {

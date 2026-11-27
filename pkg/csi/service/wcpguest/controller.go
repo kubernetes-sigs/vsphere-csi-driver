@@ -303,6 +303,13 @@ func (c *controller) Init(config *commonconfig.Config, version string) error {
 			common.VsanFileVolumeService, config.GC.Port, config.GC.Endpoint)
 	}
 	IsVsanFileVolumeServiceEnabled = vsanFileVolumeServicePVCSIFSS && vsanFileServiceEnabled
+	// The HostLocalStorage + PodVM v2 check reads cached Supervisor capabilities. Restart when a
+	// capability it still needs is enabled, so a guest upgraded before its Supervisor picks it up.
+	for _, capability := range commonco.HostLocalStorageAndPodVMV2CapabilitiesToWatchInGuest(ctx,
+		commonco.ContainerOrchestratorUtility) {
+		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
+			capability, config.GC.Port, config.GC.Endpoint)
+	}
 	if isWorkloadDomainIsolationSupported {
 		err := commonco.ContainerOrchestratorUtility.StartZonesInformer(ctx, c.restClientConfig, c.supervisorNamespace)
 		if err != nil {

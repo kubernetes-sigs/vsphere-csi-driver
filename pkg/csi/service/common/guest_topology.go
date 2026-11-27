@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright 2026 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -45,7 +45,7 @@ func GuestAccessibleTopology(pvc *v1.PersistentVolumeClaim) ([]map[string]string
 	result := make([]map[string]string, 0, len(topologies))
 	for _, topology := range topologies {
 		if len(topology) == 0 {
-			return nil, fmt.Errorf("PVC has an empty accessible topology segment")
+			return nil, fmt.Errorf("PVC %s/%s has an empty accessible topology segment", pvc.Namespace, pvc.Name)
 		}
 		if topology[v1.LabelHostname] != "" && host == "" {
 			return nil, fmt.Errorf("host-local PVC %s/%s has no backing-host metadata", pvc.Namespace, pvc.Name)
@@ -54,7 +54,7 @@ func GuestAccessibleTopology(pvc *v1.PersistentVolumeClaim) ([]map[string]string
 		delete(segment, v1.LabelHostname)
 		if host != "" {
 			if segment[v1.LabelTopologyZone] == "" {
-				return nil, fmt.Errorf("host-local PVC has no accessible zone")
+				return nil, fmt.Errorf("host-local PVC %s/%s has no accessible zone", pvc.Namespace, pvc.Name)
 			}
 			segment[GuestClusterTopologyLabelHost] = host
 		}

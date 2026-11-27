@@ -543,6 +543,15 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				clusterFlavor, common.VMPVCStoragePolicyMutability,
 				metadataSyncer.configInfo.GetCfg().GC.Port, metadataSyncer.configInfo.GetCfg().GC.Endpoint)
 		}
+		// Full-sync backfill and the CSINodeTopology reconciler read the HostLocalStorage + PodVM v2
+		// check from cached capabilities, and the reconciler latches it at startup. Restart the syncer
+		// when a capability it still needs is enabled, so a guest upgraded before its Supervisor picks it up.
+		for _, capability := range commonco.HostLocalStorageAndPodVMV2CapabilitiesToWatchInGuest(ctx,
+			commonco.ContainerOrchestratorUtility) {
+			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
+				clusterFlavor, capability,
+				metadataSyncer.configInfo.GetCfg().GC.Port, metadataSyncer.configInfo.GetCfg().GC.Endpoint)
+		}
 	}
 
 	// Initialize cnsDeletionMap used by Full Sync.
