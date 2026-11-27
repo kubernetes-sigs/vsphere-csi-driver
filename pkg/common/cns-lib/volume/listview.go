@@ -5,17 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/vmware/govmomi/property"
-	"github.com/vmware/govmomi/session"
 	"github.com/vmware/govmomi/view"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
+	"golang.org/x/sync/semaphore"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
@@ -23,7 +26,8 @@ const (
 	// in case of vc connection failure, we wait for a minute
 	// to not overwhelm the vc with continuous requests
 	waitForUpdatesRetry = 1 * time.Minute
-	// Bound serialized vCenter calls so one stalled request cannot block all tasks.
+	// Bounds each ListView vCenter call, and the wait for viewMu, so one stalled
+	// request cannot hold its slot of the lock indefinitely.
 	listViewCallTimeout = 30 * time.Second
 	// `info` is a defined property in a Task object
 	// we want to monitor the TaskInfo that includes the status of a task
@@ -53,43 +57,90 @@ type ListViewImpl struct {
 	shouldStopListening bool
 	// this mutex is used while logging out expired VC session and creating a new one
 	mu sync.RWMutex
-	// viewMu serializes task registration/removal with view replacement and
+	// viewMu orders task registration/removal against view replacement and
 	// cleanup, so an operation cannot modify an obsolete ListView generation.
-	viewMu contextMutex
+	// Registration and removal hold it shared and run concurrently; only the
+	// view lifecycle holds it exclusively. See viewLock.
+	viewMu viewLock
 	// isReady defines the ready state of the listview + property collector mechanism
 	isReady bool
 	// client is the vim25 client the current ListView generation was built on,
-	// cached here under mu so the request path never has to reach into the
-	// VirtualCenter for it. Reading vc.Client needs the VirtualCenter's
-	// ClientMutex, which a login holds for as long as the login takes, and
-	// AddTask/RemoveTask reach the client while holding viewMu -- so a stalled
-	// login would block registration and cleanup however short their own
-	// deadlines were. The listen loop refreshes this after each connect.
+	// recorded under mu by the listen loop after each connect. It is read from
+	// here rather than through the VirtualCenter because vc.Client needs the
+	// VirtualCenter's ClientMutex, which a login holds for as long as the login
+	// takes; nothing holding viewMu may wait on that.
 	client *vim25.Client
 }
 
-// contextMutex permits callers waiting for ListView serialization to stop when
-// their context ends. Its zero value is ready for use.
-type contextMutex struct {
+// viewLockSharedSlots bounds how many task registrations and removals may be
+// talking to vCenter at once on one ListView.
+//
+// These used to be fully serialized, each holding the lock across a vCenter
+// round trip. Every CNS operation in the process waits on its task through this
+// one ListView, so under a burst the lock itself became the throughput ceiling:
+// in a 1000-volume registration it was busy about 95% of the time at roughly
+// 1000 calls a minute, while vCenter answered each call in under 10ms.
+//
+// The value comes from Little's law (holders in use = call rate x hold time).
+// A burst peaks at roughly 30 registrations and removals a second, and without
+// the session check a hold is one round trip, about 28ms, so only one or two
+// slots are in use at normal vCenter latency. The bound matters only when
+// vCenter slows down: 32 keeps 30 calls a second flowing up to about 1s per
+// call before callers queue again. Protecting vCenter from overload is left to
+// CNS's own admission limits rather than to this lock.
+//
+// The vCenter client keeps Go's default of 2 idle connections per host, so
+// more than 2 concurrent calls open extra TLS connections that are closed once
+// idle again.
+const viewLockSharedSlots = 32
+
+// viewLock orders task registration and removal against view replacement.
+//
+// Registration and removal take it shared, so they no longer queue behind each
+// other's vCenter round trips. Replacing, destroying or invalidating the view
+// takes it exclusively, which still guarantees that no task is added to or
+// removed from a ListView generation that is being torn down. The underlying
+// semaphore is FIFO, so a pending exclusive holder is not starved by a stream of
+// shared ones.
+//
+// Every wait honors the caller's context, and a caller whose context has
+// already ended never waits. The zero value is ready for use.
+type viewLock struct {
 	once sync.Once
-	ch   chan struct{}
+	sem  *semaphore.Weighted
 }
 
-func (m *contextMutex) Lock(ctx context.Context) error {
-	m.once.Do(func() { m.ch = make(chan struct{}, 1) })
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case m.ch <- struct{}{}:
-		if err := ctx.Err(); err != nil {
-			<-m.ch
-			return err
-		}
-		return nil
+func (v *viewLock) weighted() *semaphore.Weighted {
+	v.once.Do(func() { v.sem = semaphore.NewWeighted(viewLockSharedSlots) })
+	return v.sem
+}
+
+func (v *viewLock) acquire(ctx context.Context, n int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
 	}
+	if err := v.weighted().Acquire(ctx, n); err != nil {
+		return err
+	}
+	// Acquire may win the race against a context that ended while waiting.
+	if err := ctx.Err(); err != nil {
+		v.weighted().Release(n)
+		return err
+	}
+	return nil
 }
 
-func (m *contextMutex) Unlock() { <-m.ch }
+// RLock takes the lock shared, for task registration and removal.
+func (v *viewLock) RLock(ctx context.Context) error { return v.acquire(ctx, 1) }
+
+// RUnlock releases a shared hold.
+func (v *viewLock) RUnlock() { v.weighted().Release(1) }
+
+// Lock takes the lock exclusively, for the view lifecycle.
+func (v *viewLock) Lock(ctx context.Context) error { return v.acquire(ctx, viewLockSharedSlots) }
+
+// Unlock releases an exclusive hold.
+func (v *viewLock) Unlock() { v.weighted().Release(viewLockSharedSlots) }
 
 // TaskDetails is used to hold state for a task
 type TaskDetails struct {
@@ -182,14 +233,6 @@ func (l *ListViewImpl) setClient(client *vim25.Client) {
 	l.client = client
 }
 
-// getClient returns the cached vim25 client. The lock is only ever held for
-// this read, never across a call that uses the result.
-func (l *ListViewImpl) getClient() *vim25.Client {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	return l.client
-}
-
 // createListView connects to vCenter and builds the ListView object. Callers
 // that have already connected should call newListView instead -- in particular
 // anything holding viewMu or l.mu, which must not be held across a login.
@@ -255,30 +298,6 @@ func getListViewWaitFilter(listView *view.ListView) *property.WaitFilter {
 	return filter
 }
 
-func (l *ListViewImpl) isSessionValid(ctx context.Context) bool {
-	log := logger.GetLogger(ctx)
-	// The cached client, and no lock held across the round trip that follows.
-	// Holding l.mu across it -- or reaching through VimClient for ClientMutex --
-	// is what let one slow call block every AddTask and RemoveTask queued on
-	// viewMu behind this one.
-	client := l.getClient()
-	if client == nil {
-		return false
-	}
-	// If session hasn't expired, nothing to do.
-	sessionMgr := session.NewManager(client)
-	// SessionMgr.UserSession(ctx) retrieves and returns the SessionManager's
-	// CurrentSession field. Nil is returned if the session is not
-	// authenticated or timed out.
-	if userSession, err := sessionMgr.UserSession(ctx); err != nil {
-		log.Errorf("failed to obtain user session with err: %v", err)
-		return false
-	} else if userSession != nil {
-		return true
-	}
-	return false
-}
-
 // IsListViewReady wraps a read lock to access the state of isReady
 func (l *ListViewImpl) IsListViewReady() bool {
 	l.mu.RLock()
@@ -290,10 +309,10 @@ func (l *ListViewImpl) IsListViewReady() bool {
 func (l *ListViewImpl) AddTask(ctx context.Context, taskMoRef types.ManagedObjectReference, ch chan TaskResult) error {
 	ctx, cancel := context.WithTimeout(ctx, listViewCallTimeout)
 	defer cancel()
-	if err := l.viewMu.Lock(ctx); err != nil {
+	if err := l.viewMu.RLock(ctx); err != nil {
 		return fmt.Errorf("%w: %w", ErrTaskMonitoring, err)
 	}
-	defer l.viewMu.Unlock()
+	defer l.viewMu.RUnlock()
 	log := logger.GetLogger(ctx)
 	log.Infof("AddTask called for %+v", taskMoRef)
 
@@ -304,29 +323,35 @@ func (l *ListViewImpl) AddTask(ctx context.Context, taskMoRef types.ManagedObjec
 		return fmt.Errorf("%w: %w", ErrTaskMonitoring, err)
 	}
 
-	if !l.isSessionValid(ctx) {
-		if ctx.Err() != nil {
-			return fmt.Errorf("%w: %w", ErrTaskMonitoring, ctx.Err())
-		}
-		log.Infof("current session is not valid")
-		l.SetListViewNotReady(ctx)
-		return fmt.Errorf("%w. task: %v, err: listview not ready", ErrListViewTaskAddition, taskMoRef)
-	}
-
+	// There is deliberately no separate session check here. It cost a second
+	// vCenter round trip on every registration while holding the lock, and it
+	// added nothing: an expired session makes the Add below fail, which takes
+	// the same path -- the view is marked not ready and the listener rebuilds
+	// it -- and the caller sees the same ErrListViewTaskAddition. The listener's
+	// WaitForUpdatesEx loop also notices a dead session on its own.
 	l.taskMap.Upsert(taskMoRef, TaskDetails{
 		Reference:        taskMoRef,
 		MarkedForRemoval: false,
 		ResultCh:         ch,
 	})
 	log.Debugf("task %+v added to map", taskMoRef)
-	log.Infof("client is valid. trying to add task to listview object")
+	log.Infof("trying to add task to listview object")
 
 	response, err := l.listView.Add(ctx, []types.ManagedObjectReference{taskMoRef})
 	if err != nil {
 		l.taskMap.Delete(taskMoRef)
-		// An interrupted Add has an ambiguous remote outcome. Recreate the
-		// view to remove any registration accepted before cancellation.
-		l.SetListViewNotReady(ctx)
+		switch {
+		case l.invalidatesView(err):
+			// The session or connection is gone; only a rebuild recovers.
+			l.SetListViewNotReady(ctx)
+		case isInterruptedCall(err):
+			// The Add may still have been applied. A task left in the view
+			// with no channel would make a later retry of the same task miss
+			// its initial update, so take it out again rather than tear down
+			// the view every other pending task in the process relies on.
+			l.discardInterruptedAdd(ctx, taskMoRef)
+		}
+		// Any other fault is vCenter rejecting this one call; the view is fine.
 		return fmt.Errorf("%w. task: %v, err: %v", ErrListViewTaskAddition, taskMoRef, err)
 	}
 	if len(response) > 0 {
@@ -354,35 +379,97 @@ func (l *ListViewImpl) RemoveTask(ctx context.Context, taskMoRef types.ManagedOb
 	// neither the lock nor the vCenter calls may block indefinitely.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), listViewCallTimeout)
 	defer cancel()
-	if err := l.viewMu.Lock(ctx); err != nil {
+	if err := l.viewMu.RLock(ctx); err != nil {
 		return fmt.Errorf("%w: %w", ErrTaskMonitoring, err)
 	}
-	defer l.viewMu.Unlock()
+	defer l.viewMu.RUnlock()
 	log := logger.GetLogger(ctx)
 
 	if !l.IsListViewReady() {
 		return fmt.Errorf("%w. task: %v, err: listview not ready", ErrListViewTaskAddition, taskMoRef)
 	}
 
-	if !l.isSessionValid(ctx) {
-		if ctx.Err() != nil {
-			return fmt.Errorf("%w: %w", ErrTaskMonitoring, ctx.Err())
-		}
-		log.Infof("current session is not valid")
-		l.SetListViewNotReady(ctx)
-		return fmt.Errorf("%w. task: %v, err: listview not ready", ErrListViewTaskAddition, taskMoRef)
-	}
-
-	log.Infof("client is valid. trying to remove task from listview object")
+	// No separate session check, for the reason given in AddTask: an expired
+	// session fails the Remove below, which marks the view not ready.
+	log.Infof("trying to remove task from listview object")
 	_, err := l.listView.Remove(ctx, []types.ManagedObjectReference{taskMoRef})
 	if err != nil {
-		l.SetListViewNotReady(ctx)
+		// Only a lost session or connection invalidates the view. A task that
+		// stays in the view after an interrupted or rejected Remove is
+		// harmless: its map entry is kept, so the caller's retry or the
+		// marked-for-deletion cleanup removes it later.
+		if l.invalidatesView(err) {
+			l.SetListViewNotReady(ctx)
+		}
 		return logger.LogNewErrorf(log, "failed to remove task %v from ListView. error: %+v", taskMoRef, err)
 	}
 	log.Infof("task %+v removed from listView", taskMoRef)
 	l.taskMap.Delete(taskMoRef)
 	log.Debugf("task %+v removed from map", taskMoRef)
 	return nil
+}
+
+// invalidatesView reports whether a failed ListView call means the view can no
+// longer be used: the session is not authenticated, the view object itself is
+// gone (it belonged to a session that ended), or the request never got a SOAP
+// answer at all. Any other fault is vCenter rejecting that one call, and an
+// interrupted call (context ended) is not evidence that the session or
+// connection is broken -- a slow vCenter produces it too. Tearing the view down
+// for those would hand ErrTaskMonitoring to every pending task in the process.
+func (l *ListViewImpl) invalidatesView(err error) bool {
+	if err == nil || isInterruptedCall(err) {
+		return false
+	}
+	if soap.IsSoapFault(err) {
+		switch f := soap.ToSoapFault(err).VimFault().(type) {
+		case types.NotAuthenticated, *types.NotAuthenticated:
+			return true
+		case types.ManagedObjectNotFound:
+			return l.listView != nil && f.Obj == l.listView.Reference()
+		case *types.ManagedObjectNotFound:
+			return l.listView != nil && f.Obj == l.listView.Reference()
+		}
+		return false
+	}
+	if soap.IsVimFault(err) {
+		_, notAuthenticated := soap.ToVimFault(err).(*types.NotAuthenticated)
+		return notAuthenticated
+	}
+	// No SOAP answer: a transport failure (connection refused or reset, TLS,
+	// EOF). The listener has to reconnect.
+	return true
+}
+
+// isInterruptedCall reports whether a call ended because its context did, so
+// whether vCenter applied it is unknown.
+func isInterruptedCall(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+// discardInterruptedAdd removes a task whose Add was interrupted and may have
+// been applied anyway. If that cannot be confirmed either, the view is rebuilt,
+// which was the only remedy before.
+func (l *ListViewImpl) discardInterruptedAdd(ctx context.Context, taskMoRef types.ManagedObjectReference) {
+	log := logger.GetLogger(ctx)
+	removeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), listViewCallTimeout)
+	defer cancel()
+	if _, err := l.listView.Remove(removeCtx, []types.ManagedObjectReference{taskMoRef}); err != nil {
+		log.Warnf("could not remove task %v after an interrupted add, rebuilding the listview: %v", taskMoRef, err)
+		l.SetListViewNotReady(ctx)
+	}
+}
+
+// faultTypeName names a task fault the way the rest of the driver reports
+// faults, for example "vim.fault.InvalidState".
+func faultTypeName(fault *types.LocalizedMethodFault) string {
+	if fault == nil || fault.Fault == nil {
+		return "unknown fault"
+	}
+	name := reflect.TypeOf(fault.Fault).String()
+	if i := strings.LastIndex(name, "."); i >= 0 {
+		name = name[i+1:]
+	}
+	return csifault.VimFaultPrefix + name
 }
 
 func (l *ListViewImpl) SetListViewNotReady(ctx context.Context) {
@@ -591,7 +678,14 @@ func (l *ListViewImpl) processTaskUpdate(prop types.PropertyChange) {
 		return
 	} else if taskInfo.State == types.TaskInfoStateError {
 		result.TaskInfo = nil
-		result.Err = fmt.Errorf("%w: %s", ErrTaskFailed, taskInfo.Error.LocalizedMessage)
+		// Name the fault type as well: the localized message alone ("The
+		// operation is not allowed in the current state") does not say which
+		// fault it was, and this text reaches CR status and events.
+		var message string
+		if taskInfo.Error != nil {
+			message = taskInfo.Error.LocalizedMessage
+		}
+		result.Err = fmt.Errorf("%w: %s (%s)", ErrTaskFailed, message, faultTypeName(taskInfo.Error))
 	} else {
 		result.TaskInfo = &taskInfo
 		result.Err = nil
@@ -613,10 +707,11 @@ func (l *ListViewImpl) processTaskUpdate(prop types.PropertyChange) {
 func RemoveTasksMarkedForDeletion(l *ListViewImpl) {
 	ctx, cancel := context.WithTimeout(logger.NewContextWithLogger(context.Background()), listViewCallTimeout)
 	defer cancel()
-	if err := l.viewMu.Lock(ctx); err != nil {
+	// Shared: purging marked tasks is removal, like RemoveTask.
+	if err := l.viewMu.RLock(ctx); err != nil {
 		return
 	}
-	defer l.viewMu.Unlock()
+	defer l.viewMu.RUnlock()
 	log := logger.GetLogger(ctx)
 	if l.listView == nil {
 		log.Errorf("ListView is empty. Will attempt to remove invalid tasks in next attempt. ")
@@ -647,10 +742,10 @@ func RemoveTasksMarkedForDeletion(l *ListViewImpl) {
 func (l *ListViewImpl) MarkTaskForDeletion(ctx context.Context, taskMoRef types.ManagedObjectReference) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), listViewCallTimeout)
 	defer cancel()
-	if err := l.viewMu.Lock(ctx); err != nil {
+	if err := l.viewMu.RLock(ctx); err != nil {
 		return fmt.Errorf("%w: %w", ErrTaskMonitoring, err)
 	}
-	defer l.viewMu.Unlock()
+	defer l.viewMu.RUnlock()
 	log := logger.GetLogger(ctx)
 	taskDetails, ok := l.taskMap.Get(taskMoRef)
 	if !ok {
