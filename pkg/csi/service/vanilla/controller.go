@@ -2042,6 +2042,14 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			}
 		}
 
+		// The volume type of a file volume follows from the volume id, so set it before anything can
+		// fail. Otherwise the failures below are reported in the expand volume metric with an unknown
+		// volume type.
+		isFileVolume := isVanillaFileVolume(ctx, req.VolumeId)
+		if isFileVolume {
+			volumeType = prometheus.PrometheusFileVolumeType
+		}
+
 		// Fetch vCenterHost, vCenterManager & volumeManager for given volume, based on VC configuration
 		vCenterManager = getVCenterManagerForVCenter(ctx, c)
 		vCenterHost, volumeManager, err = getVCenterAndVolumeManagerForVolumeID(ctx, c, req.VolumeId, volumeInfoService)
@@ -2050,26 +2058,62 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 				"failed to get vCenter/volume manager for volume Id: %q. Error: %v", req.VolumeId, err)
 		}
 
-		isOnlineExpansionSupported, err := vCenterManager.IsOnlineExtendVolumeSupported(ctx, vCenterHost)
-		if err != nil {
-			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to check if online expansion is supported due to error: %v", err)
+		// File volumes are NFS shares, not disks attached to a node, so they are validated separately
+		// (FSS gate, no online expansion check) and expanded through the same CNS ExpandVolume API.
+		if isFileVolume {
+			err = validateVanillaControllerExpandFileVolumeRequest(ctx, req,
+				commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LegacyVsanFileShareExpansion))
+		} else {
+			var isOnlineExpansionSupported bool
+			isOnlineExpansionSupported, err = vCenterManager.IsOnlineExtendVolumeSupported(ctx, vCenterHost)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to check if online expansion is supported due to error: %v", err)
+			}
+			isOnlineExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+				common.OnlineVolumeExtend)
+			err = validateVanillaControllerExpandVolumeRequest(ctx, req, isOnlineExpansionEnabled,
+				isOnlineExpansionSupported)
 		}
-		isOnlineExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
-		err = validateVanillaControllerExpandVolumeRequest(ctx, req, isOnlineExpansionEnabled, isOnlineExpansionSupported)
 		if err != nil {
 			msg := fmt.Sprintf("validation for ExpandVolume Request: %+v has failed. Error: %v",
 				logger.RedactCSIRequest(req), err)
 			log.Error(msg)
+			if isFileVolume {
+				// A rejected file volume expansion (flag off, FVS volume) is an expected
+				// Unimplemented response, and a malformed request is an invalid argument.
+				// Neither is an internal fault.
+				switch status.Code(err) {
+				case codes.Unimplemented:
+					return nil, csifault.CSIUnimplementedFault, err
+				case codes.InvalidArgument:
+					return nil, csifault.CSIInvalidArgumentFault, err
+				}
+			}
 			return nil, csifault.CSIInternalFault, err
 		}
-		volumeType = prometheus.PrometheusBlockVolumeType
+		if isFileVolume {
+			// CNS extend of a vSAN file share is confirmed to work from vCenter 9.0 only.
+			isFileShareExtendSupported, err := vCenterManager.IsvSANFileShareExtendSupported(ctx, vCenterHost)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to check if expanding a vSAN file share volume is supported on vCenter due to error: %v",
+					err)
+			}
+			if !isFileShareExtendSupported {
+				return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+					"failed to expand volume: %q. Expanding a vSAN file share (RWX) volume requires vCenter 9.0 or later",
+					req.VolumeId)
+			}
+		} else {
+			volumeType = prometheus.PrometheusBlockVolumeType
+		}
 
 		volumeID := req.GetVolumeId()
 		volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 		volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
-		// Check if the volume contains CNS snapshots.
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
+		// Check if the volume contains CNS snapshots. CNS snapshots exist only for block volumes.
+		if !isFileVolume && commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
 			isCnsSnapshotSupported, err := vCenterManager.IsCnsSnapshotSupported(ctx, vCenterHost)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
@@ -2097,20 +2141,18 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			vCenterHost, volumeManager, volumeID, volSizeMB, nil)
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to expand volume: %q to size: %d with error: %+v", "df", volSizeMB, err)
+				"failed to expand volume: %q to size: %d with error: %+v", volumeID, volSizeMB, err)
 		}
 
-		// Always set nodeExpansionRequired to true, even if requested size is equal
-		// to current size. Volume expansion may succeed on CNS but external-resizer
-		// may fail to update API server. Requests are requeued in this case. Setting
-		// nodeExpandsionRequired to false marks PVC resize as finished which
-		// prevents kubelet from expanding the filesystem.
+		// For filesystem block volumes always set nodeExpansionRequired to true, even if requested size is
+		// equal to current size. Volume expansion may succeed on CNS but external-resizer may fail to
+		// update API server. Requests are requeued in this case. Setting nodeExpandsionRequired to false
+		// marks PVC resize as finished which prevents kubelet from expanding the filesystem.
 		// Ref: https://github.com/kubernetes-csi/external-resizer/blob/master/pkg/controller/controller.go#L335
-		nodeExpansionRequired := true
-		// Node expansion is not required for raw block volumes.
-		if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
-			nodeExpansionRequired = false
-		}
+		// It is false for raw block volumes, which have no filesystem to grow, and for file volumes: NFS
+		// shares grow on the vSAN file service side, and node expansion looks up a block device from the
+		// mount, so it would fail on NFS.
+		nodeExpansionRequired := isNodeExpansionRequired(isFileVolume, req.GetVolumeCapability())
 		log.Debugf("ControllerExpandVolumeInternal: returns %v as capacity and %v as NodeExpansionRequired",
 			int64(units.FileSize(volSizeMB*common.MbInBytes)), nodeExpansionRequired)
 		resp := &csi.ControllerExpandVolumeResponse{
