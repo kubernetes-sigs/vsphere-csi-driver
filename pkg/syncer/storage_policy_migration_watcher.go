@@ -136,8 +136,35 @@ func getMigrationDynamicClient() (dynamic.Interface, error) {
 	return migrationDynamicClient, migrationDynamicClientErr
 }
 
-// handlePvcMigrationAnnotations is invoked from pvcUpdated whenever a PVC
-// updates. It is a cheap no-op when:
+// pvcUpdatedForMigration is the update callback of the PVC listener dedicated
+// to storage-policy migration discovery. It runs separately from pvcUpdated so
+// that slow metadata pushes do not delay starting migration watchers.
+func pvcUpdatedForMigration(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer) {
+	oldPvc, ok := oldObj.(*v1.PersistentVolumeClaim)
+	if oldPvc == nil || !ok {
+		return
+	}
+	newPvc, ok := newObj.(*v1.PersistentVolumeClaim)
+	if newPvc == nil || !ok {
+		return
+	}
+	ctx, _ := logger.GetNewContextWithLogger()
+	handlePvcMigrationAnnotations(ctx, oldPvc, newPvc, metadataSyncer)
+}
+
+// pvcDeletedForMigration is the delete callback of the PVC listener dedicated
+// to storage-policy migration discovery.
+func pvcDeletedForMigration(obj interface{}) {
+	pvc, ok := obj.(*v1.PersistentVolumeClaim)
+	if pvc == nil || !ok {
+		return
+	}
+	ctx, _ := logger.GetNewContextWithLogger()
+	handlePvcDeletedForMigration(ctx, pvc)
+}
+
+// handlePvcMigrationAnnotations is invoked from pvcUpdatedForMigration whenever
+// a PVC updates. It is a cheap no-op when:
 //   - the VM/PVC storage-policy mutability feature is disabled, or
 //   - the PVC carries no migration annotations and no watcher is active for it.
 //
@@ -148,9 +175,7 @@ func getMigrationDynamicClient() (dynamic.Interface, error) {
 func handlePvcMigrationAnnotations(ctx context.Context, oldPvc, newPvc *v1.PersistentVolumeClaim,
 	metadataSyncer *metadataSyncInformer) {
 
-	// pvcUpdated is wired up from the syncer's PVC informer on both the Supervisor and a Guest,
-	// so gate on the flavor-resolved value rather than querying a hardcoded FSS/capability name
-	// here: the Supervisor capability name is not a key in the guest internal FSS ConfigMap.
+	// Gate on the flavor-resolved value rather than querying a hardcoded FSS/capability name here.
 	if !IsVMPVCStoragePolicyMutabilityEnabled {
 		return
 	}

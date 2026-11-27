@@ -767,6 +767,71 @@ func TestHandlePvcDeletedForMigration(t *testing.T) {
 	}
 }
 
+func TestPvcUpdatedForMigration(t *testing.T) {
+	annotated := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "pvc", Annotations: map[string]string{
+			common.AnnMigrationCRKind: common.MigrationCRKindVolume,
+			common.AnnMigrationCRName: "cr",
+		}},
+	}
+
+	t.Run("annotated PVC starts a watcher", func(t *testing.T) {
+		resetMigrationStateForTest(t)
+		enableMigrationFSS(t)
+		called := false
+		migrationStartMigrationWatcher = func(
+			_ context.Context, ns, name, kind, crName string, _ *metadataSyncInformer) {
+			called = true
+			if ns != "ns" || name != "pvc" || kind != common.MigrationCRKindVolume || crName != "cr" {
+				t.Errorf("unexpected watcher args: %s/%s %s/%s", ns, name, kind, crName)
+			}
+		}
+		pvcUpdatedForMigration(&v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "pvc"},
+		}, annotated, nil)
+		if !called {
+			t.Fatal("expected watcher to start for annotated PVC")
+		}
+	})
+
+	t.Run("unrecognized objects are ignored", func(t *testing.T) {
+		resetMigrationStateForTest(t)
+		enableMigrationFSS(t)
+		migrationStartMigrationWatcher = func(
+			_ context.Context, _, _, _, _ string, _ *metadataSyncInformer) {
+			t.Fatal("watcher must not start for unrecognized objects")
+		}
+		pvcUpdatedForMigration("not-a-pvc", annotated, nil)
+		pvcUpdatedForMigration(annotated, "not-a-pvc", nil)
+		pvcUpdatedForMigration((*v1.PersistentVolumeClaim)(nil), annotated, nil)
+	})
+}
+
+func TestPvcDeletedForMigration(t *testing.T) {
+	resetMigrationStateForTest(t)
+
+	// Unrecognized objects are a no-op.
+	pvcDeletedForMigration("not-a-pvc")
+	pvcDeletedForMigration((*v1.PersistentVolumeClaim)(nil))
+
+	cancelled := false
+	activeMigrationsMu.Lock()
+	activeMigrations["ns/pvc"] = &activeMigration{
+		cancel: func() { cancelled = true },
+		crKind: "VolumeMigration",
+		crName: "pvc",
+	}
+	activeMigrationsMu.Unlock()
+
+	pvcDeletedForMigration(&v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "pvc"},
+	})
+
+	if !cancelled {
+		t.Fatal("expected cancel for matching active migration")
+	}
+}
+
 func TestHandlePvcMigrationAnnotations(t *testing.T) {
 	pvc := func(ns, name string, ann map[string]string) *v1.PersistentVolumeClaim {
 		return &v1.PersistentVolumeClaim{
@@ -775,7 +840,7 @@ func TestHandlePvcMigrationAnnotations(t *testing.T) {
 	}
 
 	// handlePvcMigrationAnnotations must not depend on the orchestrator utility: it is invoked from
-	// the PVC informer on both cluster flavors and gates purely on the resolved feature flag. A nil
+	// the PVC informer and gates purely on the resolved feature flag. A nil
 	// orchestrator therefore has to be survivable, so that re-introducing a lookup here without a
 	// nil guard fails loudly instead of panicking inside the informer callback.
 	t.Run("does not dereference the orchestrator", func(t *testing.T) {
