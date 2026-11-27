@@ -776,8 +776,16 @@ const (
 	// on the supervisor.
 	HostLocalStorageSupportFSS = "host-local-storage-support"
 
+	// AttributeESXiHostMoID is the actual backing host returned by CNS and mirrored to the PVC.
+	// Written only when HostLocalStorage and PodVM v2 are both enabled.
+	AttributeESXiHostMoID = "cns.vmware.com/esxi-host-moid"
+
 	// PodVMV2Support indicates Supervisor support for cluster-backed virtual nodes.
 	PodVMV2Support = "supports_podvm_v2"
+	// PodVMV2SupportFSS is the pvCSI FSS paired with PodVMV2Support on the supervisor.
+	// PVCSI applies the HostLocalStorage + PodVM v2 host-local behavior only when this FSS,
+	// HostLocalStorageSupportFSS and both associated Supervisor capabilities are enabled.
+	PodVMV2SupportFSS = "podvm-v2-support"
 
 	// VSphereDPLPModernApp is the WCP capability that gates the Supervisor
 	// CnsRegisterVolume controller accepting a spec with both VolumeID and DiskURLPath
@@ -863,5 +871,6 @@ var WCPFeatureStateAssociatedWithPVCSI = map[string]string{
 	CSI_Backup_API_FSS:                      CSI_Backup_API,
 	VMPVCStoragePolicyMutabilityFSS:         VMPVCStoragePolicyMutability,
 	HostLocalStorageSupportFSS:              HostLocalStorageSupport,
+	PodVMV2SupportFSS:                       PodVMV2Support,
 	SupportsExposingStoragePolicyAttributes: SupportsExposingStoragePolicyAttributes,
 }

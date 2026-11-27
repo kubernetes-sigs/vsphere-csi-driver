@@ -303,6 +303,13 @@ func (c *controller) Init(config *commonconfig.Config, version string) error {
 			common.VsanFileVolumeService, config.GC.Port, config.GC.Endpoint)
 	}
 	IsVsanFileVolumeServiceEnabled = vsanFileVolumeServicePVCSIFSS && vsanFileServiceEnabled
+	// The HostLocalStorage + PodVM v2 check reads cached Supervisor capabilities. Restart when a
+	// capability it still needs is enabled, so a guest upgraded before its Supervisor picks it up.
+	for _, capability := range commonco.HostLocalStorageAndPodVMV2CapabilitiesToWatchInGuest(ctx,
+		commonco.ContainerOrchestratorUtility) {
+		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
+			capability, config.GC.Port, config.GC.Endpoint)
+	}
 	if isWorkloadDomainIsolationSupported {
 		err := commonco.ContainerOrchestratorUtility.StartZonesInformer(ctx, c.restClientConfig, c.supervisorNamespace)
 		if err != nil {
@@ -478,6 +485,13 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		// PVC is bound.
 		isHostLocalStorageSupportFSSEnabled := commonco.ContainerOrchestratorUtility.IsPVCSIFSSEnabled(ctx,
 			common.HostLocalStorageSupportFSS)
+		// isHostLocalStorageAndPodVMV2Enabled selects the HostLocalStorage + PodVM v2 request
+		// behavior. It is true only when all four switches are enabled: the host-local-storage-support
+		// and podvm-v2-support PVCSI FSSs and the supports_host_local_storage and supports_podvm_v2
+		// Supervisor capabilities. When false, host-local requests keep the HostLocalStorage
+		// behavior gated by isHostLocalStorageSupportFSSEnabled.
+		isHostLocalStorageAndPodVMV2Enabled := commonco.IsHostLocalStorageAndPodVMV2EnabledInGuest(ctx,
+			commonco.ContainerOrchestratorUtility)
 
 		// Get PVC name and disk size for the supervisor cluster
 		// We use default prefix 'pvc-' for pvc created in the guest cluster, it is mandatory.
@@ -667,6 +681,14 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 								logger.RedactCSIRequest(req))
 							return nil, csifault.CSIUnimplementedFault, status.Error(codes.Unimplemented, msg)
 						}
+						if isHostLocalStorageAndPodVMV2Enabled {
+							// HostLocalStorage + PodVM v2: the host key carries the ESXi host MoID,
+							// which the Supervisor resolves directly. Forward it unchanged.
+							translatedPreferred = append(translatedPreferred, t)
+							continue
+						}
+						// HostLocalStorage: the host key carries the Supervisor Node name, which the
+						// Supervisor expects as kubernetes.io/hostname.
 						translatedPreferred = append(translatedPreferred, &csi.Topology{
 							Segments: translateTopologyHostKey(t.Segments, common.GuestClusterTopologyLabelHost,
 								corev1.LabelHostname, true),
@@ -851,6 +873,9 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			// (e.g. on an idempotent retry against an already-bound PVC, or if the
 			// FSS/capability was toggled off after the volume was created) would misrepresent
 			// it and could let Kubernetes schedule the pod where the volume can't attach.
+			// A HostLocalStorage + PodVM v2 volume already carries the host MoID under the VKS
+			// host key (see generateVolumeAccessibleTopologyFromPVCAnnotation), so the
+			// translation leaves it unchanged.
 			for _, topoSegments := range accessibleTopologies {
 				volumeTopology := &csi.Topology{
 					Segments: translateTopologyHostKey(topoSegments, corev1.LabelHostname,

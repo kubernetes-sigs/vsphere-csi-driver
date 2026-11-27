@@ -466,6 +466,8 @@ func AddNodeAffinityRulesOnPV(ctx context.Context, metadataSyncer *metadataSyncI
 				// potentially after the host-local-storage-support FSS/capability was
 				// toggled off, but the volume's host pinning in CNS is still real and
 				// must still be reflected in the Guest PV's node affinity.
+				// A HostLocalStorage + PodVM v2 volume already carries the host MoID under the
+				// VKS host key, so the translation leaves it unchanged.
 				volumeTopology := &csi.Topology{
 					Segments: translateTopologyHostKey(topoSegments, v1.LabelHostname,
 						common.GuestClusterTopologyLabelHost, true),
