@@ -910,6 +910,21 @@ func (vc VirtualCenterConfig) String() string {
 	return fmt.Sprintf("{%s}", strings.Join(fields, " "))
 }
 
+// String returns a string representation of Config with the vCenter credentials in the Global
+// section redacted, so that logging a whole Config (for example with %v or %+v) cannot leak them.
+// Per-vCenter credentials live in VirtualCenterConfig, which redacts itself.
+func (c Config) String() string {
+	// plain has Config's fields but none of its methods, which avoids recursing into String.
+	type plain Config
+	if c.Global.User != "" {
+		c.Global.User = redactedValue
+	}
+	if c.Global.Password != "" {
+		c.Global.Password = redactedValue
+	}
+	return fmt.Sprintf("%+v", plain(c))
+}
+
 // GetCSINamespace returns the namespace in which CSI driver is installed
 func GetCSINamespace() string {
 	CSINamespace := os.Getenv(EnvCSINamespace)
