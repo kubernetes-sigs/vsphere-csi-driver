@@ -3,6 +3,7 @@ package k8sorchestrator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/cache"
+	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/v1alpha1"
 )
 
@@ -132,7 +134,7 @@ var _ = Describe("GetActiveClustersForNamespaceInRequestedZones", func() {
 
 		clusters, err := orch.GetActiveClustersForNamespaceInRequestedZones(ctx, "ns1", []string{"zone-B"})
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("could not find active cluster"))
+		Expect(errors.Is(err, commoncotypes.ErrNoActiveClusters)).To(BeTrue())
 		Expect(clusters).To(BeNil())
 	})
 
@@ -143,6 +145,7 @@ var _ = Describe("GetActiveClustersForNamespaceInRequestedZones", func() {
 		clusters, err := orch.GetActiveClustersForNamespaceInRequestedZones(ctx, "ns1", []string{"zone-A"})
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("clusterMoIDs not found"))
+		Expect(errors.Is(err, commoncotypes.ErrNoActiveClusters)).To(BeFalse())
 		Expect(clusters).To(BeNil())
 	})
 

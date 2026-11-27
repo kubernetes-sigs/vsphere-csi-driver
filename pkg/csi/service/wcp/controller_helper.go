@@ -63,6 +63,7 @@ func validateCreateBlockReqParam(paramName, value string) bool {
 		paramName == common.AttributePvcNamespace ||
 		paramName == common.AttributeStorageClassName ||
 		paramName == common.AttributeIsLinkedCloneKey ||
+		paramName == common.AttributeHostLocalTopology ||
 		(paramName == common.AttributeHostLocal && strings.EqualFold(value, "true")) ||
 		(paramName == common.AttributeHostLocalPolicy && strings.EqualFold(value, "true"))
 }
@@ -601,8 +602,8 @@ func narrowToSnapshotSourceHost(ctx context.Context, candidates []vimtypes.Manag
 // resolveHostLocalAccessibleTopologySegments returns the topology segments (zone + hostname) to
 // publish as PV node affinity for a host-local volume.
 //
-// For ordinary host-local volumes, CNS is supplied a candidate host set via `hosts` and reports the
-// host it selected in the placement result (selectedHost); the segments are looked up from that host.
+// For ordinary host-local volumes, the segments come from the selected host, obtained from the CNS
+// placement result or recovered from the backing datastore.
 //
 // For linked-clone host-local volumes, CNS is instead supplied `datastores` (CNS rejects `hosts` when
 // creating a linked clone), so the placement result never reports a selected host. The target host is

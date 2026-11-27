@@ -18,11 +18,15 @@ package types
 
 import (
 	"context"
+	"errors"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 )
+
+// ErrNoActiveClusters indicates that none of the requested zones has active clusters for the namespace.
+var ErrNoActiveClusters = errors.New("could not find active cluster")
 
 // NodeInfo contains the information required for the TopologyService to
 // identify a node and retrieve its topology information.
