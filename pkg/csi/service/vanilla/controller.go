@@ -354,7 +354,8 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		}
 	}
 	if !allVCentersSupportvSANFileService {
-		return logger.LogNewErrorf(log, "vSAN file service is not supported in one or more vCenter(s)")
+		return logger.LogNewErrorf(log, "vSAN file service is not supported on one or more of the configured vCenters. "+
+			"Use a vCenter version that supports vSAN file service or do not create file volumes.")
 	}
 
 	// CSI Transaction Support requires both FSS to be enabled AND all vCenters to support CNS transactions
@@ -621,8 +622,9 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 		contentSourceSnapshotID = sourceSnapshot.GetSnapshotId()
 		cnsVolumeID, _, err := common.ParseCSISnapshotID(contentSourceSnapshotID)
 		if err != nil {
-			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log,
-				codes.InvalidArgument, err.Error())
+			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log,
+				codes.InvalidArgument, "invalid VolumeContentSource snapshot ID %q: %v",
+				contentSourceSnapshotID, err)
 		}
 		// Get VC, volumeManager for given volumeID.
 		vCenterHost, volumeManager, err := getVCenterAndVolumeManagerForVolumeID(ctx, c, cnsVolumeID,
@@ -709,7 +711,8 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 			log.Debugf("CreateVolume task details for block volume %s are not found.", req.Name)
 		} else {
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-				"error occurred while getting CreateVolume task details for block volume %q. Error: %+v",
+				"failed to get the CreateVolume task details for block volume %q from the operation store: %v. "+
+					"Retry the operation; if it persists, check the CSI driver logs.",
 				req.Name, err)
 		}
 	} else if !isCSITransactionSupportEnabled && volumeOperationDetails.OperationDetails != nil {
@@ -782,7 +785,9 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 			// Monitor CreateVolume task.
 			volumeMgr, err = GetVolumeManagerFromVCHost(ctx, c.managers, vcHost)
 			if err != nil {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, err.Error())
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get volume manager for vCenter %q while monitoring CreateVolume task for volume %q: %v. "+
+						"Verify the vCenter is present in the CSI driver vSphere configuration.", vcHost, req.Name, err)
 			}
 			volumeInfo, faultType, err = volumeMgr.MonitorCreateVolumeTask(ctx,
 				&volumeOperationDetails, task, req.Name, c.managers.CnsConfig.Global.ClusterID)
@@ -917,7 +922,9 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 				}
 				volumeMgr, err = GetVolumeManagerFromVCHost(ctx, c.managers, vcHost)
 				if err != nil {
-					return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, err.Error())
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to get volume manager for vCenter %q while creating volume %q: %v. "+
+							"Verify the vCenter is present in the CSI driver vSphere configuration.", vcHost, req.Name, err)
 				}
 				// Call CreateVolume.
 				// TODO: Few errors encountered  in CreateBlockVolumeUtilForMultiVC can be
@@ -986,7 +993,9 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 
 			volumeMgr, err = GetVolumeManagerFromVCHost(ctx, c.managers, vcHost)
 			if err != nil {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, err.Error())
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get volume manager for vCenter %q while creating volume %q: %v. "+
+						"Verify the vCenter is present in the CSI driver vSphere configuration.", vcHost, req.Name, err)
 			}
 
 			// If Storage policy is given, check if it exists in the VC.
@@ -1008,15 +1017,17 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 					"failed to get shared datastores in kubernetes cluster. Error: %+v", err)
 			}
 			if len(sharedDatastores) == 0 {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
-					"No datastore found for volume provisioning.")
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"no shared datastore found for volume provisioning of %q in vCenter %q. Verify the "+
+						"StorageClass parameters and that a datastore is accessible to all nodes.",
+					req.Name, vcHost)
 			}
 
 			// Filter datastores which in datastoreMap from sharedDatastores.
 			sharedDatastores, err = c.filterDatastores(ctx, sharedDatastores, vcHost)
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to create volume. Error: %+v", err)
+					"failed to filter datastores for volume %q in vCenter %q: %v", req.Name, vcHost, err)
 			}
 			volumeInfo, faultType, err = common.CreateBlockVolumeUtilForMultiVC(ctx,
 				common.VanillaCreateBlockVolParamsForMultiVC{
@@ -1095,7 +1106,9 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 		if volumeMgr == nil {
 			volumeMgr, err = GetVolumeManagerFromVCHost(ctx, c.managers, vcHost)
 			if err != nil {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, err.Error())
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to get volume manager for vCenter %q while computing accessible topology for volume %q: %v. "+
+						"Verify the vCenter is present in the CSI driver vSphere configuration.", vcHost, req.Name, err)
 			}
 		}
 
@@ -1168,14 +1181,16 @@ func calculateAccessibleTopologiesForDatastore(ctx context.Context, vcenter *cns
 		// Get UUID from VM reference.
 		vmUUID, err := cnsvsphere.GetUUIDFromVMReference(ctx, vcenter, vmref.Reference())
 		if err != nil {
-			return nil, logger.LogNewErrorCode(log, codes.Internal,
-				err.Error())
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get UUID for node VM %v while computing accessible topologies: %v. "+
+					"Verify the node VM exists in vCenter.", vmref.Reference(), err)
 		}
 		// Get NodeVM name from VM UUID.
 		nodeName, err := nodeMgr.GetNodeNameByUUID(ctx, vmUUID)
 		if err != nil {
-			return nil, logger.LogNewErrorCode(log, codes.Internal,
-				err.Error())
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to map VM UUID %q to a Kubernetes node name while computing accessible topologies: %v",
+				vmUUID, err)
 		}
 		accessibleNodeNames = append(accessibleNodeNames, nodeName)
 	}
@@ -1558,7 +1573,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		volumeCapabilities := req.GetVolumeCapabilities()
 		if err := common.IsValidVolumeCapabilities(ctx, volumeCapabilities); err != nil {
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
-				"volume capability not supported. Err: %+v", err)
+				"volume capability not supported: %v", err)
 		}
 		if common.IsFileVolumeRequest(ctx, volumeCapabilities) {
 			volumeType = prometheus.PrometheusFileVolumeType
@@ -1579,7 +1594,8 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 
 				if isvSANFileServicesDisabledInAllVCs {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.FailedPrecondition,
-						"fileshare volume creation is not supported on vSAN 67u3 release")
+						"file volume creation is not supported on vSAN 6.7 U3 or when vSAN file service is "+
+							"not supported on the vCenter. Use a vSAN release that supports file service.")
 				}
 				return c.createFileVolume(ctx, req)
 			} else {
@@ -1591,7 +1607,8 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				}
 				if !isvSANFileServicesSupported {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.FailedPrecondition,
-						"fileshare volume creation is not supported on vSAN 67u3 release")
+						"file volume creation is not supported on vSAN 6.7 U3 or when vSAN file service is "+
+							"not supported on the vCenter. Use a vSAN release that supports file service.")
 				}
 				return c.createFileVolume(ctx, req)
 			}
@@ -1799,7 +1816,8 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			}
 			if len(queryResult.Volumes) == 0 {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"volumeID %s not found in QueryVolume", req.VolumeId)
+					"volume %q was not found in CNS (QueryVolume returned no result). Verify the volume "+
+						"was not deleted from vCenter", req.VolumeId)
 			}
 
 			vSANFileBackingDetails :=
@@ -1815,7 +1833,8 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			}
 			if !nfsv4AccessPointFound {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to get NFSv4 access point for volume: %q. Returned vSAN file backing details: %+v",
+					"failed to get NFSv4 access point for file volume %q from the vSAN file backing details %+v. "+
+						"Verify vSAN file service is enabled with NFSv4.1 support for this file share.",
 					req.VolumeId, vSANFileBackingDetails)
 			}
 		} else {
@@ -2097,7 +2116,8 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			vCenterHost, volumeManager, volumeID, volSizeMB, nil)
 		if err != nil {
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to expand volume: %q to size: %d with error: %+v", "df", volSizeMB, err)
+				"failed to expand volume %q to %d MB: %v. Check the CNS task for this volume in vCenter "+
+					"and the CSI driver logs, then retry.", volumeID, volSizeMB, err)
 		}
 
 		// Always set nodeExpansionRequired to true, even if requested size is equal
@@ -2162,7 +2182,8 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusUnknownVolumeType
 	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
-		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "List Volumes")
+		return nil, logger.LogNewErrorCode(log, codes.Unimplemented,
+			"ListVolumes is not supported because the list-volumes feature is disabled")
 	}
 	cfg, err := cnsconfig.GetConfig(ctx)
 	if err != nil {
@@ -2237,7 +2258,10 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 				"threshold: %d, and completely out of sync.", len(volIDsInK8s), len(CNSVolumesforListVolume),
 				cfg.Global.ListVolumeThreshold)
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-				"difference between number of K8s volumes and CNS volumes is greater than threshold.")
+				"number of Kubernetes volumes (%d) differs from number of CNS volumes (%d) by more than "+
+					"the list-volume-threshold (%d). Wait for CNS and Kubernetes to sync or increase "+
+					"list-volume-threshold in the vSphere config secret.",
+				len(volIDsInK8s), len(CNSVolumesforListVolume), cfg.Global.ListVolumeThreshold)
 		}
 
 		if maxEntries > len(CNSVolumesforListVolume) {
@@ -2252,8 +2276,8 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 		entries, nextToken, volumeType, err = c.processQueryResultsListVolumes(ctx, startingToken, maxEntries,
 			CNSVolumesforListVolume)
 		if err != nil {
-			return nil, csifault.CSIInternalFault, fmt.Errorf("error while processing query results for list "+
-				" volumes, err: %v", err)
+			return nil, csifault.CSIInternalFault, fmt.Errorf("failed to process CNS query results for ListVolumes: %v. "+
+				"Retry; if it persists, check the CSI driver logs and CNS health on vCenter", err)
 		}
 		resp := &csi.ListVolumesResponse{
 			Entries:   entries,
@@ -2386,7 +2410,8 @@ func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityReques
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("GetCapacity: called with args %+v", logger.RedactCSIRequest(req))
-	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "getCapacity")
+	return nil, logger.LogNewErrorCode(log, codes.Unimplemented,
+		"GetCapacity is not supported by the vSphere CSI driver")
 }
 
 // initVolumeMigrationService is a helper method to initialize
@@ -2469,7 +2494,8 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 
 	isBlockVolumeSnapshotEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 	if !isBlockVolumeSnapshotEnabled {
-		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "createSnapshot")
+		return nil, logger.LogNewErrorCode(log, codes.Unimplemented,
+			"CreateSnapshot is not supported because the block-volume-snapshot feature is disabled")
 	}
 
 	volumeID := req.GetSourceVolumeId()
@@ -2502,7 +2528,8 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		// Check if the source volume is migrated vSphere volume
 		if strings.Contains(volumeID, ".vmdk") {
 			return nil, logger.LogNewErrorCodef(log, codes.Unimplemented,
-				"cannot snapshot migrated vSphere volume. :%q", volumeID)
+				"cannot create a snapshot of migrated in-tree vSphere volume %q; snapshots are not "+
+					"supported for migrated volumes", volumeID)
 		}
 		volumeType = prometheus.PrometheusBlockVolumeType
 		// Query capacity in MB and datastore url for block volume snapshot
@@ -2636,12 +2663,14 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 	isBlockVolumeSnapshotEnabled :=
 		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 	if !isBlockVolumeSnapshotEnabled {
-		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "deleteSnapshot")
+		return nil, logger.LogNewErrorCode(log, codes.Unimplemented,
+			"DeleteSnapshot is not supported because the block-volume-snapshot feature is disabled")
 	}
 
 	volumeID, _, err := common.ParseCSISnapshotID(req.SnapshotId)
 	if err != nil {
-		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, err.Error())
+		return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			"invalid snapshot ID %q in DeleteSnapshot request: %v", req.SnapshotId, err)
 	}
 	// Fetch vCenterHost, vCenterManager & volumeManager for given snapshot, based on VC configuration
 	vCenterManager = getVCenterManagerForVCenter(ctx, c)
@@ -2915,8 +2944,8 @@ func queryAllVolumeSnapshotsForMultiVC(ctx context.Context, c *controller, token
 	finalSnapEntries, nextToken, err = processQueryResultsListSnapshots(ctx, startingToken,
 		maxEntries, CNSSnapshotsForListSnapshots)
 	if err != nil {
-		return nil, csifault.CSIInternalFault, fmt.Errorf("error while processing query results for list "+
-			" snapshots, err: %v", err)
+		return nil, csifault.CSIInternalFault, fmt.Errorf("failed to process CNS query results for ListSnapshots: %v. "+
+			"Retry; if it persists, check the CSI driver logs and CNS health on vCenter", err)
 	}
 	for _, queryResult := range finalSnapEntries {
 		snapshotCreateTimeInProto := timestamppb.New(queryResult.Snapshot.CreateTime)
@@ -2970,7 +2999,8 @@ func (c *controller) ControllerGetVolume(ctx context.Context, req *csi.Controlle
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("ControllerGetVolume: called with args %+v", logger.RedactCSIRequest(req))
-	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "controllerGetVolume")
+	return nil, logger.LogNewErrorCode(log, codes.Unimplemented,
+		"ControllerGetVolume is not supported by the vSphere CSI driver")
 }
 
 func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.ControllerModifyVolumeRequest) (
@@ -2978,5 +3008,6 @@ func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.Contro
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("ControllerModifyVolume: called with args %+v", logger.RedactCSIRequest(req))
-	return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "ControllerModifyVolume")
+	return nil, logger.LogNewErrorCode(log, codes.Unimplemented,
+		"ControllerModifyVolume is not supported by the vSphere CSI driver")
 }

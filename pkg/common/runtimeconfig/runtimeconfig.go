@@ -249,7 +249,8 @@ var exit = os.Exit
 func process(ctx context.Context, cfg *config.Config) error {
 	if !Enabled(ctx) {
 		if cfg.Global.VSphereServiceAccount != "" {
-			return fmt.Errorf("vsphere-service-account is set but the %s feature state is not enabled",
+			return fmt.Errorf("vsphere-service-account is set but the %s feature state switch is disabled: enable it in the "+
+				"feature-state ConfigMap or remove vsphere-service-account from the vSphere config",
 				common.VSphereCSIRuntimeConfig)
 		}
 		return nil

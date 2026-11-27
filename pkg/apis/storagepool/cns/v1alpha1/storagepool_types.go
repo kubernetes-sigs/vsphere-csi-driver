@@ -88,11 +88,18 @@ const (
 var (
 	// SpErrors maps ErrStates to error messages used in StoragePool.Status.Error.Message
 	SpErrors = map[string]*StoragePoolError{
-		ErrStateNoError:                {ErrStateNoError, ""},
-		ErrStateNoAccessibleHosts:      {ErrStateNoAccessibleHosts, "No Accessible hosts to reach this Datastore"},
-		ErrStateDatastoreInMM:          {ErrStateDatastoreInMM, "Datastore in maintenance mode"},
-		ErrStateAllHostsInMM:           {ErrStateAllHostsInMM, "All hosts in maintenance mode"},
-		ErrStateDatastoreNotAccessible: {ErrStateDatastoreNotAccessible, "Datastore not accessible"},
+		ErrStateNoError: {ErrStateNoError, ""},
+		ErrStateNoAccessibleHosts: {ErrStateNoAccessibleHosts,
+			"No accessible hosts can reach this datastore. Verify the datastore is mounted on at least one " +
+				"host and that the hosts are connected and not in maintenance mode"},
+		ErrStateDatastoreInMM: {ErrStateDatastoreInMM,
+			"Datastore is in maintenance mode. Exit datastore maintenance mode to make this StoragePool usable"},
+		ErrStateAllHostsInMM: {ErrStateAllHostsInMM,
+			"All hosts that can access this datastore are in maintenance mode. " +
+				"Exit maintenance mode on at least one host"},
+		ErrStateDatastoreNotAccessible: {ErrStateDatastoreNotAccessible,
+			"Datastore is not accessible from vCenter or its hosts. " +
+				"Check datastore connectivity and verify that it is mounted"},
 	}
 )
 

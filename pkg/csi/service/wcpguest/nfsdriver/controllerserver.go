@@ -148,11 +148,14 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 			if v != "" {
 				var err error
 				if mountPermissions, err = strconv.ParseUint(v, 8, 32); err != nil {
-					return nil, status.Errorf(codes.InvalidArgument, "invalid mountPermissions %s in storage class", v)
+					return nil, status.Errorf(codes.InvalidArgument,
+						"invalid mountPermissions %q in StorageClass: must be an octal file mode such as 0777", v)
 				}
 			}
 		default:
-			return nil, status.Errorf(codes.InvalidArgument, "invalid parameter %q in storage class", k)
+			return nil, status.Errorf(codes.InvalidArgument,
+				"parameter %q is not supported in the StorageClass for NFS volumes; "+
+					"supported parameters are: server, share, subDir, onDelete, mountPermissions", k)
 		}
 	}
 
@@ -247,7 +250,8 @@ func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 		// check whether volumeID is in the cache
 		cache, err := cs.Driver.volDeletionCache.Get(volumeID, CacheReadTypeDefault)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "%v", err)
+			return nil, status.Errorf(codes.Internal,
+				"failed to read volume deletion cache for volume %q: %v", volumeID, err)
 		}
 		if cache != nil {
 			klog.V(2).Infof("DeleteVolume: volume %s is already deleted", volumeID)
@@ -292,17 +296,20 @@ func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 
 func (cs *ControllerServer) ControllerPublishVolume(_ context.Context, _ *csi.ControllerPublishVolumeRequest) (
 	*csi.ControllerPublishVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, status.Error(codes.Unimplemented,
+		"ControllerPublishVolume is not supported by the guest NFS driver")
 }
 
 func (cs *ControllerServer) ControllerUnpublishVolume(_ context.Context, _ *csi.ControllerUnpublishVolumeRequest) (
 	*csi.ControllerUnpublishVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, status.Error(codes.Unimplemented,
+		"ControllerUnpublishVolume is not supported by the guest NFS driver")
 }
 
 func (cs *ControllerServer) ControllerGetVolume(_ context.Context, _ *csi.ControllerGetVolumeRequest) (
 	*csi.ControllerGetVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, status.Error(codes.Unimplemented,
+		"ControllerGetVolume is not supported by the guest NFS driver")
 }
 
 func (cs *ControllerServer) ValidateVolumeCapabilities(_ context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (
@@ -324,17 +331,20 @@ func (cs *ControllerServer) ValidateVolumeCapabilities(_ context.Context, req *c
 
 func (cs *ControllerServer) ListVolumes(_ context.Context, _ *csi.ListVolumesRequest) (
 	*csi.ListVolumesResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, status.Error(codes.Unimplemented,
+		"ListVolumes is not supported by the guest NFS driver")
 }
 
 func (cs *ControllerServer) GetCapacity(_ context.Context, _ *csi.GetCapacityRequest) (
 	*csi.GetCapacityResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, status.Error(codes.Unimplemented,
+		"GetCapacity is not supported by the guest NFS driver")
 }
 
 func (d *Driver) ControllerModifyVolume(_ context.Context, _ *csi.ControllerModifyVolumeRequest) (
 	*csi.ControllerModifyVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, status.Error(codes.Unimplemented,
+		"ControllerModifyVolume is not supported by the guest NFS driver")
 }
 
 // ControllerGetCapabilities implements the default GRPC callout.
@@ -357,11 +367,13 @@ func (cs *ControllerServer) CreateSnapshot(ctx context.Context, req *csi.CreateS
 
 	srcVol, err := getNfsVolFromID(req.GetSourceVolumeId())
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "failed to create source volume: %v", err)
+		return nil, status.Errorf(codes.NotFound, "source volume ID %q is not a valid guest NFS volume ID: %v",
+			req.GetSourceVolumeId(), err)
 	}
 	snapshot, err := newNFSSnapshot(req.GetName(), req.GetParameters(), srcVol)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "failed to create nfsSnapshot: %v", err)
+		return nil, status.Errorf(codes.NotFound, "failed to build snapshot %q from source volume %q: %v",
+			req.GetName(), req.GetSourceVolumeId(), err)
 	}
 	snapVol := volumeFromSnapshot(snapshot)
 	volCap := getVolumeCapabilityFromSecret(req.GetSourceVolumeId(), req.GetSecrets())
@@ -464,7 +476,8 @@ func (cs *ControllerServer) DeleteSnapshot(ctx context.Context, req *csi.DeleteS
 
 func (cs *ControllerServer) ListSnapshots(_ context.Context, _ *csi.ListSnapshotsRequest) (
 	*csi.ListSnapshotsResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, status.Error(codes.Unimplemented,
+		"ListSnapshots is not supported by the guest NFS driver")
 }
 
 func (cs *ControllerServer) ControllerExpandVolume(_ context.Context, req *csi.ControllerExpandVolumeRequest) (

@@ -366,9 +366,9 @@ func TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundErrorAndInstanceI
 				t.Fatalf("failed to get cnsnodevmbatchattachemnt instance")
 			}
 
-			expectedReconcileError := fmt.Errorf("virtual Machine with UUID %s on vCenter does not exist. "+
-				"Vm is CR is deleted or is being deleted but"+
-				"CnsNodeVMBatchAttachmentInstance %s is not being deleted", nodeUUID, testCnsNodeVMBatchAttachmentName)
+			expectedReconcileError := fmt.Errorf("VM with instance UUID %s does not exist in vCenter. "+
+				"The VirtualMachine CR is deleted or is being deleted, but CnsNodeVMBatchAttachment %s is not. "+
+				"Delete the CnsNodeVMBatchAttachment or recreate the VM.", nodeUUID, testCnsNodeVMBatchAttachmentName)
 			expectedErrorMsg := expectedReconcileError.Error()
 			assert.Equal(t, expectedErrorMsg, updatedCnsNodeVMBatchAttachment.Status.Conditions[0].Message)
 		})
@@ -424,7 +424,8 @@ func TestReconcileWithDeletionTimestampWhenDetachFails(t *testing.T) {
 			t.Fatal("Expected reconcile error")
 		}
 
-		expectedError := fmt.Errorf("failed to detach volumes: pvc-1")
+		expectedError := fmt.Errorf("failed to detach volumes: pvc-1. " +
+			"See status.volumes for the per-volume cause and check the detach tasks in vCenter")
 		assert.EqualError(t, expectedError, err.Error())
 	})
 }
@@ -480,7 +481,8 @@ func TestProcessDetachRejectsVmNotInSameNamespace(t *testing.T) {
 
 			failed, err := r.processDetach(context.TODO(), clientset, vm, &testCnsNodeVMBatchAttachment,
 				volumesToDetach)
-			expectedError := fmt.Errorf("failed to find VM with instance UUID %s in namespace %s",
+			expectedError := fmt.Errorf("VM with instance UUID %s was not found in namespace %s. "+
+				"Verify spec.instanceUUID and that the VirtualMachine CR exists in this namespace",
 				tt.instanceUUID, testNamespace)
 			assert.EqualError(t, err, expectedError.Error())
 			assert.Empty(t, mockVolumeManager.detachedIDs, "DetachVolume must not be called")

@@ -73,7 +73,8 @@ func (c *controller) GetMetadataAllocated(req *csi.GetMetadataAllocatedRequest,
 	// capability, so both ends consult the same source of truth in VKS.
 	isCSIBackupAPIEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API)
 	if !isCSIBackupAPIEnabled {
-		return logger.LogNewErrorCode(log, codes.Unimplemented, "GetMetadataAllocated")
+		return logger.LogNewErrorCode(log, codes.Unimplemented,
+			"GetMetadataAllocated is not supported because the "+common.CSI_Backup_API+" capability is not enabled")
 	}
 
 	start := time.Now()
@@ -138,7 +139,8 @@ func (c *controller) GetMetadataAllocated(req *csi.GetMetadataAllocatedRequest,
 		blockBacking, ok := queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
 		if !ok {
 			return logger.LogNewErrorCodef(log, codes.Internal,
-				"volume %s does not have block backing details", volumeID)
+				"volume %s does not have block backing details; "+
+					"verify that the volume is a block volume in vCenter", volumeID)
 		}
 		volumeCapacityBytes := blockBacking.CapacityInMb * common.MbInBytes
 
@@ -253,7 +255,8 @@ func (c *controller) GetMetadataDelta(req *csi.GetMetadataDeltaRequest,
 	// gates on common.CSI_Backup_API_FSS which maps to the same capability.
 	isCSIBackupAPIEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API)
 	if !isCSIBackupAPIEnabled {
-		return logger.LogNewErrorCode(log, codes.Unimplemented, "GetMetadataDelta")
+		return logger.LogNewErrorCode(log, codes.Unimplemented,
+			"GetMetadataDelta is not supported because the "+common.CSI_Backup_API+" capability is not enabled")
 	}
 
 	start := time.Now()
@@ -322,7 +325,8 @@ func (c *controller) GetMetadataDelta(req *csi.GetMetadataDeltaRequest,
 		blockBacking, ok := queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
 		if !ok {
 			return logger.LogNewErrorCodef(log, codes.Internal,
-				"volume %s does not have block backing details", volumeID)
+				"volume %s does not have block backing details; "+
+					"verify that the volume is a block volume in vCenter", volumeID)
 		}
 		volumeCapacityBytes := blockBacking.CapacityInMb * common.MbInBytes
 
@@ -422,11 +426,11 @@ func validateGetMetadataAllocatedRequest(ctx context.Context, req *csi.GetMetada
 	}
 
 	if req.StartingOffset < 0 {
-		return fmt.Errorf("starting_offset must be non-negative value")
+		return fmt.Errorf("starting_offset must be a non-negative value, got %d", req.StartingOffset)
 	}
 
 	if req.MaxResults < 0 {
-		return fmt.Errorf("max_results must be non-negative value")
+		return fmt.Errorf("max_results must be a non-negative value, got %d", req.MaxResults)
 	}
 
 	log.Debugf("GetMetadataAllocated request validation passed")
@@ -455,11 +459,11 @@ func validateGetMetadataDeltaRequest(ctx context.Context, req *csi.GetMetadataDe
 	}
 
 	if req.StartingOffset < 0 {
-		return fmt.Errorf("starting_offset must be non-negative value")
+		return fmt.Errorf("starting_offset must be a non-negative value, got %d", req.StartingOffset)
 	}
 
 	if req.MaxResults < 0 {
-		return fmt.Errorf("max_results must be non-negative value")
+		return fmt.Errorf("max_results must be a non-negative value, got %d", req.MaxResults)
 	}
 
 	log.Debugf("GetMetadataDelta request validation passed")

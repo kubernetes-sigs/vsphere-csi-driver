@@ -89,7 +89,7 @@ func parseRelease(ctx context.Context, release string) (int, int, error) {
 	parsed, _ = fmt.Sscanf(release, "%d.%d%s", &kernel, &major, &partial)
 	if parsed < 2 {
 		log.Errorf("parseRelease: error while parsing kernel version %s", release)
-		return 0, 0, errors.New("Can't parse kernel version " + release)
+		return 0, 0, fmt.Errorf("cannot parse kernel version %q: expected a major.minor version", release)
 	}
 
 	return kernel, major, nil
@@ -213,7 +213,8 @@ func (osUtils *OsUtils) xfsFormatAndMount(ctx context.Context, source string, ta
 	if err != nil {
 		log.Errorf("xfsFormatAndMount: mount of disk %s failed: type:(%q) target:(%q) errcode:(%v)",
 			source, fstype, target, err)
-		return errors.New(err.Error())
+		return fmt.Errorf("failed to mount %q at %q as %s: %v. Check the node's kernel logs (dmesg) "+
+			"for the underlying mount error", source, target, fstype, err)
 	}
 	return nil
 }
@@ -256,7 +257,8 @@ func (osUtils *OsUtils) extFormatAndMount(ctx context.Context, source string, ta
 	if err != nil {
 		log.Errorf("extFormatAndMount: mount of disk %s failed: type:(%q) target:(%q) errcode:(%v)",
 			source, fstype, target, err)
-		return errors.New(err.Error())
+		return fmt.Errorf("failed to mount %q at %q as %s: %v. Check the node's kernel logs (dmesg) "+
+			"for the underlying mount error", source, target, fstype, err)
 	}
 	return nil
 }
@@ -377,8 +379,9 @@ func (osUtils *OsUtils) NodeStageBlockVolume(
 					"access mode conflicts with existing mount at %q", params.StagingTarget)
 			}
 		}
-		return nil, logger.LogNewErrorCode(log, codes.Internal,
-			"device already in use and mounted elsewhere")
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"device %q is already mounted at another path and not at the staging target %q. "+
+				"Check for a stale mount of this device on the node", dev.FullPath, params.StagingTarget)
 	}
 	log.Infof("nodeStageBlockVolume: Device mounted successfully at %q", params.StagingTarget)
 
@@ -686,8 +689,9 @@ func (osUtils *OsUtils) PublishMountVol(
 				}
 				if !common.Contains(m.Opts, rwo) {
 					// TODO: make sure that all the mount options match.
-					return nil, logger.LogNewErrorCode(log, codes.AlreadyExists,
-						"volume previously published with different options")
+					return nil, logger.LogNewErrorCodef(log, codes.AlreadyExists,
+						"volume at target %q was previously published with different mount options than "+
+							"the requested %q", params.Target, rwo)
 				}
 
 				// Existing mount satisfies request.
@@ -820,8 +824,9 @@ func (osUtils *OsUtils) PublishFileVol(
 			}
 			if !common.Contains(m.Opts, rwo) {
 				// TODO: make sure that all the mount options match.
-				return nil, logger.LogNewErrorCode(log, codes.AlreadyExists,
-					"volume previously published with different options")
+				return nil, logger.LogNewErrorCodef(log, codes.AlreadyExists,
+					"volume at target %q was previously published with different mount options than "+
+						"the requested %q", params.Target, rwo)
 			}
 
 			// Existing mount satisfies request.
@@ -839,8 +844,9 @@ func (osUtils *OsUtils) PublishFileVol(
 	// Retrieve the file share access point from publish context.
 	mntSrc, ok := req.GetPublishContext()[common.Nfsv4AccessPoint]
 	if !ok {
-		return nil, logger.LogNewErrorCode(log, codes.Internal,
-			"nfs v4 accesspoint not set in publish context")
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"NFSv4 access point %q is missing from the publish context for the file volume",
+			common.Nfsv4AccessPoint)
 	}
 	// Directly mount the file share volume to the pod. No bind mount required.
 	log.Debugf("PublishFileVolume: Attempting to mount %q to %q with fstype %q and mountflags %v",

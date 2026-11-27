@@ -288,7 +288,8 @@ func needsAnnotation(obj metav1.Object, key, value string) (add bool, err error)
 		return true, nil
 	}
 	if current != value {
-		return false, fmt.Errorf("%q has annotation %s=%q, but the volume lives on host %q",
+		return false, fmt.Errorf("%q has annotation %s=%q, but the volume resides on host %q. "+
+			"Correct the annotation to match the volume's host, or remove it if it is stale.",
 			obj.GetName(), key, current, value)
 	}
 	return false, nil
@@ -584,7 +585,8 @@ func isStoragePolicyAssignedToNamespace(ctx context.Context, k8sClient clientset
 		*/
 		quotaList, err := k8sClient.CoreV1().ResourceQuotas(namespace).List(ctx, metav1.ListOptions{})
 		if err != nil {
-			return false, logger.LogNewErrorf(log, "Failed to get resource quotas on the namespace: %s", namespace)
+			return false, logger.LogNewErrorf(log, "Failed to get resource quotas in namespace %s: %v. "+
+				"Verify RBAC access to ResourceQuota objects.", namespace, err)
 		}
 		for _, quota := range quotaList.Items {
 			// Looping over each named resource in the storage quota to check if
@@ -604,7 +606,8 @@ func isStoragePolicyAssignedToNamespace(ctx context.Context, k8sClient clientset
 	if err := client.List(ctx, storagePolicyQuotaList, &ctrlruntimeclient.ListOptions{
 		Namespace: namespace,
 	}); err != nil {
-		return false, logger.LogNewErrorf(log, "Failed to list StoragePolicyQuota CR on the namespace: %s", namespace)
+		return false, logger.LogNewErrorf(log, "Failed to list StoragePolicyQuota resources in namespace %s: %v. "+
+			"Verify RBAC access and that the StoragePolicyQuota CRD is installed.", namespace, err)
 	}
 	log.Debugf("Fetch storagePolicyQuotaList: %+v  in namespace %s", storagePolicyQuotaList, namespace)
 	for _, storagePolicyQuota := range storagePolicyQuotaList.Items {

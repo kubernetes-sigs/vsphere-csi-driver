@@ -1435,7 +1435,7 @@ var _ = Describe("validatePVCCapacityMatchesBackendFCD", func() {
 			}
 			err := validatePVCCapacityMatchesBackendFCD(pvc, 2048)
 			Expect(err).NotTo(BeNil())
-			Expect(err.Error()).To(ContainSubstring("size is not matching with backend FCD size"))
+			Expect(err.Error()).To(ContainSubstring("does not match the backing FCD size"))
 			Expect(err.Error()).To(ContainSubstring(namespace + "/" + pvcName))
 		})
 	})
@@ -2020,7 +2020,8 @@ func TestValidateCnsRegisterVolumeSpecWithBothVolumeIDAndDiskURLPathCapabilityDi
 	isSharedDiskEnabled = false
 	isVSphereDPLPModernAppEnabled = false
 	err := validateCnsRegisterVolumeSpec(context.TODO(), instance)
-	assert.EqualError(t, err, "VolumeID and DiskURLPath cannot be specified together")
+	assert.EqualError(t, err, "VolumeID and DiskURLPath cannot be specified together. "+
+		"Specify only one of spec.volumeID or spec.diskURLPath.")
 }
 
 // TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityEnabled verifies that
@@ -5685,7 +5686,7 @@ func TestReconcileHostLocalDuplicateRequestDoesNotPinPV(t *testing.T) {
 
 	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{}
 	assert.NoError(t, r.client.Get(ctx, req.NamespacedName, instance))
-	assert.Equal(t, "Duplicate Request", instance.Status.Error)
+	assert.Contains(t, instance.Status.Error, "is already bound to a different PVC")
 
 	pv, err := k8sclient.CoreV1().PersistentVolumes().Get(ctx, staticPvNamePrefix+"dummy-volume-id",
 		metav1.GetOptions{})

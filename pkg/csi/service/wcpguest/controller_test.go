@@ -1846,7 +1846,7 @@ func TestWaitForSupervisorPVCModifyVolume(t *testing.T) {
 		st, ok := status.FromError(err)
 		require.True(t, ok)
 		assert.Equal(t, codes.InvalidArgument, st.Code())
-		assert.Contains(t, err.Error(), "marked as infeasible")
+		assert.Contains(t, err.Error(), "marked infeasible")
 	})
 
 	t.Run("timeout reached", func(t *testing.T) {
@@ -1877,7 +1877,7 @@ func TestWaitForSupervisorPVCModifyVolume(t *testing.T) {
 		st, ok := status.FromError(err)
 		require.True(t, ok)
 		assert.Equal(t, codes.DeadlineExceeded, st.Code())
-		assert.Contains(t, err.Error(), "timeout waiting")
+		assert.Contains(t, err.Error(), "timed out waiting")
 	})
 
 	t.Run("wrong target VAC ignored", func(t *testing.T) {

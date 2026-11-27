@@ -401,7 +401,8 @@ func (r *ReconcileSnapshotMetadataService) Reconcile(ctx context.Context,
 	// Read the served CA certificate from the Certificate's Secret.
 	secretName := cert.Spec.SecretName
 	if secretName == "" {
-		msg := fmt.Sprintf("Certificate %s/%s has no secretName in spec", cert.Namespace, cert.Name)
+		msg := fmt.Sprintf("Certificate %s/%s has no spec.secretName, so the CA cannot be synced. "+
+			"Set spec.secretName on the Certificate (cert-manager)", cert.Namespace, cert.Name)
 		recordEvent(ctx, r, sms, v1.EventTypeWarning, msg)
 		reconcileLog.Errorf("Operation failed, reporting failure status to Prometheus."+
 			" Fault Type: %q", csifault.CSIInternalFault)
@@ -414,7 +415,8 @@ func (r *ReconcileSnapshotMetadataService) Reconcile(ctx context.Context,
 		Namespace: cert.Namespace,
 	}, secret); err != nil {
 		if apierrors.IsNotFound(err) {
-			msg := fmt.Sprintf("Secret %s/%s not found yet", cert.Namespace, secretName)
+			msg := fmt.Sprintf("Secret %s/%s does not exist yet. Verify that cert-manager has issued the Certificate "+
+				"(kubectl describe certificate); the sync will be retried", cert.Namespace, secretName)
 			recordEvent(ctx, r, sms, v1.EventTypeWarning, msg)
 			reconcileLog.Errorf("Operation failed, reporting failure status to Prometheus."+
 				" Fault Type: %q", csifault.CSIApiServerOperationFault)
@@ -429,7 +431,8 @@ func (r *ReconcileSnapshotMetadataService) Reconcile(ctx context.Context,
 
 	caCertBytes, ok := secret.Data["ca.crt"]
 	if !ok || len(caCertBytes) == 0 {
-		msg := fmt.Sprintf("Secret %s/%s does not have ca.crt field or it is empty",
+		msg := fmt.Sprintf("Secret %s/%s has no ca.crt data. Verify that the issuer provides a CA certificate "+
+			"and re-issue the Certificate",
 			cert.Namespace, secretName)
 		recordEvent(ctx, r, sms, v1.EventTypeWarning, msg)
 		reconcileLog.Errorf("Operation failed, reporting failure status to Prometheus."+

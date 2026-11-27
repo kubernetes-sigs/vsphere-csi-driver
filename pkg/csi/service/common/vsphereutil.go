@@ -200,7 +200,8 @@ func CreateBlockVolumeUtil(
 					// TODO: Need to figure out which fault need to return when datastore is empty.
 					// Currently, just return csi.fault.Internal.
 					return nil, csifault.CSIInternalFault,
-						logger.LogNewErrorf(log, "DatastoreURL: %s specified in the create volume spec is not found.",
+						logger.LogNewErrorf(log, "datastore URL %q specified in the create volume spec was not found. "+
+							"Verify the datastore URL in the StorageClass.",
 							spec.VsanDatastoreURL)
 				}
 			} else {
@@ -1375,14 +1376,16 @@ func QueryVolumeCryptoKeyByID(
 
 	blockVolumeInfo, ok := result.VolumeInfo.(*cnstypes.CnsBlockVolumeInfo)
 	if !ok {
-		return nil, fmt.Errorf("failed to retrieve CNS volume info")
+		return nil, fmt.Errorf("failed to retrieve CNS block volume info for volume %q: unexpected volume info type %T",
+			volumeID, result.VolumeInfo)
 	}
 
 	storageObj := blockVolumeInfo.VStorageObject
 
 	diskFileBackingInfo, ok := storageObj.Config.Backing.(*vim25types.BaseConfigInfoDiskFileBackingInfo)
 	if !ok {
-		return nil, fmt.Errorf("failed to retrieve FCD backing info")
+		return nil, fmt.Errorf("failed to retrieve disk backing info for volume %q: unexpected backing type %T",
+			volumeID, storageObj.Config.Backing)
 	}
 
 	return diskFileBackingInfo.KeyId, nil

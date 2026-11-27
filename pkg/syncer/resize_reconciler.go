@@ -118,7 +118,8 @@ func newResizeReconciler(
 
 	informerFactory.Start(stopCh)
 	if !cache.WaitForCacheSync(stopCh, rc.pvcSynced, rc.pvSynced) {
-		return nil, fmt.Errorf("cannot sync pv/pvc caches")
+		return nil, fmt.Errorf("the PV and PVC informer caches did not sync before the syncer was stopped; " +
+			"check API server connectivity and RBAC for the syncer service account")
 	}
 	return rc, nil
 
@@ -289,7 +290,7 @@ func patchPVCStatus(ctx context.Context,
 	updatedClaim, updateErr := supervisorClient.CoreV1().PersistentVolumeClaims(oldPVC.Namespace).
 		Patch(ctx, oldPVC.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{}, "status")
 	if updateErr != nil {
-		return nil, fmt.Errorf("failed to supervisor cluster patch PVC %q in namespace %s: %v",
+		return nil, fmt.Errorf("failed to patch supervisor cluster PVC %q in namespace %s: %v",
 			oldPVC.Name, oldPVC.Namespace, updateErr)
 	}
 	return updatedClaim, nil

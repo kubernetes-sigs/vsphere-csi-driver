@@ -111,7 +111,8 @@ func controllerExpandForFVSFileVolume(ctx context.Context,
 		// Wait for the FVS controller to reflect the new size in status.capacity.
 		if waitErr := checkForSupervisorPVCCapacityReached(ctx, c.supervisorClient, clone,
 			gcPvcRequestSize, timeout); waitErr != nil {
-			msg := fmt.Sprintf("failed to expand FVS file volume %s: %+v", volumeID, waitErr)
+			msg := fmt.Sprintf("expansion of FVS file volume %s did not complete: %v. "+
+				"Check the events on the Supervisor PVC and the storage quota, then retry", volumeID, waitErr)
 			log.Error(msg)
 			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 		}
@@ -126,7 +127,8 @@ func controllerExpandForFVSFileVolume(ctx context.Context,
 				c.supervisorNamespace, volumeID, gcPvcRequestSize.String(), svPvcCapacity.String())
 			if err := checkForSupervisorPVCCapacityReached(ctx, c.supervisorClient, svPVC,
 				gcPvcRequestSize, timeout); err != nil {
-				msg := fmt.Sprintf("failed to expand FVS file volume %s: %+v", volumeID, err)
+				msg := fmt.Sprintf("expansion of FVS file volume %s did not complete: %v. "+
+					"Check the events on the Supervisor PVC and the storage quota, then retry", volumeID, err)
 				log.Error(msg)
 				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 			}
@@ -136,8 +138,9 @@ func controllerExpandForFVSFileVolume(ctx context.Context,
 		}
 	default:
 		// Requested size is smaller than current supervisor PVC spec: reject.
-		msg := fmt.Sprintf("the requested size of the Supervisor PVC %s in namespace %s is %s "+
-			"which is greater than the requested size of %s",
+		msg := fmt.Sprintf("cannot shrink FVS file volume: the Supervisor PVC %s in namespace %s is already %s, "+
+			"which is larger than the requested size of %s. Request a size greater than or equal to the "+
+			"current size",
 			volumeID, c.supervisorNamespace, svPvcRequestSize.String(), gcPvcRequestSize.String())
 		log.Error(msg)
 		return nil, csifault.CSIInternalFault, status.Error(codes.InvalidArgument, msg)

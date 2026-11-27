@@ -813,7 +813,9 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		// at the time of controller init. Handling that case in CreateVolume calls.
 		if c.topologyMgr == nil {
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
-				"topology manager not initialized.")
+				"topology manager not initialized because the AvailabilityZone CRs were not registered "+
+					"when the CSI controller started. Check the CSI controller logs and restart the "+
+					"CSI controller pod once the AvailabilityZone CRs exist")
 		}
 
 		// TKGS-HA feature is enabled
@@ -1034,12 +1036,15 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			// No topology labels present in the topologyRequirement
 			if isWorkloadDomainIsolationEnabled {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
-					"volume provisioning request received without topologyRequirement.")
+					"volume provisioning request received without topologyRequirement. "+
+						"Verify the StorageClass has a zone topology and that csi-provisioner runs with "+
+						"--feature-gates=Topology=true")
 			}
 			if len(clusterMoIds) > 1 {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
 					"stretched supervisor cluster does not support creating volumes "+
-						"without zone keys in the topologyRequirement.")
+						"without zone keys in the topologyRequirement. "+
+						"Use a StorageClass with zone topology (topology.kubernetes.io/zone) for this volume")
 			}
 			sharedDatastores, vsanDirectDatastores, err = getCandidateDatastores(ctx, vc,
 				clusterMoIds[0], true)
@@ -1060,8 +1065,9 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	candidateDatastores := append(sharedDatastores, vsanDirectDatastores...)
 	if storagePool != "" {
 		if !isValidAccessibilityRequirement(topologyRequirement) {
-			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
-				"invalid accessibility requirements")
+			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+				"invalid accessibility requirements for StoragePool %s: the request must contain "+
+					"topology segments that identify the host", storagePool)
 		}
 		spAccessibleNodes, storagePoolType, err := getStoragePoolInfo(ctx, storagePool)
 		if err != nil {
@@ -1087,8 +1093,9 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		} else if storagePoolType == vsanSna {
 			// Query API server to get ESX Host Moid from the hostLocalNodeName.
 			if len(accessibleNodes) != 1 {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
-					"too many accessible nodes")
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"expected exactly one accessible node for StoragePool %s, found %d: %v",
+					storagePool, len(accessibleNodes), accessibleNodes)
 			}
 
 			selectedDatastoreURL, err = getDatastoreURLFromStoragePool(ctx, storagePool)
@@ -1130,14 +1137,19 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		sourceSnapshot := volumeSource.GetSnapshot()
 		if sourceSnapshot == nil {
 			return nil, csifault.CSIInvalidArgumentFault,
-				logger.LogNewErrorCode(log, codes.InvalidArgument, "unsupported VolumeContentSource type")
+				logger.LogNewErrorCode(log, codes.InvalidArgument,
+					"unsupported VolumeContentSource type: only a VolumeSnapshot source is supported. "+
+						"Remove the dataSource from the PVC or set it to a VolumeSnapshot")
 		}
 		contentSourceSnapshotID = sourceSnapshot.GetSnapshotId()
 		// Retrieving the original source CNS volume-id from the snapshot-id
 		cnsVolumeID, _, err := common.ParseCSISnapshotID(contentSourceSnapshotID)
 		if err != nil {
 			return nil, csifault.CSIInvalidArgumentFault,
-				logger.LogNewErrorCode(log, codes.InvalidArgument, err.Error())
+				logger.LogNewErrorCodef(log, codes.InvalidArgument,
+					"invalid snapshot ID %q in the VolumeContentSource of the CreateVolume request: %v. "+
+						"Verify that the snapshotHandle of the source VolumeSnapshotContent is a valid snapshot ID",
+					contentSourceSnapshotID, err)
 		}
 		// The requested volume size when creating a volume from snapshot should be the same as the
 		// snapshot size, since CNS does not support querying the exact snapshot size, we approximate
@@ -1152,13 +1164,15 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 		if _, ok := cnsVolumeDetailsMap[cnsVolumeID]; !ok {
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-				"cns query volume did not return the volume: %s", cnsVolumeID)
+				"CNS query did not return the source volume %s of snapshot %s. "+
+					"Verify the source volume still exists in vCenter", cnsVolumeID, contentSourceSnapshotID)
 		}
 		snapshotSizeInMB := cnsVolumeDetailsMap[cnsVolumeID].SizeInMB
 		snapshotSizeInBytes := snapshotSizeInMB * common.MbInBytes
 		if volSizeBytes != snapshotSizeInBytes {
 			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
-				"requested volume size: %d must be the same as source snapshot size: %d",
+				"requested volume size %d bytes must be the same as the source snapshot size %d bytes. "+
+					"Set the PVC spec.resources.requests.storage to the snapshot size",
 				volSizeBytes, snapshotSizeInBytes)
 		}
 	}
@@ -1291,7 +1305,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 	if err != nil {
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to create volume. Error: %+v", err)
+			"failed to create volume %q: %+v. Check the CNS task for this volume in vCenter "+
+				"and the CSI controller logs", req.Name, err)
 	}
 
 	// CreateVolume response.
@@ -1339,8 +1354,9 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 					}
 				}
 			}
-			msg := fmt.Sprintf("failed to get linked clone name: %s on namespace: %s source volumesnapshot. "+
-				"Error: %+v", pvcName, pvcNamespace, err)
+			msg := fmt.Sprintf("failed to get the source VolumeSnapshot UID for linked clone PVC %s/%s: %v. "+
+				"Verify the PVC and its source VolumeSnapshot exist and check the CSI controller logs",
+				pvcNamespace, pvcName, err)
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, msg)
 		}
 		attributes[common.VolumeContextAttributeLinkedCloneVolumeSnapshotSourceUID] = volumeSnapshotUID
@@ -1508,18 +1524,21 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				if err != nil {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to store volumeID %q pvcNamespace %q StoragePolicyID %q StorageClassName %q "+
-							"and vCenter %q in CNSVolumeInfo CR. Error: %+v",
+							"and vCenter %q in a CnsVolumeInfo CR. Verify that the CnsVolumeInfo CRD is installed "+
+							"and the CSI controller can create it. Error: %+v",
 						volumeInfo.VolumeID.Id, pvcNamespace, cviPolicyID, scName, vc.Config.Host, err)
 				}
 			} else {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to create CnsVolumeInfo CR for volumeID %q due to missing storage class name "+
-						"in the CreateVolume request parameters", volumeInfo.VolumeID.Id)
+						"in the CreateVolume request parameters. "+
+						"Verify that csi-provisioner runs with --extra-create-metadata", volumeInfo.VolumeID.Id)
 			}
 		} else {
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to create CnsVolumeInfo CR for volumeID %q due to missing pvc namespace "+
-					"in the CreateVolume request parameters", volumeInfo.VolumeID.Id)
+					"in the CreateVolume request parameters. "+
+					"Verify that csi-provisioner runs with --extra-create-metadata", volumeInfo.VolumeID.Id)
 		}
 	}
 
@@ -1569,7 +1588,9 @@ func (c *controller) getDatastoreAccessibleTopologyForSnapshot(ctx context.Conte
 
 	if c.topologyMgr == nil {
 		return nil, logger.LogNewErrorCode(log, codes.Internal,
-			"topology manager not initialized.")
+			"topology manager not initialized because the AvailabilityZone CRs were not registered "+
+				"when the CSI controller started. Check the CSI controller logs and restart the "+
+				"CSI controller pod once the AvailabilityZone CRs exist")
 	}
 
 	// Query the datastore of snapshot. By design, snapshot is always located at the same datastore
@@ -1967,7 +1988,8 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			// Fail the request since we do not support this configuration.
 
 			return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
-				"support for topology requirement with both zone and hostname labels is not yet implemented.")
+				"topology requirements with both zone and hostname labels are not supported for file volumes. "+
+					"Use only zone labels in the StorageClass allowedTopologies")
 		} else if zoneLabelPresent {
 			// zone labels present in the topologyRequirement meaning
 			// it's non-host/zonal volume provisioning on a stretched/multi-zone supervisor cluster.
@@ -1977,7 +1999,9 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			// at the time of controller init. Handling that case in CreateVolume calls.
 			if c.topologyMgr == nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
-					"topology manager not initialized.")
+					"topology manager not initialized because the AvailabilityZone CRs were not registered "+
+						"when the CSI controller started. Check the CSI controller logs and restart the "+
+						"CSI controller pod once the AvailabilityZone CRs exist")
 			}
 			if IsMultipleClustersPerVsphereZoneFSSEnabled {
 				log.Infof("MultipleClustersPerVsphereZone capability is enabled. Skipping to find candidate " +
@@ -2012,21 +2036,23 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 				datacenters, err := vc.ListDatacenters(ctx)
 				if err != nil {
 					log.Errorf("failed to find datacenters from vCenter: %q, Error: %+v", vc.Config.Host, err)
-					return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
-						"failed to find datacenters from vCenter")
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to find datacenters from vCenter %s: %v", vc.Config.Host, err)
 				}
 				// Get all vSAN datastores from VC.
 				vsanDsURLToInfoMap, err := vc.GetVsanDatastores(ctx, datacenters)
 				if err != nil {
 					log.Errorf("failed to get vSAN datastores for vCenter %q, error %+v", vc.Config.Host, err)
-					return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
-						"failed to get vSAN datacenters from vCenter")
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to get vSAN datastores from vCenter %s: %v", vc.Config.Host, err)
 				}
 				// Return empty map if no vSAN datastores are found.
 				if len(vsanDsURLToInfoMap) == 0 {
 					log.Infof("No vSAN datastores found for vCenter %q", vc.Config.Host)
-					return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
-						"no vSAN datastores found to create file volume")
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"no vSAN datastores found in vCenter %s to create the file volume. "+
+							"Verify that vSAN is enabled and vSAN File Service is configured on the cluster",
+						vc.Config.Host)
 				}
 				// Filter vSAN datastores from shared datastores for given topology requirements
 				for _, sharedDSInfo := range sharedDatastores {
@@ -2044,7 +2070,8 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			// Fail the request since we do not support this configuration.
 
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
-				"support for topology requirement with hostname labels is not yet implemented")
+				"topology requirements with hostname labels are not supported for file volumes. "+
+					"Use only zone labels in the StorageClass allowedTopologies")
 		} else {
 			// no label present in the topologyRequirement meaning
 			// it's non-host local volume provisioning on a non-stretched/single-zone supervisor cluster.
@@ -2052,7 +2079,9 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			// FSS Workload_Domain_Isolation_Supported is enabled.
 
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-				"volume provisioning request received without topologyRequirement.")
+				"volume provisioning request received without topologyRequirement for the file volume. "+
+					"Verify the StorageClass has a zone topology and that csi-provisioner runs with "+
+					"--feature-gates=Topology=true")
 		}
 	} else {
 		// Workload domain isolation feature is disabled, continue volume provisioning with original logic
@@ -2100,12 +2129,14 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 	}
 	if err != nil {
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to create volume. Error: %+v", err)
+			"failed to create file volume %q: %+v. Check the vSAN File Service status and the CNS task "+
+				"for this volume in vCenter", req.Name, err)
 	}
 
 	if volumeInfo == nil {
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
-			"nil response for volumeInfo")
+			"the volume creation returned no volume information for the file volume request %q. "+
+				"Check the CNS task for this volume in vCenter and the CSI controller logs", req.Name)
 	}
 
 	attributes := make(map[string]string)
@@ -2437,7 +2468,8 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		// Cannot be nil as it is already verified in validateWCPControllerPublishVolumeRequest.
 		if isSharedRawBlockRequest(ctx, []*csi.VolumeCapability{req.GetVolumeCapability()}) {
 			// Shared Disk feature is not supported for PodVMs.
-			err := fmt.Errorf("shared disks are not supported for PodVMs. Invalid request %+v",
+			err := fmt.Errorf("shared disks are not supported for PodVMs. "+
+				"Use a non-shared volume for PodVM workloads. Invalid request %+v",
 				logger.RedactCSIRequest(req))
 			log.Errorf("failed to verify if volume is a shared disk. Err: %+v", err)
 			return nil, csifault.CSIInvalidArgumentFault, err
@@ -2457,7 +2489,8 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			// rejects a message that embeds the object, which hides the reason from users.
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 				"volumeAttachment %q already has the attached status as true. "+
-					"Assuming the attach volume is due to incorrect force sync Attach from CSI Attacher",
+					"Assuming this attach request is a duplicate caused by a force sync from the CSI attacher; "+
+					"no action is required if the volume is already attached to the node",
 				volumeAttachment.Name)
 		}
 
@@ -2511,7 +2544,8 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		err = vc.Connect(ctx)
 		if err != nil {
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to connect to Virtual Center: %s", vc.Config.Host)
+				"failed to connect to Virtual Center %s: %v. Verify vCenter connectivity and the credentials "+
+					"in the vsphere config secret", vc.Config.Host, err)
 		}
 
 		podVM, err := getVMByInstanceUUIDInDatacenter(ctx, vc, dcMorefValue, vmuuid)
@@ -2658,14 +2692,15 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 				vc, err := c.manager.VcenterManager.GetVirtualCenter(ctx, commontypes.NewFQDN(vCenterHost))
 				if err != nil {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-						"cannot get virtual center %s from virtualcentermanager while attaching disk with error %+v",
-						vc.Config.Host, err)
+						"cannot get virtual center %s from virtualcentermanager while detaching disk with error %+v",
+						vCenterHost, err)
 				}
 				// Connect to VC.
 				err = vc.Connect(ctx)
 				if err != nil {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-						"failed to connect to Virtual Center: %s", vc.Config.Host)
+						"failed to connect to Virtual Center %s: %v. Verify vCenter connectivity and the "+
+							"credentials in the vsphere config secret", vc.Config.Host, err)
 				}
 				podVM, err := getVMByInstanceUUIDInDatacenter(ctx, vc, dcMorefValue, vmuuid)
 				if err != nil {
@@ -2726,14 +2761,15 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 						vc, err := c.manager.VcenterManager.GetVirtualCenter(ctx, commontypes.NewFQDN(vCenterHost))
 						if err != nil {
 							return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-								"cannot get virtual center %s from virtualcentermanager while attaching disk with error %+v",
-								vc.Config.Host, err)
+								"cannot get virtual center %s from virtualcentermanager while detaching disk with error %+v",
+								vCenterHost, err)
 						}
 						// Connect to VC.
 						err = vc.Connect(ctx)
 						if err != nil {
 							return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-								"failed to connect to Virtual Center: %s", vc.Config.Host)
+								"failed to connect to Virtual Center %s: %v. Verify vCenter connectivity and the "+
+									"credentials in the vsphere config secret", vc.Config.Host, err)
 						}
 						isStillAttached := false
 						timeout := 4 * time.Minute
@@ -2801,7 +2837,8 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 										log.Errorf("failed to check the power state of pod vm: %q, error: %v",
 											podVM.Reference(), powerstateErr)
 										return nil, csifault.CSIInternalFault, fmt.Errorf("volume %q is still attached to "+
-											"node %q and podVM %q Error while checking power state of Pod VM. Error: %v",
+											"node %q and podVM %q because the power state of the Pod VM could not be checked: %v. "+
+											"The detach will be retried; verify the Pod VM state in vCenter",
 											req.VolumeId, req.NodeId, podVM.Reference().String(), powerstateErr)
 									}
 									log.Infof("power state of pod vm: %q is %q", podVM.Reference(), podvmpowerstate)
@@ -2885,7 +2922,8 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 	var err error
 	// ListVolumes FSS is disabled so, return nil and an unimplemented error
 	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
-		return nil, status.Error(codes.Unimplemented, "list volumes FSS disabled")
+		return nil, status.Error(codes.Unimplemented,
+			"ListVolumes is not supported because the "+common.ListVolumes+" capability is disabled")
 	}
 	controllerListVolumeInternal := func() (*csi.ListVolumesResponse, string, error) {
 		// Get volume ID to VMMap and vmMoidToHostMoid map
@@ -2956,8 +2994,10 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 		if len(k8sVolumeIDs)-len(cnsVolumeIDs) > listVolumeThreshold {
 			log.Errorf("Kubernetes and CNS volumes completely out of sync and exceeds the threshold: %d-%d=%d",
 				len(k8sVolumeIDs), len(cnsVolumeIDs), listVolumeThreshold)
-			return nil, csifault.CSIInternalFault, status.Error(codes.FailedPrecondition,
-				"Kubernetes and CNS volumes completely out of sync")
+			return nil, csifault.CSIInternalFault, status.Errorf(codes.FailedPrecondition,
+				"Kubernetes and CNS volumes are out of sync: Kubernetes reports %d volumes and CNS reports %d, "+
+					"which exceeds the ListVolume threshold of %d. Check CNS for orphaned volumes",
+				len(k8sVolumeIDs), len(cnsVolumeIDs), listVolumeThreshold)
 		}
 
 		queryLimit := c.manager.VcenterConfig.QueryLimit
@@ -3021,7 +3061,9 @@ func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityReques
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("GetCapacity: called with args %+v", logger.RedactCSIRequest(req))
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, status.Error(codes.Unimplemented,
+		"GetCapacity is not supported by the vSphere CSI driver on Supervisor; "+
+			"do not enable storage capacity tracking (CSIStorageCapacity) for this driver")
 }
 
 func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.ControllerGetCapabilitiesRequest) (
@@ -3063,7 +3105,8 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 	log.Infof("WCP CreateSnapshot: called with args %+v", logger.RedactCSIRequest(req))
 	isBlockVolumeSnapshotWCPEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 	if !isBlockVolumeSnapshotWCPEnabled {
-		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "createSnapshot")
+		return nil, logger.LogNewErrorCode(log, codes.Unimplemented,
+			"CreateSnapshot is not supported because the "+common.BlockVolumeSnapshot+" capability is not enabled")
 	}
 	volumeType := prometheus.PrometheusUnknownVolumeType
 	createSnapshotInternal := func() (*csi.CreateSnapshotResponse, error) {
@@ -3097,7 +3140,8 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		volumeSnapshotNamespace := req.Parameters[common.VolumeSnapshotNamespaceKey]
 		if volumeSnapshotNamespace == "" {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"volumesnapshot namespace is not set in the request parameters")
+				"volumesnapshot namespace is not set in the request parameters. "+
+					"Verify that csi-snapshotter runs with --extra-create-metadata")
 		}
 
 		// Get snapshot limit from namespace ConfigMap
@@ -3125,8 +3169,10 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		if currentSnapshotCount >= snapshotLimit {
 			return nil, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
 				"the number of snapshots (%d) on the source volume %s has reached or exceeded "+
-					"the configured maximum (%d) for namespace %s",
-				currentSnapshotCount, volumeID, snapshotLimit, volumeSnapshotNamespace)
+					"the configured maximum (%d) for namespace %s. Delete unused snapshots of the volume "+
+					"or increase %s in the %s ConfigMap of the namespace",
+				currentSnapshotCount, volumeID, snapshotLimit, volumeSnapshotNamespace,
+				common.ConfigMapKeyMaxSnapshotsPerVolume, common.ConfigMapCSILimits)
 		}
 		log.Infof("Current snapshot count for volume %q is %d, within limit of %d",
 			volumeID, currentSnapshotCount, snapshotLimit)
@@ -3238,7 +3284,8 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 	start := time.Now()
 	isBlockVolumeSnapshotWCPEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 	if !isBlockVolumeSnapshotWCPEnabled {
-		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "deleteSnapshot")
+		return nil, logger.LogNewErrorCode(log, codes.Unimplemented,
+			"DeleteSnapshot is not supported because the "+common.BlockVolumeSnapshot+" capability is not enabled")
 	}
 	deleteSnapshotInternal := func() (*csi.DeleteSnapshotResponse, error) {
 		csiSnapshotID := req.GetSnapshotId()
@@ -3310,7 +3357,8 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 	log.Infof("ListSnapshots: called with args %+v", logger.RedactCSIRequest(req))
 	isBlockVolumeSnapshotWCPEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 	if !isBlockVolumeSnapshotWCPEnabled {
-		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "listSnapshot")
+		return nil, logger.LogNewErrorCode(log, codes.Unimplemented,
+			"ListSnapshots is not supported because the "+common.BlockVolumeSnapshot+" capability is not enabled")
 	}
 	listSnapshotsInternal := func() (*csi.ListSnapshotsResponse, error) {
 		err := validateWCPListSnapshotRequest(ctx, req)
@@ -3388,8 +3436,8 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 					req.VolumeId)
 			} else {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-					"volume: %s with existing snapshots %v cannot be expanded, "+
-						"please delete snapshots before deleting the volume", req.VolumeId, snapshots)
+					"volume %s has existing snapshots %v and cannot be expanded. "+
+						"Delete the snapshots before expanding the volume", req.VolumeId, snapshots)
 			}
 
 		}
@@ -3509,7 +3557,8 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 
 func (c *controller) ControllerGetVolume(ctx context.Context, req *csi.ControllerGetVolumeRequest) (
 	*csi.ControllerGetVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, status.Error(codes.Unimplemented,
+		"ControllerGetVolume is not supported by the vSphere CSI driver on Supervisor")
 }
 
 // checkMigrationTerminalConditions classifies MigrationConditions into a terminal outcome
@@ -3546,8 +3595,9 @@ func checkMigrationTerminalConditions(
 		// Returning codes.InvalidArgument so csi-resizer marks the PVC Infeasible
 		// and the user can roll back to the original VAC.
 		return nil, status.Errorf(codes.InvalidArgument,
-			"Mobility Controller found migration to storage policy %s infeasible for volume %s",
-			targetPolicyID, volumeID), true
+			"Mobility Controller found migration to storage policy %s infeasible for volume %s: %s. "+
+				"Revert the PVC to its previous VolumeAttributesClass",
+			targetPolicyID, volumeID, c.Message), true
 	}
 	return nil, nil, false
 }
@@ -3616,7 +3666,9 @@ func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.Contro
 	}
 
 	if req.GetMutableParameters() == nil {
-		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "MutableParameters must be provided")
+		return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			"MutableParameters must be provided and contain %q; set it in the VolumeAttributesClass parameters",
+			common.AttributeStoragePolicyID)
 	}
 	targetPolicyID := getStoragePolicyIDFromMutableParameters(req.GetMutableParameters())
 	if targetPolicyID == "" {
@@ -3650,7 +3702,9 @@ func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.Contro
 			// DeadlineExceeded keeps the PVC in InProgress on the resizer side
 			// and triggers a fast retry that rejoins the in-flight migration.
 			return nil, logger.LogNewErrorCodef(log, codes.DeadlineExceeded,
-				"context cancelled or deadline exceeded while waiting for volume %s migration", volumeID)
+				"context cancelled or deadline exceeded while waiting for the storage policy migration of volume %s "+
+					"to complete. The request will be retried; check the CnsVolumeInfo migration "+
+					"conditions of the volume", volumeID)
 		case <-ticker.C:
 			cvi, err = volumeInfoService.GetVolumeInfoForVolumeID(ctx, volumeID)
 			if err != nil {

@@ -370,7 +370,8 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context,
 				log.Info("Assuming volume entry is deleted from CNS.")
 				continue
 			} else {
-				status.ErrorMessage = err.Error()
+				status.ErrorMessage = fmt.Sprintf("Failed to get PVC %q in namespace %q: %v. "+
+					"Verify the PVC exists.", volume, instance.Namespace, err)
 				status.Updated = false
 				success = false
 				continue
@@ -381,7 +382,8 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context,
 		pv, err := r.k8sclient.CoreV1().PersistentVolumes().Get(ctx, pvc.Spec.VolumeName, metav1.GetOptions{})
 		if err != nil {
 			log.Errorf("ReconcileCnsVolumeMetadata: Failed to get PV %q. Err: %v", pvc.Spec.VolumeName, err)
-			status.ErrorMessage = err.Error()
+			status.ErrorMessage = fmt.Sprintf("Failed to get PV %q bound to PVC %q: %v. "+
+				"Verify the PV exists and is bound.", pvc.Spec.VolumeName, volume, err)
 			status.Updated = false
 			success = false
 			continue
@@ -419,7 +421,8 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context,
 				continue
 			}
 			log.Errorf("ReconcileCnsVolumeMetadata: UpdateVolumeMetadata failed with err %v", err)
-			status.ErrorMessage = err.Error()
+			status.ErrorMessage = fmt.Sprintf("Failed to update CNS metadata for volume %q: %v. "+
+				"Check the CNS task in vCenter and retry.", updateSpec.VolumeId.Id, err)
 			status.Updated = false
 			success = false
 		}

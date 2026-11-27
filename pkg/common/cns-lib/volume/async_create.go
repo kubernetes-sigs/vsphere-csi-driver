@@ -173,7 +173,9 @@ func GetCreateVolumeTaskResult(ctx context.Context, virtualCenter *cnsvsphere.Vi
 	}
 	if taskResult == nil {
 		return CreateVolumeTaskFailed, nil, csifault.CSITaskResultEmptyFault, logger.LogNewErrorf(log,
-			"taskResult is empty for CreateVolume task %q, opID: %q", taskMoRef.Value, taskInfo.ActivationId)
+			"CNS returned no result for the CreateVolume task %q, opID: %q"+
+				"; retry the operation, and if it persists check the CNS service health on vCenter",
+			taskMoRef.Value, taskInfo.ActivationId)
 	}
 
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
@@ -265,7 +267,8 @@ func DecodeCreateVolumeTaskResult(ctx context.Context, virtualCenter *cnsvsphere
 	}
 	if taskResult == nil {
 		return CreateVolumeTaskFailed, nil, csifault.CSITaskResultEmptyFault, logger.LogNewErrorf(log,
-			"taskResult is empty for CreateVolume task of volume %q, opID: %q",
+			"CNS returned no result for the CreateVolume task of volume %q, opID: %q"+
+				"; retry the operation, and if it persists check the CNS service health on vCenter",
 			volumeName, result.TaskInfo.ActivationId)
 	}
 

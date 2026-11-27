@@ -119,7 +119,8 @@ func GetSharedToken(ctx context.Context, options SharedTokenOptions) (string, er
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("invalid vc session manager response: %s", resp.Status)
+		return "", fmt.Errorf("vc-session-manager at %q returned HTTP status %s; verify vc-session-manager-url "+
+			"and that the service is reachable", options.URL, resp.Status)
 	}
 
 	token := &SharedSessionResponse{}
@@ -129,7 +130,8 @@ func GetSharedToken(ctx context.Context, options SharedTokenOptions) (string, er
 	}
 
 	if token.Token == "" {
-		return "", fmt.Errorf("returned vc session token is empty")
+		return "", fmt.Errorf("vc-session-manager at %q returned an empty session token; verify vc-session-manager-url "+
+			"and the credentials used to call it", options.URL)
 	}
 	return token.Token, nil
 }

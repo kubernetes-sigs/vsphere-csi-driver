@@ -742,7 +742,8 @@ func (r *ReconcileStoragePolicyInfo) checkClusterSPIPolicyIdentity(
 	}
 	resolvedName := clusterSPI.Status.VolumeClassName
 	if resolvedName == "" {
-		err := fmt.Errorf("ClusterStoragePolicyInfo %q policy identity is not resolved yet", name)
+		err := fmt.Errorf("ClusterStoragePolicyInfo %q policy identity is not resolved yet; "+
+			"this is retried automatically, and if it persists check the ClusterStoragePolicyInfo status.error", name)
 		log.Info(err.Error())
 		return false, false, err
 	}

@@ -191,9 +191,8 @@ func (driver *vsphereCSIDriver) BeforeServe(ctx context.Context) error {
 			// User needs to delete the cluster ID from vSphere config secret.
 			if _, err := commonco.ContainerOrchestratorUtility.GetConfigMap(ctx,
 				cnsconfig.ClusterIDConfigMapName, CSINamespace); err == nil {
-				return logger.LogNewErrorf(log, "Cluster ID is present in vSphere Config Secret "+
-					"as well as in %s ConfigMap. Please remove the cluster ID from vSphere Config "+
-					"Secret.", cnsconfig.ClusterIDConfigMapName)
+				return logger.LogNewErrorf(log, "cluster ID is present in both the vSphere config secret "+
+					"and the %s ConfigMap. Remove the cluster ID from the vSphere config secret.", cnsconfig.ClusterIDConfigMapName)
 			}
 		}
 	}

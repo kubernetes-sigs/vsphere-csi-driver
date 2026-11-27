@@ -185,8 +185,9 @@ func cnsFileAccessConfigAlreadyExists(ctx context.Context, clientConfig *rest.Co
 
 	if len(cnsFileAccessConfigList.Items) > 1 {
 		// We should never reach here but it's good to have this check.
-		return "", fmt.Errorf("invalid case, %d CnsFileAccessConfig instances detected "+
-			"with the VM %s and PVC %s", len(cnsFileAccessConfigList.Items), vm, pvc)
+		return "", fmt.Errorf("found %d CnsFileAccessConfig instances for VM %s and PVC %s; "+
+			"only one is allowed. Delete the duplicates (kubectl get cnsfileaccessconfig) and retry",
+			len(cnsFileAccessConfigList.Items), vm, pvc)
 	}
 
 	return "", nil
@@ -238,7 +239,7 @@ func validateDeleteCnsFileAccessConfig(ctx context.Context, clientConfig *rest.C
 		return &admissionv1.AdmissionResponse{
 			Allowed: false,
 			Result: &metav1.Status{
-				Message: fmt.Sprintf("User %s is not allowed to delete this CnsFileAccesConfig.",
+				Message: fmt.Sprintf("User %s is not allowed to delete this CnsFileAccessConfig.",
 					req.UserInfo.Username),
 			},
 		}

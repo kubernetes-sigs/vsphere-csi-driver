@@ -138,7 +138,7 @@ func TestGetSharedToken(t *testing.T) {
 				TrustedCertificates: certpool,
 				Token:               validToken,
 			})
-			assert.ErrorContains(t, err, "returned vc session token is empty")
+			assert.ErrorContains(t, err, "returned an empty session token")
 		})
 
 		t.Run("should fail when an invalid json is returned", func(t *testing.T) {

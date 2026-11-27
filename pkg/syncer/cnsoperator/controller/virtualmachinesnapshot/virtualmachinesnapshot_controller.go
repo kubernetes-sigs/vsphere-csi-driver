@@ -239,7 +239,7 @@ func (r *ReconcileVirtualMachineSnapshot) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	msg := fmt.Sprintf("Successfully successfully processed vmsnapshot %s/%s",
+	msg := fmt.Sprintf("Successfully processed VirtualMachineSnapshot %s/%s",
 		vmSnapshot.Namespace, vmSnapshot.Name)
 	recordEvent(ctx, r, vmSnapshot, corev1.EventTypeNormal, msg)
 

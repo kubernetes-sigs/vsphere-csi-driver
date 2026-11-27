@@ -386,7 +386,9 @@ func validationHandler(w http.ResponseWriter, r *http.Request) {
 		log.Errorf("Can't decode body: %v", err)
 		admissionResponse = &admissionv1.AdmissionResponse{
 			Result: &metav1.Status{
-				Message: err.Error(),
+				Message: fmt.Sprintf("Admission webhook could not decode the AdmissionReview request: %v. "+
+					"Verify the request is a valid admission.k8s.io AdmissionReview; if it came from the API server, "+
+					"check the webhook configuration and the CSI webhook logs.", err),
 			},
 		}
 	} else {

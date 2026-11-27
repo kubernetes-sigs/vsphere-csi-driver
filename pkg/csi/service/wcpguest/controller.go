@@ -547,7 +547,8 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			}
 
 			if isFileVolumeRequest && isLinkedCloneRequest {
-				msg := "cannot create a linked clone volume for a file volume"
+				msg := "cannot create a linked clone volume for a file volume. " +
+					"Create the PVC from a block volume StorageClass or remove the snapshot data source"
 				return nil, csifault.CSIInternalFault, status.Error(codes.FailedPrecondition, msg)
 			}
 
@@ -590,8 +591,9 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				fvsTopologyOverridden := false
 				if IsVsanFileVolumeServiceEnabled && isFileVolumeRequest && !isLinkedCloneRequest {
 					if pvcName == "" || pvcNamespace == "" {
-						msg := fmt.Sprintf("missing guest PVC name/namespace parameters; "+
-							"cannot evaluate FVS topology override for supervisor PVC %s",
+						msg := fmt.Sprintf("CreateVolume request for supervisor PVC %s is missing the guest PVC "+
+							"name/namespace parameters, so the FVS topology override cannot be evaluated. "+
+							"Ensure the csi-provisioner runs with the --extra-create-metadata option",
 							supervisorPVCName)
 						log.Error(msg)
 						return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
@@ -661,10 +663,11 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 					for _, t := range filteredPreferred {
 						if _, hasHostKey := t.Segments[common.GuestClusterTopologyLabelHost]; hasHostKey &&
 							!isHostLocalStorageSupportFSSEnabled {
-							msg := fmt.Sprintf("host-local storage policy volume provisioning is not supported: "+
-								"%s FSS/capability is not enabled, but requested topology contains %s. Request: %+v",
-								common.HostLocalStorageSupportFSS, common.GuestClusterTopologyLabelHost,
-								logger.RedactCSIRequest(req))
+							msg := fmt.Sprintf("host-local storage policy volume provisioning is not supported "+
+								"because the %s capability is disabled, but the requested topology contains the "+
+								"key %s. Remove the host topology requirement from the StorageClass or PVC, or ask "+
+								"the vSphere administrator to enable the capability",
+								common.HostLocalStorageSupportFSS, common.GuestClusterTopologyLabelHost)
 							return nil, csifault.CSIUnimplementedFault, status.Error(codes.Unimplemented, msg)
 						}
 						translatedPreferred = append(translatedPreferred, &csi.Topology{
@@ -735,8 +738,9 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		isBound, boundPVC, err := isPVCInSupervisorClusterBound(ctx, c.supervisorClient,
 			pvc, time.Duration(getProvisionTimeoutInMin(ctx))*time.Minute)
 		if !isBound {
-			msg := fmt.Sprintf("failed to create volume on namespace: %s in supervisor cluster. Error: %+v",
-				c.supervisorNamespace, err)
+			msg := fmt.Sprintf("supervisor PVC %q in namespace %q did not become bound: %v. "+
+				"Check the events on the supervisor PVC and the StorageClass and storage quota of the "+
+				"vSphere Namespace; the provisioner will retry", pvc.Name, c.supervisorNamespace, err)
 			log.Error(msg)
 			eventList, err := c.supervisorClient.CoreV1().Events(c.supervisorNamespace).List(ctx,
 				metav1.ListOptions{
@@ -747,7 +751,9 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			if err != nil {
 				log.Errorf("Unable to fetch events for pvc %q/%q from supervisor cluster with err: %+v",
 					c.supervisorNamespace, pvc.Name, err)
-				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal,
+					"%s. Additionally, could not read the supervisor PVC events: %v. Check the supervisor "+
+						"PVC status and the RBAC permissions of the guest cluster", msg, err)
 			}
 
 			var failureMessage string
@@ -759,7 +765,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			}
 
 			if failureMessage != "" {
-				msg = fmt.Sprintf("%s. reason: %s", msg, failureMessage)
+				msg = fmt.Sprintf("%s. Last warning event on the supervisor PVC: %s", msg, failureMessage)
 			}
 
 			log.Errorf("Last observed events on the pvc %q/%q in supervisor cluster: %+v",
@@ -1031,8 +1037,9 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 
 		err := validateGuestClusterControllerPublishVolumeRequest(ctx, req)
 		if err != nil {
-			msg := fmt.Sprintf("Validation for PublishVolume Request: %+v has failed. Error: %v",
-				logger.RedactCSIRequest(req), err)
+			msg := fmt.Sprintf("ControllerPublishVolume request for volume %q and node %q is invalid: %v. "+
+				"Verify the volume ID, node ID and access mode in the VolumeAttachment",
+				req.VolumeId, req.NodeId, err)
 			log.Error(msg)
 			return nil, csifault.CSIInvalidArgumentFault, status.Error(codes.Internal, msg)
 		}
@@ -1261,8 +1268,10 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 		// became stale while we were retrying cannot leave the volume attached
 		// with no VolumeAttachment left to drive its detach.
 		if !c.isAttachStillRequested(ctx, req.VolumeId, req.NodeId) {
-			msg := fmt.Sprintf("attach of volume %q to node %q is no longer requested, "+
-				"not adding it to virtualmachine %q spec", req.VolumeId, req.NodeId, virtualMachine.Name)
+			msg := fmt.Sprintf("attach of volume %q to node %q was abandoned and not added to the spec of "+
+				"virtualmachine %q because it is no longer requested (the VolumeAttachment was deleted or changed "+
+				"while the request was in progress). No action is needed unless the pod is still pending; "+
+				"then check its VolumeAttachment", req.VolumeId, req.NodeId, virtualMachine.Name)
 			log.Error(msg)
 			return nil, csifault.CSIInternalFault, status.Error(codes.FailedPrecondition, msg)
 		}
@@ -1370,8 +1379,10 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 							volume.DiskUUID, volume.Name, vm.Name)
 					} else {
 						if volume.Error != "" {
-							msg := fmt.Sprintf("observed Error: %q is set on the volume %q on virtualmachine %q",
-								volume.Error, volume.Name, vm.Name)
+							msg := fmt.Sprintf("attaching volume %q to virtualmachine %q failed with error %q. "+
+								"Check the VirtualMachine status in the Supervisor namespace and the CNS task "+
+								"for this volume",
+								volume.Name, vm.Name, volume.Error)
 							log.Error(msg)
 							return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 						}
@@ -1513,8 +1524,9 @@ func controllerPublishForFileVolume(ctx context.Context, req *csi.ControllerPubl
 		event := <-watchCnsFileAccessConfig.ResultChan()
 		cnsfileaccessconfig, ok := event.Object.(*cnsfileaccessconfigv1alpha1.CnsFileAccessConfig)
 		if !ok {
-			msg := fmt.Sprintf("Watch on cnsfileaccessconfig instance %q timed out. Last seen error on the instance=%q",
-				cnsFileAccessConfigInstance.Name, cnsFileAccessConfigInstanceErr)
+			msg := fmt.Sprintf("timed out waiting for CnsFileAccessConfig instance %q to become ready. "+
+				"Last seen error on the instance: %q. Check the CnsFileAccessConfig status and the Supervisor "+
+				"CSI driver logs, then retry", cnsFileAccessConfigInstance.Name, cnsFileAccessConfigInstanceErr)
 			log.Error(msg)
 			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 		}
@@ -1862,8 +1874,10 @@ func controllerUnpublishForFileVolume(ctx context.Context, req *csi.ControllerUn
 		event := <-watchCnsFileAccessConfig.ResultChan()
 		cnsfileaccessconfig, ok := event.Object.(*cnsfileaccessconfigv1alpha1.CnsFileAccessConfig)
 		if !ok {
-			msg := fmt.Sprintf("Watch on cnsfileaccessconfig instance %q/%q timed out. Last seen error on the instance=%q",
-				c.supervisorNamespace, cnsFileAccessConfigInstanceName, cnsFileAccessConfigInstanceErr)
+			msg := fmt.Sprintf("timed out waiting for CnsFileAccessConfig instance %q/%q to be deleted. "+
+				"Last seen error on the instance: %q. Check the CnsFileAccessConfig finalizers and the Supervisor "+
+				"CSI driver logs, then retry", c.supervisorNamespace, cnsFileAccessConfigInstanceName,
+				cnsFileAccessConfigInstanceErr)
 			log.Error(msg)
 			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 		}
@@ -1963,8 +1977,9 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			for _, vmInstance := range vmList.Items {
 				for _, vmVolume := range vmInstance.Status.Volumes {
 					if vmVolume.Name == volumeID && vmVolume.Attached {
-						msg := fmt.Sprintf("failed to expand volume: %q. Volume is attached to pod. "+
-							"Only offline volume expansion is supported", volumeID)
+						msg := fmt.Sprintf("cannot expand volume %q while it is attached to a node: only offline "+
+							"volume expansion is supported. Stop the workload using the volume (scale it to 0 or "+
+							"delete the pod), then retry", volumeID)
 						log.Error(msg)
 						return nil, csifault.CSIInvalidArgumentFault, status.Error(codes.FailedPrecondition, msg)
 					}
@@ -2024,8 +2039,9 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			}
 		default:
 			// GC PVC request size is lesser than SV PVC request size
-			msg := fmt.Sprintf("the requested size of the Supervisor PVC %s in namespace %s is %s "+
-				"which is greater than the requested size of %s",
+			msg := fmt.Sprintf("cannot shrink volume: the Supervisor PVC %s in namespace %s is already %s, "+
+				"which is larger than the requested size of %s. Request a size greater than or equal to the "+
+				"current size",
 				volumeID, c.supervisorNamespace, svPvcRequestSize.String(), gcPvcRequestSize.String())
 			log.Error(msg)
 			return nil, csifault.CSIInternalFault, status.Error(codes.InvalidArgument, msg)
@@ -2538,7 +2554,8 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 
 func (c *controller) ControllerGetVolume(ctx context.Context, req *csi.ControllerGetVolumeRequest) (
 	*csi.ControllerGetVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, status.Error(codes.Unimplemented,
+		"ControllerGetVolume is not supported by the vSphere CSI guest controller")
 }
 
 func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.ControllerModifyVolumeRequest) (
@@ -2695,7 +2712,8 @@ func (c *controller) waitForSupervisorPVCModifyVolume(
 			if ctx.Err() == context.DeadlineExceeded {
 				log.Infof("Timeout waiting for supervisor PVC %s modify volume completion", pvcName)
 				return status.Errorf(codes.DeadlineExceeded,
-					"timeout waiting for volume %s modify volume completion", pvcName)
+					"timed out waiting for the Supervisor to complete the modify operation for volume %s. "+
+						"Check the Supervisor PVC ModifyVolumeStatus and events; the resizer will retry", pvcName)
 			}
 			log.Infof("Context cancelled while waiting for supervisor PVC %s modify volume completion", pvcName)
 			return status.Errorf(codes.DeadlineExceeded,
@@ -2704,7 +2722,8 @@ func (c *controller) waitForSupervisorPVCModifyVolume(
 			if !ok {
 				log.Infof("Watch channel closed for supervisor PVC %s, timeout reached", pvcName)
 				return status.Errorf(codes.DeadlineExceeded,
-					"timeout waiting for volume %s modify volume completion", pvcName)
+					"timed out waiting for the Supervisor to complete the modify operation for volume %s. "+
+						"Check the Supervisor PVC ModifyVolumeStatus and events; the resizer will retry", pvcName)
 			}
 
 			pvc, ok := event.Object.(*corev1.PersistentVolumeClaim)
@@ -2730,7 +2749,9 @@ func (c *controller) waitForSupervisorPVCModifyVolume(
 					// causes csi-resizer to mark guest PVC ModifyVolumeStatus.status = Infeasible,
 					// so the user can retry with a different policy.
 					return status.Errorf(codes.InvalidArgument,
-						"modify volume operation for volume %s marked as infeasible", pvcName)
+						"modify volume operation for volume %s was marked infeasible by the Supervisor for "+
+							"VolumeAttributesClass %q. Check the Supervisor PVC events for the reason, then retry "+
+							"with a different VolumeAttributesClass", pvcName, targetVAC)
 				}
 			}
 			// Neither condition matched (e.g. modify is still InProgress, or this event reflects a
@@ -2913,7 +2934,9 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 	log.Infof("ListVolumes: called with args %+v", req)
 
 	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
-		return nil, status.Error(codes.Unimplemented, "list volumes FSS disabled")
+		return nil, status.Error(codes.Unimplemented,
+			"ListVolumes is not supported because the list-volumes capability is not enabled on this cluster. "+
+				"Ask the vSphere administrator to enable it or disable the external-attacher ListVolumes sync")
 	}
 
 	start := time.Now()
@@ -3073,7 +3096,8 @@ func (c *controller) buildListVolumesCache(ctx context.Context) (*listVolumesCac
 	if vmCount == 0 && blockCount > 0 {
 		return nil, csifault.CSIInternalFault, status.Error(codes.FailedPrecondition,
 			"no VirtualMachine objects found in the Supervisor namespace while this cluster owns "+
-				"provisioned block volumes; refusing to report an empty listing")
+				"provisioned block volumes; refusing to report an empty listing. Verify the Supervisor "+
+				"VirtualMachine objects exist and can be listed; the sidecar will retry")
 	}
 
 	if legacyFileCount > 0 {

@@ -41,7 +41,8 @@ func (ccr *ClusterComputeResource) GetHosts(ctx context.Context) ([]*HostSystem,
 	err := ccr.Properties(ctx, ccr.Reference(), []string{"host"}, &cluster)
 	if err != nil {
 		return nil, logger.LogNewErrorf(log,
-			"failed to retrieve host property for cluster %+v", ccr.Reference())
+			"failed to retrieve the host list for cluster %s from vCenter: %v; verify the cluster exists "+
+				"and the vCenter account can read it", ccr.Reference().Value, err)
 	}
 	var hostList []*HostSystem
 	for _, host := range cluster.Host {

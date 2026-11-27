@@ -404,7 +404,8 @@ func TestUpdateErrorOnInstanceToDisallowAttach(t *testing.T) {
 	// Assertions
 	assert.NoError(t, err, "Function should not return an error")
 	assert.Equal(t,
-		"CnsNodeVMAttachment CR is deprecated. Please detach this PVC from the VM and then reattach it.",
+		"CnsNodeVmAttachment is deprecated. Detach this PVC from the VM and reattach it "+
+			"so that a CnsNodeVMBatchAttachment is used instead.",
 		instance.Status.Error,
 		"Status.Error should be updated with the deprecation message",
 	)

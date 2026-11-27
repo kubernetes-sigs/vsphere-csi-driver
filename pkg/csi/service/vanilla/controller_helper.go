@@ -135,8 +135,8 @@ func validateVanillaListSnapshotRequest(ctx context.Context, req *csi.ListSnapsh
 		check := strings.Contains(req.SnapshotId, common.VSphereCSISnapshotIdDelimiter)
 		if !check {
 			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
-				"ListSnapshots SnapshotId: %s is incorrectly formatted for vSphere CSI driver",
-				req.StartingToken)
+				"ListSnapshots SnapshotId: %s is incorrectly formatted for vSphere CSI driver; "+
+					"expected <volumeID>+<snapshotID>", req.SnapshotId)
 		}
 	}
 	return nil
@@ -276,7 +276,7 @@ func GetVolumeManagerFromVCHost(ctx context.Context, managers *common.Managers, 
 	log := logger.GetLogger(ctx)
 	volumeMgr, exists := managers.VolumeManagers[vCenterHost]
 	if !exists {
-		return nil, logger.LogNewErrorf(log, "failed to find vCenter %q under volume managers.", vCenterHost)
+		return nil, logger.LogNewErrorf(log, "failed to find vCenter %q under volume managers", vCenterHost)
 	}
 	return volumeMgr, nil
 }

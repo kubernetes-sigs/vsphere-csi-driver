@@ -135,7 +135,8 @@ func (c *controller) findVPCNetworkConfigurationForNamespace(ctx context.Context
 	}
 	crName := ns.Annotations[AnnotationVPCNetworkConfig]
 	if crName == "" {
-		return nil, fmt.Errorf("namespace %q has no %q annotation", namespace, AnnotationVPCNetworkConfig)
+		return nil, fmt.Errorf("namespace %q has no %q annotation; "+
+			"verify a VPC network configuration is assigned to the namespace", namespace, AnnotationVPCNetworkConfig)
 	}
 	cr, err := c.dynamicClient.Resource(vpcNetworkConfigurationGVR).Get(ctx, crName, metav1.GetOptions{})
 	if err != nil {
@@ -153,7 +154,8 @@ func (c *controller) getVPCPathForNamespace(ctx context.Context, namespace strin
 	}
 	p := vpcPathFromVPCNetworkConfiguration(cr)
 	if p == "" {
-		return "", fmt.Errorf("no VPC path in status.vpcs for VPCNetworkConfiguration %q", cr.GetName())
+		return "", fmt.Errorf("no VPC path in status.vpcs for VPCNetworkConfiguration %q; "+
+			"verify the VPC network configuration status", cr.GetName())
 	}
 	return p, nil
 }
@@ -262,7 +264,8 @@ func (c *controller) instanceNamespaceHasReadyFileVolumeService(ctx context.Cont
 		return nil
 	}
 	return fmt.Errorf("no FileVolumeService in namespace %q has healthState=Ready and "+
-		"%q condition with status=True", instanceNS, fvsServiceReadyConditionType)
+		"%q condition with status=True. Check the FileVolumeService status conditions and retry once it is Ready",
+		instanceNS, fvsServiceReadyConditionType)
 }
 
 // fileVolumeServiceHasServiceReadyCondition reports whether the unstructured FileVolumeService object
@@ -452,7 +455,8 @@ func (c *controller) createFileVolumeViaFVS(ctx context.Context, req *csi.Create
 		}
 		if targetNS == "" {
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-				"no instance namespace with a healthy FileVolumeService for requested zones %v", requestedZones)
+				"no instance namespace with a healthy FileVolumeService for requested zones %v. "+
+					"Check the status of the FileVolumeService in the namespaces of those zones", requestedZones)
 		}
 
 		fvTyped := &fvv1alpha1.FileVolume{
@@ -496,7 +500,8 @@ func (c *controller) createFileVolumeViaFVS(ctx context.Context, req *csi.Create
 			return false, nil
 		}
 		if strings.EqualFold(string(phase), string(fvv1alpha1.FileVolumePhaseError)) {
-			return false, fmt.Errorf("FileVolume %s/%s entered Error phase: %s",
+			return false, fmt.Errorf("FileVolume %s/%s entered Error phase: %s. "+
+				"Check the status and events of the FileVolume and of the FileVolumeService",
 				instanceNS, fvName, summarizeFileVolumeConditions(fv))
 		}
 		if !strings.EqualFold(string(phase), string(fvv1alpha1.FileVolumePhaseReady)) {
@@ -518,7 +523,8 @@ func (c *controller) createFileVolumeViaFVS(ctx context.Context, req *csi.Create
 	})
 	if err != nil {
 		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.DeadlineExceeded,
-			"timeout or error waiting for FileVolume %s/%s to become Ready with export path and endpoint: %v",
+			"timeout or error waiting for FileVolume %s/%s to become Ready with export path and endpoint: %v. "+
+				"Check the status of the FileVolume and of the FileVolumeService in that namespace",
 			instanceNS, fvName, err)
 	}
 
@@ -770,7 +776,8 @@ func resolveNetworkProviderForFVS(ctx context.Context, dc dynamic.Interface,
 	if isPerNamespaceNetworkProvidersFSSEnabled {
 		if dc == nil {
 			return "", status.Errorf(codes.FailedPrecondition,
-				"dynamic client unavailable; required when %s is enabled",
+				"dynamic client unavailable; required when %s is enabled. "+
+					"Check the CSI controller logs for the Kubernetes client initialization error",
 				common.SupportsPerNamespaceNetworkProviders)
 		}
 		np, err := cnsoperatorutil.GetNetworkProviderFromNetworkSettings(ctx, dc, pvcNamespace)

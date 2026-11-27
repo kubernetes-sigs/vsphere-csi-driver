@@ -95,8 +95,8 @@ func QueryVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cnsty
 			queryAsyncNotSupported = true
 		} else { // Return for any other failures.
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"queryVolumeAsync failed for queryFilter cursor: %+v and ContainerClusterIds: %+v "+
-					"Err=%+v", queryFilter.Cursor, queryFilter.ContainerClusterIds, err.Error())
+				"failed to query volumes from CNS (QueryVolumeAsync) for container cluster IDs %v: %v. "+
+					"Verify vCenter and CNS are available, then retry", queryFilter.ContainerClusterIds, err.Error())
 		}
 	}
 
@@ -104,7 +104,8 @@ func QueryVolumeUtil(ctx context.Context, m cnsvolume.Manager, queryFilter cnsty
 		queryResult, err = m.QueryVolume(ctx, queryFilter)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"queryVolume failed for queryFilter: %+v. Err=%+v", queryFilter, err.Error())
+				"failed to query volumes from CNS (QueryVolume) for container cluster IDs %v: %v. "+
+					"Verify vCenter and CNS are available, then retry", queryFilter.ContainerClusterIds, err.Error())
 		}
 	}
 	return queryResult, nil
@@ -265,7 +266,7 @@ func QueryVolumeDetailsUtil(ctx context.Context, m cnsvolume.Manager, volumeIds 
 	if err != nil {
 		log.Errorf("failed to retrieve the volume size and datastore, err: %+v", err)
 		return volumeDetailsMap, logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to retrieve the volume sizes: %+v", err)
+			"failed to retrieve the volume sizes from CNS: %+v. Verify vCenter and CNS are available, then retry", err)
 	}
 	log.Infof("Number of results from QueryVolumeDetailsUtil: %d", len(allQueryResults.Volumes))
 	for _, res := range allQueryResults.Volumes {
@@ -321,7 +322,8 @@ func QueryAllVolumesForCluster(ctx context.Context, m cnsvolume.Manager, cluster
 	volumeIDsResult, err := m.QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{})
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"QueryAllVolume failed to get volume IDs with err=%+v", err.Error())
+			"failed to query volume IDs from CNS (QueryAllVolume) for cluster %q: %v. "+
+				"Verify vCenter and CNS are available, then retry", clusterID, err.Error())
 	}
 
 	if len(volumeIDsResult.Volumes) == 0 {
@@ -368,7 +370,8 @@ func QueryVolumeDetailsBatched(ctx context.Context, m cnsvolume.Manager,
 		batchResult, err := m.QueryAllVolume(ctx, batchFilter, querySelection)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"QueryAllVolume batch failed for volumes %d-%d with err=%+v", i+1, end, err.Error())
+				"failed to query volumes %d-%d from CNS (QueryAllVolume): %v. "+
+					"Verify vCenter and CNS are available, then retry", i+1, end, err.Error())
 		}
 
 		allVolumes = append(allVolumes, batchResult.Volumes...)

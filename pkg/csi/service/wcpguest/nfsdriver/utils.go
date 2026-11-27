@@ -38,7 +38,8 @@ const (
 	delete                          = "delete"
 	retain                          = "retain"
 	archive                         = "archive"
-	volumeOperationAlreadyExistsFmt = "An operation with the given Volume ID %s already exists"
+	volumeOperationAlreadyExistsFmt = "An operation with the given Volume ID %s already exists; " +
+		"the request will be retried"
 )
 
 var supportedOnDeleteValues = []string{"", delete, retain, archive}
@@ -205,7 +206,8 @@ func waitForPathNotExistWithTimeout(path string, timeout time.Duration) error {
 		}
 
 		if time.Now().After(timeoutTime) {
-			return fmt.Errorf("time out waiting for path %s not exist", path)
+			return fmt.Errorf("timed out waiting for path %s to be removed. "+
+				"Check for a stale or busy mount and retry", path)
 		}
 		time.Sleep(pathPollInterval)
 	}

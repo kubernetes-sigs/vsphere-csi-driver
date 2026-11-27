@@ -123,7 +123,8 @@ func (volumeInfo *volumeInfo) PrecheckRestore(ctx context.Context, volumeID, nam
 			"attempt of this restore", volumeID, key)
 		return nil
 	default:
-		return fmt.Errorf("restore requires a deleted volume: CnsVolumeInfo %s is live", key)
+		return fmt.Errorf("restore requires a deleted volume: CnsVolumeInfo %s is live; "+
+			"restore applies only to deleted volumes, so verify the volume ID", key)
 	}
 	lookup, err := volumeInfo.findDeletedVolumeInfo(ctx, volumeID, namespace)
 	if err != nil {

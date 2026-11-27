@@ -111,7 +111,8 @@ func (h *hostInventory) snapshot(ctx context.Context) (map[string]string, error)
 	nodes, err := h.client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		log.Errorf("Cannot list Nodes for physical host ownership: %v", err)
-		return nil, fmt.Errorf("cannot list Nodes for physical host ownership: %w", err)
+		return nil, fmt.Errorf("cannot list Nodes for physical host ownership; "+
+			"verify the CSI driver can list nodes: %w", err)
 	}
 	conflicts := make(map[string]string)
 	reserved := make(map[string]string)

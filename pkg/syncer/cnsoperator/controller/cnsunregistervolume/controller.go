@@ -221,7 +221,10 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 		err := removeFinalizer(ctx, r.client, instance)
 		if err != nil {
 			log.Error("failed to remove finalizer from the instance with error ", err)
-			setInstanceError(ctx, r, instance, "failed to remove finalizer from the instance")
+			setInstanceError(ctx, r, instance,
+				fmt.Sprintf("Failed to remove finalizer from CnsUnregisterVolume %s/%s: %v. "+
+					"Verify API server access; the operation will be retried.",
+					instance.Namespace, instance.Name, err))
 			return reconcile.Result{RequeueAfter: backoff}, nil
 		}
 
@@ -247,7 +250,9 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 	err = setInstanceSuccess(ctx, r, instance, msg)
 	if err != nil {
 		log.Warn("failed to update status to success with error ", err)
-		setInstanceError(ctx, r, instance, "failed to update status to success")
+		setInstanceError(ctx, r, instance,
+			fmt.Sprintf("The volume was unregistered, but updating the CnsUnregisterVolume status failed: %v. "+
+				"The status will be refreshed on the next reconcile.", err))
 		return reconcile.Result{RequeueAfter: backoff}, nil
 	}
 
@@ -400,7 +405,8 @@ func _unregisterVolume(ctx context.Context, volMgr volumes.Manager, request reco
 	k8sClient, err := newK8sClient(ctx)
 	if err != nil {
 		log.Error("failed to init K8s client for volume unregistration with error ", err)
-		return "", errors.New("failed to init K8s client for volume unregistration")
+		return "", fmt.Errorf("failed to create a Kubernetes client for volume unregistration: %v. "+
+			"Verify the in-cluster configuration and RBAC", err)
 	}
 
 	if params.pvcName != "" {
@@ -409,7 +415,9 @@ func _unregisterVolume(ctx context.Context, volMgr volumes.Manager, request reco
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
 				log.Error("failed to protect associated PVC with error ", err)
-				return "", fmt.Errorf("failed to protect associated PVC %s/%s", params.namespace, params.pvcName)
+				return "", fmt.Errorf("failed to add the unregister protection finalizer to PVC %s/%s: %v. "+
+					"Verify the PVC exists and the CSI driver has RBAC access to it",
+					params.namespace, params.pvcName, err)
 			}
 
 			log.Info("associated PVC not found. Continuing with volume unregistration")
@@ -421,7 +429,8 @@ func _unregisterVolume(ctx context.Context, volMgr volumes.Manager, request reco
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
 				log.Error("failed to set reclaim policy to Retain on associated PV with error ", err)
-				return "", fmt.Errorf("failed to set reclaim policy to Retain on associated PV %s", params.pvName)
+				return "", fmt.Errorf("failed to set reclaim policy to Retain on PV %s: %v. "+
+					"Verify the PV exists and the CSI driver has RBAC access to it", params.pvName, err)
 			}
 
 			log.Info("associated PV not found. Continuing with volume unregistration")
@@ -433,7 +442,8 @@ func _unregisterVolume(ctx context.Context, volMgr volumes.Manager, request reco
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
 				log.Error("failed to delete associated PVC with error ", err)
-				return "", fmt.Errorf("failed to delete associated PVC %s/%s", params.namespace, params.pvcName)
+				return "", fmt.Errorf("failed to delete PVC %s/%s: %v. The operation will be retried",
+					params.namespace, params.pvcName, err)
 			}
 
 			log.Info("associated PVC not found. Continuing with volume unregistration")
@@ -445,7 +455,8 @@ func _unregisterVolume(ctx context.Context, volMgr volumes.Manager, request reco
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
 				log.Error("failed to delete associated PV with error ", err)
-				return "", fmt.Errorf("failed to delete associated PV %s", params.pvName)
+				return "", fmt.Errorf("failed to delete PV %s: %v. The operation will be retried",
+					params.pvName, err)
 			}
 
 			log.Info("associated PV not found. Continuing with volume unregistration")
@@ -457,7 +468,8 @@ func _unregisterVolume(ctx context.Context, volMgr volumes.Manager, request reco
 		faultType, err := volMgr.UnregisterVolume(ctx, params.volumeID, unregDisk)
 		if err != nil {
 			log.Error("failed to unregister CNS volume with error ", err)
-			return faultType, fmt.Errorf("failed to unregister associated volume %s", params.volumeID)
+			return faultType, fmt.Errorf("failed to unregister volume %s from CNS: %v. "+
+				"Check the CNS task in vCenter", params.volumeID, err)
 		}
 	}
 
@@ -467,8 +479,9 @@ func _unregisterVolume(ctx context.Context, volMgr volumes.Manager, request reco
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
 				log.Error("failed to remove finalizer from associated PVC with error ", err)
-				return "", fmt.Errorf("failed to remove finalizer from associated PVC %s/%s",
-					params.namespace, params.pvcName)
+				return "", fmt.Errorf("failed to remove the unregister protection finalizer from PVC %s/%s: %v. "+
+					"Verify the CSI driver has RBAC access to the PVC; the operation will be retried",
+					params.namespace, params.pvcName, err)
 			}
 
 			log.Info("associated PVC not found. Continuing with volume unregistration")

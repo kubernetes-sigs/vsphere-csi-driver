@@ -205,7 +205,7 @@ func TestValidateVmAndPvc_DevOpsUser_InvalidVM(t *testing.T) {
 
 	err := validateVmAndPvc(ctx, labels, "vm-1", "pvc-1", "ns-1", nil, vm)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Invalid combination")
+	assert.Contains(t, err.Error(), "cannot target TKG VM")
 	assert.Contains(t, err.Error(), "my-vm")
 }
 

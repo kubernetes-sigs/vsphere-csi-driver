@@ -694,7 +694,7 @@ func TestReconcileCertificateMissingSecretName(t *testing.T) {
 	select {
 	case ev := <-recorder.Events:
 		assert.Contains(t, ev, "Warning")
-		assert.Contains(t, ev, "no secretName")
+		assert.Contains(t, ev, "no spec.secretName")
 	case <-time.After(time.Second):
 		t.Fatal("expected a warning event to be recorded")
 	}

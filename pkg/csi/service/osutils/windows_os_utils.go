@@ -82,7 +82,8 @@ func (osUtils *OsUtils) NodeStageBlockVolume(
 	if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
 		// Volume is a raw block volume.
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"Stage for raw block Volume access type is currently not supported for windows node")
+			"raw block volumes are not supported on Windows nodes; use a Filesystem volume mode or "+
+				"schedule the pod on a Linux node")
 	}
 
 	// Block Volume with Mount access type.
@@ -232,7 +233,8 @@ func (osUtils *OsUtils) PublishBlockVol(
 	log := logger.GetLogger(ctx)
 
 	return nil, logger.LogNewErrorCodef(log, codes.Internal,
-		"PublishBlockVol Raw Block devices are currently not supported by windows : %v",
+		"raw block devices are not supported on Windows nodes; use a Filesystem volume mode or "+
+			"schedule the pod on a Linux node: %v",
 		logger.RedactCSIRequest(req))
 }
 
@@ -244,7 +246,7 @@ func (osUtils *OsUtils) PublishFileVol(
 	*csi.NodePublishVolumeResponse, error) {
 	log := logger.GetLogger(ctx)
 	return nil, logger.LogNewErrorCodef(log, codes.Internal,
-		"PublishBlockVol File Volumes are currently not supported by windows : %v",
+		"file volumes are not supported on Windows nodes; schedule the pod on a Linux node: %v",
 		logger.RedactCSIRequest(req))
 }
 
@@ -373,7 +375,7 @@ func (osUtils *OsUtils) GetVolumeCapabilityFsType(ctx context.Context,
 	if isFileVolume {
 		// Volumes with RWM or ROM access modes are not supported on Windows
 		return "", logger.LogNewErrorCode(log, codes.FailedPrecondition,
-			"vSAN file service volume can not be mounted on windows node")
+			"vSAN file service volumes cannot be mounted on Windows nodes; schedule the pod on a Linux node")
 	}
 
 	// On Windows we only support ntfs filesystem. External-provisioner sets default fstype as ext4

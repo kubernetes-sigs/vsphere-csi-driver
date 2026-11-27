@@ -314,7 +314,7 @@ func TestReconcileRestorePrecheckFailureStopsBeforeCNS(t *testing.T) {
 	assert.Equal(t, []string{testRestoreVolumeID + "|ns1"}, service.prechecks)
 	assert.Equal(t, []string{string(testRestoreUID)}, service.precheckRestore)
 	assert.Empty(t, service.handovers)
-	assert.NotContains(t, got.Status.Error, "Unable to connect to VC",
+	assert.NotContains(t, got.Status.Error, "Unable to connect to vCenter",
 		"the precheck must run before vCenter is contacted")
 }
 
@@ -326,7 +326,7 @@ func TestReconcileRestorePrecheckPassContinuesRegistration(t *testing.T) {
 
 	_, got := reconcileAndGetStatus(t, r, instance)
 	assert.Len(t, service.prechecks, 1)
-	assert.Equal(t, "Unable to connect to VC for volume registration", got.Status.Error,
+	assert.Contains(t, got.Status.Error, "Unable to connect to vCenter for volume registration",
 		"a passed precheck must continue to the CNS registration")
 }
 
@@ -348,7 +348,7 @@ func TestReconcileWithoutRestoreSkipsPrecheck(t *testing.T) {
 
 			_, got := reconcileAndGetStatus(t, r, instance)
 			assert.Empty(t, service.prechecks, "an ordinary registration must not read a DVI")
-			assert.Equal(t, "Unable to connect to VC for volume registration", got.Status.Error)
+			assert.Contains(t, got.Status.Error, "Unable to connect to vCenter for volume registration")
 		})
 	}
 }
@@ -473,7 +473,7 @@ func TestReconcileRestoreProceedsWhenNotOwnedByOther(t *testing.T) {
 				assert.Equal(t, "restore prerequisite not met", got.Status.Error)
 			} else {
 				assert.Empty(t, service.prechecks, "a restore that already stamped the volume skips the precheck")
-				assert.Equal(t, "Unable to connect to VC for volume registration", got.Status.Error,
+				assert.Contains(t, got.Status.Error, "Unable to connect to vCenter for volume registration",
 					"the restore must continue to the CNS registration")
 			}
 			assert.Empty(t, got.Annotations[cnsvolumeinfov1alpha1.AnnRestoreNotProcessed])

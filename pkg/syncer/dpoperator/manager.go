@@ -57,7 +57,7 @@ func NewManager(
 	// Scheme from multiple goroutines causes "fatal error: concurrent map writes".
 	scheme := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
-		return nil, fmt.Errorf("failed to add client-go types to scheme for Data Protection(DP) operator. Err: %+v", err)
+		return nil, fmt.Errorf("failed to add client-go types to scheme for Data Protection (DP) operator: %v", err)
 	}
 
 	mgr, err := ctrlmgr.New(kubeConfig, ctrlmgr.Options{
@@ -67,31 +67,31 @@ func NewManager(
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create new Data Protection(DP) operator instance. Err: %+v", err)
+		return nil, fmt.Errorf("failed to create new Data Protection (DP) operator instance: %v", err)
 	}
 
 	log.Info("Registering Components for Data Protection(DP) operator")
 
 	if err := cbtconfigv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
-		return nil, fmt.Errorf("failed to set scheme for Data Protection(DP) operator for type %s. Err: %+v",
+		return nil, fmt.Errorf("failed to set scheme for Data Protection (DP) operator for type %s: %v",
 			cbtconfigv1alpha1.GroupVersion.String(), err)
 	}
 
 	if err := certmanagerv1.AddToScheme(mgr.GetScheme()); err != nil {
 		return nil, fmt.Errorf(
-			"failed to set scheme for Data Protection(DP) operator for type %s. Err: %+v",
+			"failed to set scheme for Data Protection (DP) operator for type %s: %v",
 			certmanagerv1.SchemeGroupVersion.Group, err)
 	}
 
 	if err := snapshotmetadatav1beta1.AddToScheme(mgr.GetScheme()); err != nil {
 		return nil, fmt.Errorf(
-			"failed to set scheme for Data Protection(DP) operator for type %s. Err: %+v",
+			"failed to set scheme for Data Protection (DP) operator for type %s: %v",
 			snapshotmetadatav1beta1.SchemeGroupVersion.Group, err)
 	}
 
 	if err := wcpcapapis.AddToScheme(mgr.GetScheme()); err != nil {
 		return nil, fmt.Errorf(
-			"failed to set scheme for Data Protection(DP) operator for type %s. Err: %+v",
+			"failed to set scheme for Data Protection (DP) operator for type %s: %v",
 			wcpcapapis.GroupName, err)
 	}
 
