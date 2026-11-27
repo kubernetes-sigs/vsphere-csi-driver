@@ -6,12 +6,70 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 )
+
+func TestCheckAPI(t *testing.T) {
+	tests := []struct {
+		name        string
+		version     string
+		unsupported bool
+		wantErr     bool
+	}{
+		{name: "VC 8", version: "8.0.0.1.0"},
+		{name: "VC 7.0 U3", version: "7.0.3.0"},
+		{name: "minimum version", version: "6.7.3"},
+		{name: "major below minimum", version: "5.9.9", unsupported: true, wantErr: true},
+		{name: "minor below minimum", version: "6.6.9", unsupported: true, wantErr: true},
+		{name: "patch below minimum", version: "6.7.2", unsupported: true, wantErr: true},
+		{name: "missing version", wantErr: true},
+		{name: "missing minor", version: "6", wantErr: true},
+		{name: "invalid major", version: "x.7.3", wantErr: true},
+		{name: "invalid minor", version: "6.x.3", wantErr: true},
+		{name: "invalid patch", version: "6.7.x", wantErr: true},
+		{name: "invalid patch with newer minor", version: "6.8.x", wantErr: true},
+		{name: "invalid patch with newer major", version: "7.0.x", wantErr: true},
+		{name: "invalid fourth component", version: "6.7.3.garbage", wantErr: true},
+		{name: "invalid fifth component", version: "8.0.0.1.garbage", wantErr: true},
+		{name: "invalid component below minimum", version: "5.0.x", wantErr: true},
+		{name: "empty patch", version: "8.0.", wantErr: true},
+		{name: "empty trailing component", version: "8.0.0.", wantErr: true},
+		{name: "negative component", version: "8.0.0.-1", wantErr: true},
+		{name: "signed component", version: "8.0.0.+1", wantErr: true},
+		{name: "overflowing component", version: "8.0.0.9999999999999999999999", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := CheckAPI(context.Background(), tt.version, 6, 7, 3)
+			if !tt.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			var unsupportedVersion *UnsupportedAPIVersionError
+			assert.Equal(t, tt.unsupported, errors.As(err, &unsupportedVersion))
+			if tt.unsupported {
+				assert.EqualError(t, err, "the minimum supported vCenter API version is 6.7.3")
+			}
+		})
+	}
+}
+
+func TestCheckAPIValidatesAllComponentsForCnsMinimum(t *testing.T) {
+	for _, version := range []string{"9.2.x", "9.1.0.garbage"} {
+		t.Run(version, func(t *testing.T) {
+			err := CheckAPI(context.Background(), version, 9, 1, 0)
+			require.Error(t, err)
+			var unsupportedVersion *UnsupportedAPIVersionError
+			assert.False(t, errors.As(err, &unsupportedVersion))
+		})
+	}
+}
 
 // vCenter host and thumbprint are protocol-compliant case-insensitive identifiers, so
 // GetVirtualCenterConfigs must normalize them (host -> lowercase, thumbprint -> uppercase)

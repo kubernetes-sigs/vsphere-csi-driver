@@ -518,6 +518,60 @@ func IsvSphereVersion91orAbove(ctx context.Context, aboutInfo types.AboutInfo) (
 	return false, nil
 }
 
+// UnsupportedAPIVersionError indicates that the API version is below the required minimum.
+type UnsupportedAPIVersionError struct {
+	MinimumMajor int
+	MinimumMinor int
+	MinimumPatch int
+}
+
+func (e *UnsupportedAPIVersionError) Error() string {
+	return fmt.Sprintf("the minimum supported vCenter API version is %d.%d.%d",
+		e.MinimumMajor, e.MinimumMinor, e.MinimumPatch)
+}
+
+// CheckAPI checks a vCenter API version against the specified minimum supported version.
+func CheckAPI(ctx context.Context,
+	versionToCheck string,
+	minSupportedVCenterMajor int,
+	minSupportedVCenterMinor int,
+	minSupportedVCenterPatch int) error {
+	log := logger.GetLogger(ctx)
+	items := strings.Split(versionToCheck, ".")
+	if len(items) < 2 {
+		return fmt.Errorf("invalid API Version format %q: expected a dotted version string "+
+			"such as major.minor.patch. Check the vCenter version reported in the CSI config secret", versionToCheck)
+	}
+	// Validate every component before comparing, including components beyond the patch.
+	var version [3]int
+	for i, item := range items {
+		value, err := strconv.Atoi(item)
+		if err != nil || value < 0 || strings.HasPrefix(item, "+") {
+			return fmt.Errorf("invalid API version component %q at position %d in %q: "+
+				"expected a non-negative decimal integer. Check the vCenter API version "+
+				"reported by the vCenter About info", item, i+1, versionToCheck)
+		}
+		if i < len(version) {
+			version[i] = value
+		}
+	}
+	major, minor, patch := version[0], version[1], version[2]
+	belowMinimum := major < minSupportedVCenterMajor ||
+		(major == minSupportedVCenterMajor && minor < minSupportedVCenterMinor)
+	patchBelowMinimum := major == minSupportedVCenterMajor && minor == minSupportedVCenterMinor &&
+		len(items) >= 3 && patch < minSupportedVCenterPatch
+	if belowMinimum || patchBelowMinimum {
+		return &UnsupportedAPIVersionError{
+			MinimumMajor: minSupportedVCenterMajor, MinimumMinor: minSupportedVCenterMinor,
+			MinimumPatch: minSupportedVCenterPatch,
+		}
+	}
+
+	log.Infof("vCenter API version detected as %q satisfies minimum supported vCenter API version %d.%d.%d.",
+		versionToCheck, minSupportedVCenterMajor, minSupportedVCenterMinor, minSupportedVCenterPatch)
+	return nil
+}
+
 // IsVolumeCreationSuspended checks whether a given Datastore has cns.vmware.com/datastoreSuspended customValue
 func IsVolumeCreationSuspended(ctx context.Context, datastoreInfo *DatastoreInfo) bool {
 	log := logger.GetLogger(ctx)
