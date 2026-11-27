@@ -34,7 +34,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -147,7 +146,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 			Interface: k8sclient.CoreV1().Events(""),
 		},
 	)
-	recorder := eventBroadcaster.NewRecorder(scheme.Scheme,
+	recorder := eventBroadcaster.NewRecorder(mgr.GetScheme(),
 		corev1.EventSource{Component: csinodetopologyv1alpha1.GroupName})
 	return add(mgr, newReconciler(mgr, configInfo, recorder,
 		enableTKGsHAinGuest, enableHostLocalSupportInGuest, vmOperatorClient, supervisorNamespace,
