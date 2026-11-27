@@ -128,7 +128,7 @@ func CheckAPI(ctx context.Context,
 	items := strings.Split(versionToCheck, ".")
 	if len(items) < 2 {
 		return fmt.Errorf("invalid API Version format %q: expected a dotted version string "+
-			"such as major.minor.patch. Check the vCenter version reported in the CSI config secret", versionToCheck)
+			"such as major.minor.patch. Check the version reported by vCenter (About info)", versionToCheck)
 	}
 	major, err := strconv.Atoi(items[0])
 	if err != nil {
@@ -142,8 +142,8 @@ func CheckAPI(ctx context.Context,
 	}
 
 	if major < minSupportedVCenterMajor || (major == minSupportedVCenterMajor && minor < minSupportedVCenterMinor) {
-		return fmt.Errorf("the minimum supported vCenter is %d.%d.%d",
-			minSupportedVCenterMajor, minSupportedVCenterMinor, minSupportedVCenterPatch)
+		return fmt.Errorf("vCenter API version %q is below the minimum supported version %d.%d.%d. "+
+			"Upgrade vCenter", versionToCheck, minSupportedVCenterMajor, minSupportedVCenterMinor, minSupportedVCenterPatch)
 	}
 
 	if major == minSupportedVCenterMajor && minor == minSupportedVCenterMinor {
@@ -349,11 +349,12 @@ func IsVolumeSnapshotReady(ctx context.Context, client snapshotterClientSet.Inte
 		})
 
 	if !isReadyToUse {
-		msg := fmt.Sprintf("volumesnapshot %s in namespace %s not in ReadyToUse "+
-			"within %d seconds", supervisorVolumeSnapshotName, namespace, timeoutSeconds)
+		msg := fmt.Sprintf("volumesnapshot %s/%s did not become ReadyToUse within %d seconds",
+			namespace, supervisorVolumeSnapshotName, timeoutSeconds)
 		if waitErr != nil {
-			msg += fmt.Sprintf(": message: %v", waitErr.Error())
+			msg += fmt.Sprintf(": %v", waitErr)
 		}
+		msg += ". Check the VolumeSnapshot status and events on the supervisor cluster"
 		return false, nil, fmt.Errorf("%s", msg)
 	}
 

@@ -123,7 +123,8 @@ func main() {
 	// If no endpoint is set then exit the program.
 	CSIEndpoint := os.Getenv(csitypes.EnvVarEndpoint)
 	if CSIEndpoint == "" {
-		log.Error("CSI endpoint cannot be empty. Please set the env variable.")
+		log.Errorf("CSI endpoint is empty. Set the %s environment variable in the driver deployment.",
+			csitypes.EnvVarEndpoint)
 		os.Exit(1)
 	}
 	log.Info("Enable logging off for vCenter sessions on exit")

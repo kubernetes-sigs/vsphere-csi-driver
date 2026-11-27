@@ -483,7 +483,9 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 			accessPoints[kv.Key] = kv.Value
 		}
 		if len(accessPoints) == 0 {
-			msg := fmt.Sprintf("No access points found for volume: %q", volumeID)
+			msg := fmt.Sprintf("No access points were found for file volume %q. "+
+				"Verify the file share is healthy and its access points are configured "+
+				"in the vSAN file service.", volumeID)
 			log.Error(msg)
 			setInstanceError(ctx, r, instance, msg)
 			return reconcile.Result{RequeueAfter: timeout}, nil
@@ -544,8 +546,8 @@ func addPvcFinalizer(ctx context.Context,
 
 	err = k8s.PatchObject(ctx, client, original, pvc)
 	if err != nil {
-		return fmt.Errorf("failed to add finalizer %s on PVC %s in namespace %s", cnsoperatortypes.CNSPvcFinalizer,
-			instance.Spec.PvcName, instance.Namespace)
+		return fmt.Errorf("failed to add finalizer %s on PVC %s in namespace %s: %v",
+			cnsoperatortypes.CNSPvcFinalizer, instance.Spec.PvcName, instance.Namespace, err)
 	}
 
 	log.Infof("Successfully added finalizer %s to PVC %s in namespace %s", cnsoperatortypes.CNSPvcFinalizer,
@@ -618,8 +620,8 @@ func removeFinalizerFromPVC(ctx context.Context, client client.Client,
 
 	err = k8s.PatchObject(ctx, client, original, pvc)
 	if err != nil {
-		return fmt.Errorf("failed to remove finalizer %s from PVC %s in namespace %s",
-			cnsoperatortypes.CNSPvcFinalizer, pvcName, pvc.Namespace)
+		return fmt.Errorf("failed to remove finalizer %s from PVC %s in namespace %s: %v",
+			cnsoperatortypes.CNSPvcFinalizer, pvcName, pvc.Namespace, err)
 	}
 
 	log.Infof("Successfully removed finalizer %s from PVC %s in namespace %s", cnsoperatortypes.CNSPvcFinalizer,
@@ -671,7 +673,7 @@ func (r *ReconcileCnsFileAccessConfig) removePermissionsForFileVolume(ctx contex
 	err = cnsFileVolumeClientInstance.RemoveClientVMFromIPList(ctx,
 		instance.Namespace+"/"+instance.Spec.PvcName, instance.Spec.VMName, vmIP)
 	if err != nil {
-		return logger.LogNewErrorf(log, "Failed to remove VM %q with IP %q from IPList. Error: %+v",
+		return logger.LogNewErrorf(log, "Failed to remove VM %q with IP %q from the client IP list: %v",
 			instance.Spec.VMName, vmIP, err)
 	}
 	log.Infof("Successfully removed VM IP %q from IPList for CnsFileAccessConfig request with name: %q on "+
@@ -736,7 +738,8 @@ func (r *ReconcileCnsFileAccessConfig) configureNetPermissionsForFileVolume(ctx 
 	err = cnsFileVolumeClientInstance.RemoveClientVMFromIPList(ctx,
 		instance.Namespace+"/"+instance.Spec.PvcName, instance.Spec.VMName, tkgVMIP)
 	if err != nil {
-		return logger.LogNewErrorf(log, "Failed to remove VM %q with IP %q to IPList. Error: %+v", vm.Name, tkgVMIP, err)
+		return logger.LogNewErrorf(log, "Failed to remove VM %q with IP %q from the client IP list: %v. "+
+			"Verify the CnsFileVolumeClient resource exists and retry.", vm.Name, tkgVMIP, err)
 	}
 	log.Infof("Successfully removed VM IP %q from IPList for CnsFileAccessConfig request with name: %q on namespace: %q",
 		tkgVMIP, instance.Name, instance.Namespace)
@@ -791,7 +794,8 @@ func (r *ReconcileCnsFileAccessConfig) getVMExternalIP(ctx context.Context,
 	}
 
 	if networkProvider == "" {
-		return "", logger.LogNewError(log, "unable to find network provider information")
+		return "", logger.LogNewError(log, "network provider information was not found; "+
+			"verify the Supervisor network configuration")
 	}
 
 	networkTypes := []string{util.NSXTNetworkProvider, util.
@@ -810,7 +814,8 @@ func (r *ReconcileCnsFileAccessConfig) getVMExternalIP(ctx context.Context,
 	}
 
 	if !supported_found {
-		return "", logger.LogNewErrorf(log, "Unknown network provider. Error: %+v", err)
+		return "", logger.LogNewErrorf(log, "Unsupported network provider %q. Supported providers: %v; "+
+			"verify the Supervisor network configuration.", networkProvider, networkTypes)
 	}
 
 	tkgVMIP, err := util.GetTKGVMIP(ctx, r.vmOperatorClient,
@@ -866,8 +871,8 @@ func validateVmAndPvc(ctx context.Context, instanceLabels map[string]string, ins
 
 	for key := range vm.Labels {
 		if strings.Contains(key, capvVmLabelKey) {
-			msg := fmt.Sprintf("CnsFileAccessConfig is created by devops user and has TKG VM %s. "+
-				"Invalid combination.", vm.Name)
+			msg := fmt.Sprintf("A CnsFileAccessConfig created directly by a user cannot target TKG VM %s. "+
+				"Delete this CnsFileAccessConfig.", vm.Name)
 			log.Errorf(msg)
 			err := errors.New(msg)
 			return err

@@ -142,5 +142,5 @@ func TestGetTagManagerRejectsBrokenInnerClient(t *testing.T) {
 
 	_, err := vc.GetTagManager(context.Background())
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "vCenter not initialized")
+	assert.ErrorContains(t, err, "vCenter connection is not initialized")
 }

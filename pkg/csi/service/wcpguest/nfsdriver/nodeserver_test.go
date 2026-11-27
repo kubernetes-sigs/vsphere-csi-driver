@@ -121,7 +121,7 @@ func TestNodePublishVolumeLateMountIsUnmountedAndLockHeld(t *testing.T) {
 
 	_, err := ns.NodePublishVolume(context.Background(), publishRequest(target))
 	require.Equal(t, codes.Internal, status.Code(err), "got: %v", err)
-	require.Contains(t, err.Error(), "timeout")
+	require.Contains(t, err.Error(), "timed out")
 
 	// Still mounting: the lock is held, so a retry is turned away instead of racing.
 	_, err = ns.NodePublishVolume(context.Background(), publishRequest(target))

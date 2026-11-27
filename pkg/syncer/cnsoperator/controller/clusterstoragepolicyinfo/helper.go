@@ -413,7 +413,17 @@ func storagePolicyIDFromBackingResources(sc *storagev1.StorageClass,
 		vacPolicyID = storagePolicyIDFromParameters(vac.Parameters)
 	}
 	if scPolicyID == "" && vacPolicyID == "" {
-		return "", fmt.Errorf("storage policy ID is not set on either the StorageClass or VolumeAttributesClass")
+		var scName, vacName string
+		if sc != nil {
+			scName = sc.Name
+		}
+		if vac != nil {
+			vacName = vac.Name
+		}
+		return "", fmt.Errorf("storage policy ID is not set on StorageClass %q or VolumeAttributesClass %q "+
+			"(an empty name means that resource does not exist); "+
+			"set the storagePolicyID parameter on the existing StorageClass or VolumeAttributesClass",
+			scName, vacName)
 	}
 	if scPolicyID != "" && vacPolicyID != "" && scPolicyID != vacPolicyID {
 		return "", fmt.Errorf(

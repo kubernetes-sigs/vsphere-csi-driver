@@ -503,25 +503,30 @@ func (m *defaultManager) MonitorCreateVolumeTask(ctx context.Context,
 
 	log.Infof("CreateVolume: VolumeName: %q, opId: %q", volNameFromInputSpec, taskInfo.ActivationId)
 	taskResult, err := getTaskResultFromTaskInfo(ctx, taskInfo)
-	if taskResult == nil {
-		return nil, csifault.CSITaskResultEmptyFault,
-			logger.LogNewErrorf(log, "taskResult is empty for CreateVolume task: %q, opID: %q",
-				taskInfo.Task.Value, taskInfo.ActivationId)
-	}
 	if err != nil {
 		log.Errorf("failed to get task result for task %s and volume name %s with error: %v",
 			task.Reference().Value, volNameFromInputSpec, err)
 		faultType = ExtractFaultTypeFromErr(ctx, err)
 		return nil, faultType, err
 	}
+	if taskResult == nil {
+		return nil, csifault.CSITaskResultEmptyFault,
+			logger.LogNewErrorf(log, "CNS returned no result for the CreateVolume task: %q, opID: %q"+
+				"; retry the operation, and if it persists check the CNS service health on vCenter",
+				taskInfo.Task.Value, taskInfo.ActivationId)
+	}
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 	if volumeOperationRes.Fault != nil {
 		if IsNotSupportedFault(ctx, volumeOperationRes.Fault) {
 			faultType = "vim25:NotSupported"
-			err = fmt.Errorf("failed to create volume with fault: %q", faultType)
+			err = fmt.Errorf("failed to create volume %q: CNS reported fault %q (%s)",
+				volNameFromInputSpec, faultType, describeFault(volumeOperationRes.Fault))
 		} else if _, ok := volumeOperationRes.Fault.Fault.(*cnstypes.CnsVolumeAlreadyExistsFault); ok {
 			faultType = "vim.fault.CnsVolumeAlreadyExistsFault"
-			err = fmt.Errorf("failed to create volume with fault: %q", faultType)
+			err = fmt.Errorf("failed to create volume %q: CNS reported fault %q (%s) because a volume with "+
+				"this name already exists; retry the operation, and if it persists look up the existing "+
+				"volume with this name in CNS", volNameFromInputSpec, faultType,
+				describeFault(volumeOperationRes.Fault))
 		} else {
 			// Validate if the volume is already registered.
 			faultType = ExtractFaultTypeFromVolumeResponseResult(ctx, volumeOperationRes)
@@ -1120,16 +1125,17 @@ func (m *defaultManager) createVolume(ctx context.Context, spec *cnstypes.CnsVol
 
 	log.Infof("CreateVolume: VolumeName: %q, opId: %q", volNameFromInputSpec, taskInfo.ActivationId)
 	taskResult, err := getTaskResultFromTaskInfo(ctx, taskInfo)
-	if taskResult == nil {
-		return nil, csifault.CSITaskResultEmptyFault,
-			logger.LogNewErrorf(log, "taskResult is empty for CreateVolume task: %q, opID: %q",
-				taskInfo.Task.Value, taskInfo.ActivationId)
-	}
 	if err != nil {
 		log.Errorf("failed to get task result for task %s and volume name %s with error: %v",
 			task.Reference().Value, volNameFromInputSpec, err)
 		faultType = ExtractFaultTypeFromErr(ctx, err)
 		return nil, faultType, err
+	}
+	if taskResult == nil {
+		return nil, csifault.CSITaskResultEmptyFault,
+			logger.LogNewErrorf(log, "CNS returned no result for the CreateVolume task: %q, opID: %q"+
+				"; retry the operation, and if it persists check the CNS service health on vCenter",
+				taskInfo.Task.Value, taskInfo.ActivationId)
 	}
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 	if volumeOperationRes.Fault != nil {
@@ -1320,7 +1326,8 @@ func (m *defaultManager) AttachVolume(ctx context.Context,
 
 		if taskResult == nil {
 			return "", csifault.CSITaskResultEmptyFault,
-				logger.LogNewErrorf(log, "taskResult is empty for AttachVolume task: %q, opId: %q",
+				logger.LogNewErrorf(log, "CNS returned no result for the AttachVolume task: %q, opId: %q"+
+					"; retry the operation, and if it persists check the CNS service health on vCenter",
 					taskInfo.Task.Value, taskInfo.ActivationId)
 		}
 
@@ -1381,9 +1388,11 @@ func (m *defaultManager) AttachVolume(ctx context.Context,
 							if len(errorMessages) > 0 {
 								extractedMessage := strings.Join(errorMessages, " - ")
 								log.Infof("NotSupported fault extracted message: %s", extractedMessage)
+								log.Errorf("AttachVolume fault details: %s", spew.Sdump(volumeOperationRes.Fault))
 								return "", faultType, logger.LogNewErrorf(log,
-									"%q Failed to attach cns volume: %q to node vm: %q. fault: %q. opId: %q",
-									extractedMessage, volumeID, vm.String(), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+									"%q Failed to attach cns volume: %q to node vm: %q. fault: %s. opId: %q",
+									extractedMessage, volumeID, vm.String(),
+									describeFault(volumeOperationRes.Fault), taskInfo.ActivationId)
 							}
 
 							// Fallback to detailed dump for debugging
@@ -1393,8 +1402,10 @@ func (m *defaultManager) AttachVolume(ctx context.Context,
 				}
 			}
 
-			return "", faultType, logger.LogNewErrorf(log, "failed to attach cns volume: %q to node vm: %q. fault: %q. opId: %q",
-				volumeID, vm.String(), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+			log.Errorf("AttachVolume fault details: %s", spew.Sdump(volumeOperationRes.Fault))
+			return "", faultType, logger.LogNewErrorf(log,
+				"failed to attach cns volume: %q to node vm: %q. fault: %s. opId: %q",
+				volumeID, vm.String(), describeFault(volumeOperationRes.Fault), taskInfo.ActivationId)
 		}
 		diskUUID := interface{}(taskResult).(*cnstypes.CnsVolumeAttachResult).DiskUUID
 		log.Infof("AttachVolume: Volume attached successfully. volumeID: %q, opId: %q, vm: %q, diskUUID: %q",
@@ -1499,7 +1510,8 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 		}
 		if taskResult == nil {
 			return csifault.CSITaskResultEmptyFault,
-				logger.LogNewErrorf(log, "taskResult is empty for DetachVolume task: %q, opId: %q",
+				logger.LogNewErrorf(log, "CNS returned no result for the DetachVolume task: %q, opId: %q"+
+					"; retry the operation, and if it persists check the CNS service health on vCenter",
 					taskInfo.Task.Value, taskInfo.ActivationId)
 		}
 		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
@@ -1558,8 +1570,9 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 			log.Errorf("failed to detach cns volume: %q from node vm: %+v. fault: %+v, opId: %q",
 				volumeID, vm, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
 			return faultType, wrapIfTerminalFault(volumeOperationRes.Fault,
-				fmt.Errorf("failed to detach cns volume: %q, Error: %s,",
-					volumeID, volumeOperationRes.Fault.LocalizedMessage))
+				fmt.Errorf("failed to detach volume %q from node VM %q: %s (fault %q, opID %q)",
+					volumeID, vm.String(), describeFault(volumeOperationRes.Fault), faultType,
+					taskInfo.ActivationId))
 		}
 		log.Infof("DetachVolume: Volume detached successfully. volumeID: %q, vm: %q, opId: %q",
 			volumeID, vm.String(), taskInfo.ActivationId)
@@ -1657,15 +1670,16 @@ func (m *defaultManager) deleteVolume(ctx context.Context, volumeID string, dele
 	log.Infof("DeleteVolume: volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
 	// Get the task results for the given task.
 	taskResult, err := getTaskResultFromTaskInfo(ctx, taskInfo)
-	if taskResult == nil {
-		return csifault.CSITaskResultEmptyFault,
-			logger.LogNewErrorf(log, "taskResult is empty for DeleteVolume task: %q, opID: %q",
-				taskInfo.Task.Value, taskInfo.ActivationId)
-	}
 	if err != nil {
 		log.Errorf("failed to get DeleteVolume task result with error: %v", err)
 		faultType = ExtractFaultTypeFromErr(ctx, err)
 		return faultType, err
+	}
+	if taskResult == nil {
+		return csifault.CSITaskResultEmptyFault,
+			logger.LogNewErrorf(log, "CNS returned no result for the DeleteVolume task: %q, opID: %q"+
+				"; retry the operation, and if it persists check the CNS service health on vCenter",
+				taskInfo.Task.Value, taskInfo.ActivationId)
 	}
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 	if volumeOperationRes.Fault != nil {
@@ -1676,8 +1690,9 @@ func (m *defaultManager) deleteVolume(ctx context.Context, volumeID string, dele
 			log.Infof("DeleteVolume: VolumeID %q, not found, thus returning success", volumeID)
 			return "", nil
 		}
-		return faultType, logger.LogNewErrorf(log, "failed to delete volume: %q, fault: %q, opID: %q",
-			volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+		log.Errorf("DeleteVolume fault details for volume %q: %s", volumeID, spew.Sdump(volumeOperationRes.Fault))
+		return faultType, logger.LogNewErrorf(log, "failed to delete volume %q: %s (fault %q, opID %q)",
+			volumeID, describeFault(volumeOperationRes.Fault), faultType, taskInfo.ActivationId)
 	}
 	log.Infof("DeleteVolume: Volume deleted successfully. volumeID: %q, opId: %q",
 		volumeID, taskInfo.ActivationId)
@@ -1833,16 +1848,17 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 	log.Infof("DeleteVolume: volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
 	// Get the task results for the given task.
 	taskResult, err := getTaskResultFromTaskInfo(ctx, taskInfo)
-	if taskResult == nil {
-		return csifault.CSITaskResultEmptyFault,
-			logger.LogNewErrorf(log, "taskResult is empty for DeleteVolume task: %q, opID: %q",
-				taskInfo.Task.Value, taskInfo.ActivationId)
-	}
 	if err != nil {
 		log.Errorf("unable to find DeleteVolume task result from vCenter %q with taskID %s and deleteResults %v",
 			m.virtualCenter.Config.Host, taskInfo.Task.Value, taskResult)
 		faultType = ExtractFaultTypeFromErr(ctx, err)
 		return faultType, err
+	}
+	if taskResult == nil {
+		return csifault.CSITaskResultEmptyFault,
+			logger.LogNewErrorf(log, "CNS returned no result for the DeleteVolume task: %q, opID: %q"+
+				"; retry the operation, and if it persists check the CNS service health on vCenter",
+				taskInfo.Task.Value, taskInfo.ActivationId)
 	}
 
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
@@ -1883,8 +1899,9 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 			return "", nil
 		}
 
-		msg := fmt.Sprintf("failed to delete volume: %q, fault: %q, opID: %q",
-			volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+		log.Errorf("DeleteVolume fault details for volume %q: %s", volumeID, spew.Sdump(volumeOperationRes.Fault))
+		msg := fmt.Sprintf("failed to delete volume %q: %s (fault %q, opID %q)",
+			volumeID, describeFault(volumeOperationRes.Fault), faultType, taskInfo.ActivationId)
 		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
 			nil, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
 			task.Reference().Value, "", taskInfo.ActivationId, taskInvocationStatusError, msg, "")
@@ -1963,7 +1980,8 @@ func (m *defaultManager) UpdateVolumeMetadata(ctx context.Context, spec *cnstype
 			return err
 		}
 		if taskResult == nil {
-			return logger.LogNewErrorf(log, "taskResult is empty for UpdateVolume task: %q, opId: %q",
+			return logger.LogNewErrorf(log, "CNS returned no result for the UpdateVolume task: %q, opId: %q"+
+				"; retry the operation, and if it persists check the CNS service health on vCenter",
 				taskInfo.Task.Value, taskInfo.ActivationId)
 		}
 		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
@@ -1988,8 +2006,11 @@ func (m *defaultManager) UpdateVolumeMetadata(ctx context.Context, spec *cnstype
 				// Retry the operation after successful re-registration
 				return internalUpdateVolumeMetadata(true)
 			}
-			return logger.LogNewErrorf(log, "failed to update volume. updateSpec: %q, fault: %q, opID: %q",
-				spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+			log.Errorf("UpdateVolumeMetadata fault details for volume %q: %s. updateSpec: %s",
+				spec.VolumeId.Id, spew.Sdump(volumeOperationRes.Fault), spew.Sdump(spec))
+			return logger.LogNewErrorf(log, "failed to update volume metadata for volume %q: %s (opID %q). "+
+				"Retry the operation; if it persists, check the CNS task on vCenter",
+				spec.VolumeId.Id, describeFault(volumeOperationRes.Fault), taskInfo.ActivationId)
 		}
 		log.Infof("UpdateVolumeMetadata: Volume metadata updated successfully. volumeID: %q, opId: %q",
 			spec.VolumeId.Id, taskInfo.ActivationId)
@@ -2049,7 +2070,8 @@ func (m *defaultManager) UpdateVolumeCrypto(ctx context.Context, spec *cnstypes.
 			return err
 		}
 		if taskResult == nil {
-			return logger.LogNewErrorf(log, "taskResult is empty for UpdateVolumeCrypto task: %q, opId: %q",
+			return logger.LogNewErrorf(log, "CNS returned no result for the UpdateVolumeCrypto task: %q, opId: %q"+
+				"; retry the operation, and if it persists check the CNS service health on vCenter",
 				taskInfo.Task.Value, taskInfo.ActivationId)
 		}
 		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
@@ -2074,8 +2096,11 @@ func (m *defaultManager) UpdateVolumeCrypto(ctx context.Context, spec *cnstypes.
 				// Retry the operation after successful re-registration
 				return internalUpdateVolumeCrypto(true)
 			}
-			return logger.LogNewErrorf(log, "failed to update volume. updateSpec: %q, fault: %q, opID: %q",
-				spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+			log.Errorf("UpdateVolumeCrypto fault details for volume %q: %s. updateSpec: %s",
+				spec.VolumeId.Id, spew.Sdump(volumeOperationRes.Fault), spew.Sdump(spec))
+			return logger.LogNewErrorf(log, "failed to update volume crypto for volume %q: %s (opID %q). "+
+				"Retry the operation; if it persists, check the CNS task on vCenter",
+				spec.VolumeId.Id, describeFault(volumeOperationRes.Fault), taskInfo.ActivationId)
 		}
 		log.Infof("UpdateVolumeCrypto: Volume crypto updated successfully. volumeID: %q, opId: %q",
 			spec.VolumeId.Id, taskInfo.ActivationId)
@@ -2176,23 +2201,25 @@ func (m *defaultManager) expandVolume(ctx context.Context, volumeID string, size
 	log.Infof("ExpandVolume: volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
 	// Get the task results for the given task.
 	taskResult, err := getTaskResultFromTaskInfo(ctx, taskInfo)
-	if taskResult == nil {
-		return csifault.CSITaskResultEmptyFault,
-			logger.LogNewErrorf(log, "taskResult is empty for ExpandVolume task: %q, opID: %q",
-				taskInfo.Task.Value, taskInfo.ActivationId)
-	}
 	if err != nil {
 		log.Errorf("failed to get task result for ExtendVolume task %s with error: %v",
 			task.Reference().Value, err)
 		faultType = ExtractFaultTypeFromErr(ctx, err)
 		return faultType, err
 	}
+	if taskResult == nil {
+		return csifault.CSITaskResultEmptyFault,
+			logger.LogNewErrorf(log, "CNS returned no result for the ExpandVolume task: %q, opID: %q"+
+				"; retry the operation, and if it persists check the CNS service health on vCenter",
+				taskInfo.Task.Value, taskInfo.ActivationId)
+	}
 
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 	if volumeOperationRes.Fault != nil {
 		faultType = ExtractFaultTypeFromVolumeResponseResult(ctx, volumeOperationRes)
-		return faultType, logger.LogNewErrorf(log, "failed to extend volume: %q, fault: %q, opID: %q",
-			volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+		log.Errorf("ExpandVolume fault details for volume %q: %s", volumeID, spew.Sdump(volumeOperationRes.Fault))
+		return faultType, logger.LogNewErrorf(log, "failed to expand volume %q: %s (fault %q, opID %q)",
+			volumeID, describeFault(volumeOperationRes.Fault), faultType, taskInfo.ActivationId)
 	}
 	log.Infof("ExpandVolume: Volume expanded successfully. volumeID: %q, opId: %q", volumeID, taskInfo.ActivationId)
 	return "", nil
@@ -2385,16 +2412,17 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 	// Get the task results for the given task.
 	var taskResult cnstypes.BaseCnsVolumeOperationResult
 	taskResult, finalErr = getTaskResultFromTaskInfo(ctx, taskInfo)
-	if taskResult == nil {
-		return csifault.CSITaskResultEmptyFault,
-			logger.LogNewErrorf(log, "taskResult is empty for ExpandVolume task: %q, opID: %q",
-				taskInfo.Task.Value, taskInfo.ActivationId)
-	}
 	if finalErr != nil {
 		log.Errorf("failed to get task result for task %s and volume ID %s with error: %v",
 			task.Reference().Value, volumeID, finalErr)
 		faultType = ExtractFaultTypeFromErr(ctx, finalErr)
 		return faultType, finalErr
+	}
+	if taskResult == nil {
+		return csifault.CSITaskResultEmptyFault,
+			logger.LogNewErrorf(log, "CNS returned no result for the ExpandVolume task: %q, opID: %q"+
+				"; retry the operation, and if it persists check the CNS service health on vCenter",
+				taskInfo.Task.Value, taskInfo.ActivationId)
 	}
 
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
@@ -2448,8 +2476,9 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 			volumeOperationDetails.Capacity, quotaInfo, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
 			task.Reference().Value, "", taskInfo.ActivationId, taskInvocationStatusError,
 			volumeOperationRes.Fault.LocalizedMessage, "")
-		return faultType, logger.LogNewErrorf(log, "failed to extend volume: %q, fault: %q, opID: %q",
-			volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+		log.Errorf("ExpandVolume fault details for volume %q: %s", volumeID, spew.Sdump(volumeOperationRes.Fault))
+		return faultType, logger.LogNewErrorf(log, "failed to expand volume %q: %s (fault %q, opID %q)",
+			volumeID, describeFault(volumeOperationRes.Fault), faultType, taskInfo.ActivationId)
 	}
 
 	log.Infof("ExpandVolume: Volume expanded successfully to size %d. volumeID: %q, opId: %q",
@@ -2462,7 +2491,8 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 	}
 	// Return an error if the new size is less than the requested size.
 	// The volume will be expanded again on a retry.
-	return csifault.CSIInternalFault, logger.LogNewErrorf(log, "volume expanded to size %d but requested size is %d",
+	return csifault.CSIInternalFault, logger.LogNewErrorf(log,
+		"volume expanded to size %d MB but %d MB were requested; the expansion will be retried",
 		volumeOperationDetails.Capacity, size)
 }
 
@@ -2585,7 +2615,8 @@ func (m *defaultManager) QueryVolumeInfo(ctx context.Context,
 			return nil, err
 		}
 		if taskResult == nil {
-			return nil, logger.LogNewErrorf(log, "taskResult is empty for DeleteVolume task: %q, opID: %q",
+			return nil, logger.LogNewErrorf(log, "CNS returned no result for the DeleteVolume task: %q, opID: %q"+
+				"; retry the operation, and if it persists check the CNS service health on vCenter",
 				taskInfo.Task.Value, taskInfo.ActivationId)
 		}
 		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
@@ -2691,14 +2722,19 @@ func (m *defaultManager) ConfigureVolumeACLs(ctx context.Context, spec cnstypes.
 
 		if taskResult == nil {
 			return logger.LogNewErrorf(log,
-				"taskResult is empty for ConfigureVolumeACLs task: %q. ConfigureVolumeACLsSpec: %q",
+				"CNS returned no result for the ConfigureVolumeACLs task: %q"+
+					"; retry the operation, and if it persists check the CNS service health on vCenter. "+
+					"ConfigureVolumeACLsSpec: %q",
 				taskInfo.ActivationId, spew.Sdump(spec))
 		}
 		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 		if volumeOperationRes.Fault != nil {
+			log.Errorf("ConfigureVolumeACLs fault details for volume %q: %s. spec: %s",
+				spec.VolumeId.Id, spew.Sdump(volumeOperationRes.Fault), spew.Sdump(spec))
 			return logger.LogNewErrorf(log,
-				"failed to apply ConfigureVolumeACLs. VolumeID: %s spec: %q, fault: %q, opId: %q",
-				spec.VolumeId.Id, spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+				"failed to apply ConfigureVolumeACLs on volume %q: %s (opID %q). Retry the operation; "+
+					"if it persists, check the CNS task on vCenter",
+				spec.VolumeId.Id, describeFault(volumeOperationRes.Fault), taskInfo.ActivationId)
 		}
 
 		log.Infof("ConfigureVolumeACLs: Volume ACLs configured successfully. VolumeName: %q, opId: %q, volumeID: %q",
@@ -2830,7 +2866,8 @@ func (m *defaultManager) QueryVolumeAsync(ctx context.Context, queryFilter cnsty
 		return nil, err
 	}
 	if queryVolumeAsyncTaskResult == nil {
-		return nil, logger.LogNewErrorf(log, "taskResult is empty for QueryVolumeAsync task: %q, opID: %q",
+		return nil, logger.LogNewErrorf(log, "CNS returned no result for the QueryVolumeAsync task: %q, opID: %q"+
+			"; retry the operation, and if it persists check the CNS service health on vCenter",
 			queryVolumeAsyncTaskInfo.Task.Value, queryVolumeAsyncTaskInfo.ActivationId)
 	}
 	volumeOperationRes := queryVolumeAsyncTaskResult.GetCnsVolumeOperationResult()
@@ -3112,8 +3149,8 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 					queriedCnsSnapshot.CreateTime, volumeOperationDetails.SnapshotID, volumeID)
 				return cnsSnapshotInfo, nil
 			} else {
-				errMsg := fmt.Sprintf("Snapshot with name %s on volume %q is not present in CNS. "+
-					"Marking task %s as failed.", snapshotName, volumeID, createSnapshotsTask.Reference().Value)
+				errMsg := fmt.Sprintf("snapshot %q on volume %q was not found in CNS and task %s is marked failed; "+
+					"retry the snapshot request", snapshotName, volumeID, createSnapshotsTask.Reference().Value)
 				volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0, quotaInfo,
 					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
 					createSnapshotsTask.Reference().Value, "", "", taskInvocationStatusError, errMsg, "")
@@ -3156,8 +3193,10 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 			}
 			return nil, logger.LogNewError(log, errMsg)
 		}
-		errMsg := fmt.Sprintf("failed to create snapshot %q on volume %q with fault: %q, opID: %q",
-			instanceName, volumeID, spew.Sdump(createSnapshotsOperationRes.Fault),
+		log.Errorf("CreateSnapshot fault details for snapshot %q on volume %q: %s",
+			instanceName, volumeID, spew.Sdump(createSnapshotsOperationRes.Fault))
+		errMsg := fmt.Sprintf("failed to create snapshot %q on volume %q: %s (opID %q)",
+			instanceName, volumeID, describeFault(createSnapshotsOperationRes.Fault),
 			createSnapshotsTaskInfo.ActivationId)
 		if m.idempotencyHandlingEnabled {
 			// If we get CnsSnapshotCreatedFault, then it means that snapshot creation is successful, but something in
@@ -3378,8 +3417,11 @@ func (m *defaultManager) createSnapshotWithTransaction(ctx context.Context, volu
 				"failed to create snapshot %q on volume %q with fault: CnsNotRegisteredFault",
 				instanceName, volumeID)
 		}
-		return nil, "", logger.LogNewErrorf(log, "failed to create snapshot %q on volume %q with fault: %+v",
-			instanceName, volumeID, snapshotCreateResult.Fault)
+		log.Errorf("CreateSnapshot fault details for snapshot %q on volume %q: %s",
+			instanceName, volumeID, spew.Sdump(snapshotCreateResult.Fault))
+		return nil, "", logger.LogNewErrorf(log, "failed to create snapshot %q on volume %q: %s (opID %q)",
+			instanceName, volumeID, describeFault(snapshotCreateResult.Fault),
+			createSnapshotsTaskInfo.ActivationId)
 	}
 	cnsSnapshotInfo := &CnsSnapshotInfo{
 		SnapshotID:                          snapshotCreateResult.Snapshot.SnapshotId.Id,
@@ -4260,7 +4302,8 @@ func (m *defaultManager) BatchAttachVolumes(ctx context.Context,
 
 		if taskResults == nil {
 			return batchAttachResult, csifault.CSITaskResultEmptyFault,
-				logger.LogNewErrorf(log, "taskResult is empty for BatchAttachVolumes task: %q, opId: %q",
+				logger.LogNewErrorf(log, "CNS returned no result for the BatchAttachVolumes task: %q, opId: %q"+
+					"; retry the operation, and if it persists check the CNS service health on vCenter",
 					taskInfo.Task.Value, taskInfo.ActivationId)
 		}
 
@@ -4283,7 +4326,14 @@ func (m *defaultManager) BatchAttachVolumes(ctx context.Context,
 		var errMsg string
 		if len(volumesThatFailedToAttach) != 0 {
 			errMsg = strings.Join(volumesThatFailedToAttach, ",")
-			overallError = errors.New("failed to attach volumes: " + errMsg)
+			perVolumeErrs := make([]string, 0, len(volumesThatFailedToAttach))
+			for _, res := range batchAttachResult {
+				if res.Error != nil {
+					perVolumeErrs = append(perVolumeErrs, fmt.Sprintf("%q: %v", res.VolumeID, res.Error))
+				}
+			}
+			overallError = fmt.Errorf("failed to attach volumes %s to the node VM %q (opID %q): %s. Retry the "+
+				"operation", errMsg, vm.UUID, taskInfo.ActivationId, strings.Join(perVolumeErrs, "; "))
 			return batchAttachResult, csifault.CSIBatchAttachFault, overallError
 		}
 		log.Infof("BatchAttach: all volumes attached successfully with opID %s", taskInfo.ActivationId)
@@ -4350,7 +4400,15 @@ func (m *defaultManager) SyncVolume(ctx context.Context, syncVolumeSpecs []cnsty
 		log.Infof("SyncVolume: CnsSyncVolumeSpecs: %v, opId: %q", syncVolumeSpecs, taskInfo.ActivationId)
 		if taskInfo.State != vim25types.TaskInfoStateSuccess {
 			log.Errorf("Failed to sync volume. Error: %+v \n", taskInfo.Error)
-			err = errors.New(taskInfo.Error.LocalizedMessage)
+			// taskInfo.Error can be nil on a non-success task state; guard the dereference.
+			if taskInfo.Error == nil {
+				err = fmt.Errorf("failed to sync volume metadata with CNS: task %q ended in state %q "+
+					"without an error; retry, and if it persists check the CNS task in vCenter",
+					taskInfo.Task.Value, taskInfo.State)
+			} else {
+				err = fmt.Errorf("failed to sync volume metadata with CNS: %s. Retry; if it persists, "+
+					"check the CNS task in vCenter", taskInfo.Error.LocalizedMessage)
+			}
 			return csifault.CSIInternalFault, err
 		}
 		return "", nil
@@ -4442,7 +4500,8 @@ func (m *defaultManager) unregisterVolume(ctx context.Context, volumeID string, 
 		msg := "taskInfo is nil for UnregisterVolume task"
 		log.Errorf("%s from vCenter %q. taskID: %q",
 			msg, m.virtualCenter.Config.Host, task.Reference().Value)
-		return csifault.CSITaskInfoEmptyFault, errors.New(msg)
+		return csifault.CSITaskInfoEmptyFault, fmt.Errorf("CNS returned no task information for the "+
+			"UnregisterVolume task of volume %q; retry the operation", volumeID)
 	}
 
 	log.Infof("processing UnregisterVolume task: %q, opId: %q",
@@ -4458,7 +4517,8 @@ func (m *defaultManager) unregisterVolume(ctx context.Context, volumeID string, 
 		msg := "task result is nil for UnregisterVolume task"
 		log.Errorf("%s from vCenter %q. taskID: %q, opId: %q", msg,
 			m.virtualCenter.Config.Host, taskInfo.Task.Value, taskInfo.ActivationId)
-		return csifault.CSITaskResultEmptyFault, errors.New(msg)
+		return csifault.CSITaskResultEmptyFault, fmt.Errorf("CNS returned no result for the "+
+			"UnregisterVolume task of volume %q; retry the operation", volumeID)
 	}
 
 	volOpRes := res.GetCnsVolumeOperationResult()
@@ -4478,13 +4538,15 @@ func (m *defaultManager) unregisterVolume(ctx context.Context, volumeID string, 
 			fault := ExtractFaultTypeFromVolumeResponseResult(ctx, volOpRes)
 			log.Errorf("%s from vCenter %q. fault: %q, opId: %q", msg,
 				m.virtualCenter.Config.Host, fault, taskInfo.ActivationId)
-			return fault, errors.New(msg)
+			return fault, fmt.Errorf("failed to unregister volume %q: CNS reported fault %q; "+
+				"re-registration of the volume was attempted, retry the operation", volumeID, fault)
 		}
 		msg := "volume operation result contains fault"
 		fault := ExtractFaultTypeFromVolumeResponseResult(ctx, volOpRes)
 		log.Errorf("%s from vCenter %q. fault: %q, opId: %q", msg,
 			m.virtualCenter.Config.Host, fault, taskInfo.ActivationId)
-		return fault, errors.New(msg)
+		return fault, fmt.Errorf("failed to unregister volume %q: %s (fault %q); retry the operation",
+			volumeID, describeFault(volOpRes.Fault), fault)
 	}
 
 	log.Infof("volume %q unregistered successfully", volumeID)
@@ -4668,11 +4730,13 @@ func TranslateVslmError(ctx context.Context, err error) error {
 	errMsg := err.Error()
 
 	if !soap.IsSoapFault(err) {
-		return logger.LogNewErrorCodef(log, codes.Internal, "failed with error 1: %v", err)
+		return logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to query changed blocks: %v. Check connectivity to vCenter and retry", err)
 	}
 	fault := soap.ToSoapFault(err).VimFault()
 	if fault == nil {
-		return logger.LogNewErrorCodef(log, codes.Internal, "failed with error: %v", err)
+		return logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to query changed blocks: %v. Retry the operation", err)
 	}
 	switch f := fault.(type) {
 	case vim25types.FileFault:
@@ -4704,8 +4768,8 @@ func TranslateVslmError(ctx context.Context, err error) error {
 				"changeID mismatch. The caller should correct the error and resubmit the call: %v", err)
 		default:
 			return logger.LogNewErrorCodef(log, codes.Internal,
-				"Internal errors such ctk disk open fails, FCD disk locked, disk missing, etc. "+
-					"CSI driver should retry the operation: %v", err)
+				"An internal error occurred, for example a CBT disk open failure, a locked FCD or a missing disk. "+
+					"The caller should retry the operation: %v", err)
 		}
 	case vim25types.SystemError:
 		return logger.LogNewErrorCodef(log, codes.Internal,
@@ -4736,5 +4800,28 @@ func TranslateVslmError(ctx context.Context, err error) error {
 			"FCD not found in VC inventory. The caller should re-check that these objects exist: %v", err)
 	}
 
-	return logger.LogNewErrorCodef(log, codes.Internal, "failed with error: %v", err)
+	return logger.LogNewErrorCodef(log, codes.Internal,
+		"failed to query changed blocks: %v. Verify the volume and snapshot exist, then retry", err)
+}
+
+// describeFault returns the fault type, localized message and, when present, the
+// underlying cause of a CNS task fault, for use in error messages.
+func describeFault(fault *vim25types.LocalizedMethodFault) string {
+	if fault == nil {
+		return "no fault details returned by CNS"
+	}
+	desc := fmt.Sprintf("%T", fault.Fault)
+	if fault.LocalizedMessage != "" {
+		desc += ": " + fault.LocalizedMessage
+	}
+	if fault.Fault != nil {
+		if mf := fault.Fault.GetMethodFault(); mf != nil && mf.FaultCause != nil {
+			desc += fmt.Sprintf(" (cause %T", mf.FaultCause.Fault)
+			if mf.FaultCause.LocalizedMessage != "" {
+				desc += ": " + mf.FaultCause.LocalizedMessage
+			}
+			desc += ")"
+		}
+	}
+	return desc
 }

@@ -50,10 +50,10 @@ const (
 // must exist: the package creates it before this Job runs.
 func MigrateFileVolumeConfig(ctx context.Context, client kubernetes.Interface, namespace, sddcName string) error {
 	if len(validation.IsDNS1123Label(namespace)) > 0 {
-		return fmt.Errorf("invalid file-volume namespace %q", namespace)
+		return fmt.Errorf("invalid file-volume namespace %q: it must be a valid DNS-1123 label", namespace)
 	}
 	if len(validation.IsDNS1123Subdomain(sddcName)) > 0 {
-		return fmt.Errorf("invalid SDDC name %q", sddcName)
+		return fmt.Errorf("invalid SDDC name %q: it must be a valid DNS-1123 subdomain", sddcName)
 	}
 	key := sddcName + fileVolumeActivatedSuffix
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {

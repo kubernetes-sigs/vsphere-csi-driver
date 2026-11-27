@@ -187,7 +187,7 @@ func (dc *Datacenter) GetVMMoList(ctx context.Context, vmObjList []*VirtualMachi
 	var vmMoList []mo.VirtualMachine
 	var vmRefs []types.ManagedObjectReference
 	if len(vmObjList) < 1 {
-		msg := "VirtualMachine Object list is empty"
+		msg := "no virtual machines were provided to look up; verify the node VMs exist in the vCenter inventory"
 		log.Errorf(msg+": %v", vmObjList)
 		return nil, fmt.Errorf("%s", msg)
 	}

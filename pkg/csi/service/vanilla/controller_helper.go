@@ -135,8 +135,8 @@ func validateVanillaListSnapshotRequest(ctx context.Context, req *csi.ListSnapsh
 		check := strings.Contains(req.SnapshotId, common.VSphereCSISnapshotIdDelimiter)
 		if !check {
 			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
-				"ListSnapshots SnapshotId: %s is incorrectly formatted for vSphere CSI driver",
-				req.StartingToken)
+				"ListSnapshots SnapshotId: %s is incorrectly formatted for vSphere CSI driver; "+
+					"expected <volumeID>+<snapshotID>", req.SnapshotId)
 		}
 	}
 	return nil

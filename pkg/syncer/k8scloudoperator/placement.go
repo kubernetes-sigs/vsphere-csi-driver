@@ -156,8 +156,7 @@ func (b relaxedFitMigrationPlanner) getMigrationPlan(ctx context.Context,
 			b.sourceHostNames, b.pvcList, vsanDirectType, false)
 		if err != nil {
 			log.Errorf("Failed to assign SP to PVC %v. Error: %v", pvcName, err)
-			return nil, fmt.Errorf("PVC %v could not be migrated due to placement constraints "+
-				"or lack of capacity in accessible datastores", pvcName)
+			return nil, fmt.Errorf("PVC %v could not be migrated: %v", pvcName, err)
 		}
 
 		// Map the volume with SP with highest free space. Update free space in
@@ -295,7 +294,8 @@ func GetSVMotionPlan(ctx context.Context, client kubernetes.Interface,
 			storagePoolName, len(accessibleNodes))
 		if len(accessibleNodes) == 0 {
 			return nil, fmt.Errorf("the given datastore/StoragePool is not accessible from any host. " +
-				"Maybe its unmounted or host is under maintenance mode")
+				"It may be unmounted or its host may be in maintenance mode; " +
+				"mount the datastore or exit maintenance mode")
 		}
 		// If datastore is accessible from multiple host, ignore the error.
 	}
@@ -357,7 +357,11 @@ func getSPForPVCPlacement(ctx context.Context,
 		if onlinePlacement {
 			stampPVCWithError(ctx, client, curPVC, notEnoughResErr)
 		}
-		return assignedSP, fmt.Errorf("fail to find a StoragePool passing all criteria")
+		return assignedSP, fmt.Errorf("failed to find a StoragePool that satisfies all placement criteria "+
+			"for PVC %s/%s "+
+			"(StoragePool type %s, compatibility with the PVC's StorageClass, health, accessibility from the "+
+			"candidate hosts, and free capacity); check the StoragePool status and free space",
+			curPVC.Namespace, curPVC.Name, spType)
 	}
 
 	xCapPendingSet := make(map[string]bool)
@@ -394,7 +398,9 @@ func getSPForPVCPlacement(ctx context.Context,
 		if onlinePlacement {
 			stampPVCWithError(ctx, client, curPVC, notEnoughResErr)
 		}
-		return assignedSP, fmt.Errorf("fail to find any compatible StoragePool due to volume placement constraints")
+		return assignedSP, fmt.Errorf("failed to find a compatible StoragePool for PVC %s/%s because of volume placement "+
+			"constraints; review the PVC's placement requirements against the available StoragePools",
+			curPVC.Namespace, curPVC.Name)
 	}
 
 	assignedSP = spList[0]
@@ -660,7 +666,8 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface,
 	if len(sps.Items) == 0 {
 		// There is no available storage pools.
 		stampPVCWithError(ctx, client, curPVC, notEnoughResErr)
-		return fmt.Errorf("fail to find any storage pool")
+		return fmt.Errorf("failed to find any StoragePool for PVC %s/%s; verify that vSAN Direct or vSAN-SNA "+
+			"StoragePools exist and are healthy", curPVC.Namespace, curPVC.Name)
 	}
 
 	hostNames, err := getHostCandidates(ctx, curPVC, tops)
@@ -673,7 +680,8 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface,
 	if len(hostNames) == 0 {
 		// There are no candidate hosts available.
 		stampPVCWithError(ctx, client, curPVC, notEnoughResErr)
-		return fmt.Errorf("failed to find any candidate nodes")
+		return fmt.Errorf("failed to find any candidate node for PVC %s/%s; verify that nodes are Ready and "+
+			"match the PVC's topology requirements", curPVC.Namespace, curPVC.Name)
 	}
 
 	log.Infof("filtered host candidates: %v", hostNames)

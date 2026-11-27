@@ -318,7 +318,9 @@ func (driver *vsphereCSIDriver) NodeGetVolumeStats(
 
 	volMetrics, err := driver.osUtils.GetMetrics(ctx, targetPath)
 	if err != nil {
-		return nil, logger.LogNewErrorCode(log, codes.Internal, err.Error())
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get volume stats for volume %q at path %q: %v. Verify the volume is mounted on this node.",
+			volumeID, targetPath, err)
 	}
 
 	available, ok := (*(volMetrics.Available)).AsInt64()
@@ -327,7 +329,8 @@ func (driver *vsphereCSIDriver) NodeGetVolumeStats(
 	}
 	capacity, ok := (*(volMetrics.Capacity)).AsInt64()
 	if !ok {
-		return nil, logger.LogNewErrorCode(log, codes.Unknown, "failed to fetch capacity bytes")
+		return nil, logger.LogNewErrorCodef(log, codes.Unknown,
+			"failed to read capacity bytes for volume %q at path %q from the volume stats", volumeID, targetPath)
 	}
 	used, ok := (*(volMetrics.Used)).AsInt64()
 	if !ok {
@@ -335,7 +338,8 @@ func (driver *vsphereCSIDriver) NodeGetVolumeStats(
 	}
 	inodes, ok := (*(volMetrics.Inodes)).AsInt64()
 	if !ok {
-		return nil, logger.LogNewErrorCode(log, codes.Unknown, "failed to fetch total number of inodes")
+		return nil, logger.LogNewErrorCodef(log, codes.Unknown,
+			"failed to read the inode count for volume %q at path %q from the volume stats", volumeID, targetPath)
 	}
 	inodesFree, ok := (*(volMetrics.InodesFree)).AsInt64()
 	if !ok {
@@ -421,7 +425,8 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 	nodeName := os.Getenv("NODE_NAME")
 	if nodeName == "" {
 		return nil, logger.LogNewErrorCode(log, codes.Internal,
-			"ENV NODE_NAME is not set")
+			"environment variable NODE_NAME is not set in the node plugin container; set it from "+
+				"spec.nodeName in the node DaemonSet")
 	}
 
 	clusterFlavor, err = cnsconfig.GetClusterFlavor(ctx)
@@ -603,7 +608,8 @@ func (driver *vsphereCSIDriver) NodeExpandVolume(
 			// Refer to https://kb.vmware.com/s/article/1006371
 			err = driver.osUtils.RescanDevice(ctx, dev)
 			if err != nil {
-				return nil, logger.LogNewErrorCode(log, codes.Internal, err.Error())
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to rescan device %q while expanding volume %q on node: %v", dev.RealDev, volumeID, err)
 			}
 		}
 	}

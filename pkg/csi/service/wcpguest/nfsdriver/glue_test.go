@@ -235,7 +235,7 @@ func TestWaitForPathNotExist(t *testing.T) {
 	start := time.Now()
 	err := waitForPathNotExistWithTimeout(existing, 200*time.Millisecond)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "time out")
+	require.Contains(t, err.Error(), "timed out")
 	require.Less(t, time.Since(start), 3*time.Second)
 
 	// A path that disappears while waiting is noticed.

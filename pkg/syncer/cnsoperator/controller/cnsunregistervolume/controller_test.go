@@ -304,7 +304,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 					return apierrors.NewInternalError(errors.New(errMsg))
 				},
 			}, nil)
-			expStatus := "failed to remove finalizer from the instance"
+			expStatus := "Failed to remove finalizer from CnsUnregisterVolume mock-namespace/mock-instance: " +
+				"Internal error occurred: " + errMsg + ". Verify API server access; the operation will be retried."
 			expErrMsg := expStatus
 
 			// Execute
@@ -574,7 +575,8 @@ func TestUnregisterVolume(t *testing.T) {
 		newK8sClient = func(ctx context.Context) (clientset.Interface, error) {
 			return nil, errors.New(errMsg)
 		}
-		expErr := "failed to init K8s client for volume unregistration"
+		expErr := "failed to create a Kubernetes client for volume unregistration: " + errMsg +
+			". Verify the in-cluster configuration and RBAC"
 
 		// Execute
 		_, err := unregisterVolume(context.Background(), nil, request, params{})
@@ -596,7 +598,8 @@ func TestUnregisterVolume(t *testing.T) {
 			pvcName:   "mock-pvc",
 			namespace: "mock-namespace",
 		}
-		expErr := fmt.Sprintf("failed to protect associated PVC %s/%s", params.namespace, params.pvcName)
+		expErr := fmt.Sprintf("failed to add the unregister protection finalizer to PVC %s/%s: %s. "+
+			"Verify the PVC exists and the CSI driver has RBAC access to it", params.namespace, params.pvcName, errMsg)
 
 		// Execute
 		_, err := unregisterVolume(context.Background(), nil, request, params)
@@ -614,7 +617,8 @@ func TestUnregisterVolume(t *testing.T) {
 			return errors.New(errMsg)
 		}
 		params := params{pvName: "mock-pv"}
-		expErr := fmt.Sprintf("failed to set reclaim policy to Retain on associated PV %s", params.pvName)
+		expErr := fmt.Sprintf("failed to set reclaim policy to Retain on PV %s: %s. "+
+			"Verify the PV exists and the CSI driver has RBAC access to it", params.pvName, errMsg)
 
 		// Execute
 		_, err := unregisterVolume(context.Background(), nil, request, params)
@@ -639,7 +643,8 @@ func TestUnregisterVolume(t *testing.T) {
 			pvcName:   "mock-pvc",
 			namespace: "mock-namespace",
 		}
-		expErr := fmt.Sprintf("failed to delete associated PVC %s/%s", params.namespace, params.pvcName)
+		expErr := fmt.Sprintf("failed to delete PVC %s/%s: %s. The operation will be retried",
+			params.namespace, params.pvcName, errMsg)
 
 		// Execute
 		_, err := unregisterVolume(context.Background(), nil, request, params)
@@ -660,7 +665,7 @@ func TestUnregisterVolume(t *testing.T) {
 			return errors.New(errMsg)
 		}
 		params := params{pvName: "mock-pv"}
-		expErr := fmt.Sprintf("failed to delete associated PV %s", params.pvName)
+		expErr := fmt.Sprintf("failed to delete PV %s: %s. The operation will be retried", params.pvName, errMsg)
 
 		// Execute
 		_, err := unregisterVolume(context.Background(), nil, request, params)
@@ -676,7 +681,8 @@ func TestUnregisterVolume(t *testing.T) {
 		}
 		mockMgr := volume.NewMockManager(true, errors.New(errMsg), fault.VimFaultCNSFault)
 		params := params{volumeID: "mock-volume-id"}
-		expErr := fmt.Sprintf("failed to unregister associated volume %s", params.volumeID)
+		expErr := fmt.Sprintf("failed to unregister volume %s from CNS: %s",
+			params.volumeID, errMsg)
 
 		// Execute
 		_, err := unregisterVolume(context.Background(), mockMgr, request, params)
@@ -704,7 +710,9 @@ func TestUnregisterVolume(t *testing.T) {
 		mockMgr := volume.NewMockManager(true, nil, "")
 
 		params := params{pvcName: "mock-pvc", namespace: "mock-namespace"}
-		expErr := fmt.Sprintf("failed to remove finalizer from associated PVC %s/%s", params.namespace, params.pvcName)
+		expErr := fmt.Sprintf("failed to remove the unregister protection finalizer from PVC %s/%s: %s. "+
+			"Verify the CSI driver has RBAC access to the PVC; the operation will be retried",
+			params.namespace, params.pvcName, errMsg)
 
 		// Execute
 		_, err := unregisterVolume(context.Background(), mockMgr, request, params)

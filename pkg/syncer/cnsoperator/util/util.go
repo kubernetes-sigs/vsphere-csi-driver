@@ -240,8 +240,8 @@ func vmPrimaryIPFromVirtualMachine(ctx context.Context, vm *vmoperatortypes.Virt
 	if ip == "" {
 		ip = vm.Status.Network.PrimaryIP6
 		if ip == "" {
-			return "", fmt.Errorf("vm.Status.Network.PrimaryIP6 & PrimaryIP4 is not populated for %s/%s",
-				vmNamespace, vmName)
+			return "", fmt.Errorf("VirtualMachine %s/%s has no primary IPv4 or IPv6 address yet. "+
+				"Wait for the VM to obtain an IP and retry", vmNamespace, vmName)
 		}
 	}
 	return ip, nil

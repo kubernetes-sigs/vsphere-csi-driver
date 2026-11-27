@@ -530,14 +530,15 @@ func TestParseCSISnapshotID(t *testing.T) {
 			args:                  args{ctx: context.TODO(), csiSnapshotID: ""},
 			expectedCnsVolumeID:   "",
 			expectedCnsSnapshotID: "",
-			expectedErr:           errors.New("csiSnapshotID from the input is empty"),
+			expectedErr:           errors.New("snapshot ID must not be empty; expected format <volumeID>+<snapshotID>"),
 		},
 		{
 			name:                  "UnexpectedFormattedCSISnapshotID",
 			args:                  args{ctx: context.TODO(), csiSnapshotID: sampleCnsVolumeID},
 			expectedCnsVolumeID:   "",
 			expectedCnsSnapshotID: "",
-			expectedErr:           fmt.Errorf("unexpected format in csiSnapshotID: %v", sampleCnsVolumeID),
+			expectedErr: fmt.Errorf("invalid snapshot ID %q: expected format <volumeID>+<snapshotID>",
+				sampleCnsVolumeID),
 		},
 	}
 	for _, tt := range tests {

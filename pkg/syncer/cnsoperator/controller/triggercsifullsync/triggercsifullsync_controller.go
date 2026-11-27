@@ -226,7 +226,8 @@ func (r *ReconcileTriggerCsiFullSync) Reconcile(ctx context.Context,
 		if err != nil {
 			log.Errorf("TriggerCsiFullSync failed, %v ", err)
 			recordEvent(ctx, r, instance, v1.EventTypeWarning,
-				fmt.Sprintf("Failed to increment LastTriggerSyncID with TriggerSyncID: %d", instance.Spec.TriggerSyncID))
+				fmt.Sprintf("Failed to update status.lastTriggerSyncID to %d: %v. "+
+					"The request will be retried automatically.", instance.Spec.TriggerSyncID, err))
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 		msg := fmt.Sprintf("A full sync is already in progress. Ignoring this sync with triggersync ID: %d",
@@ -247,8 +248,8 @@ func (r *ReconcileTriggerCsiFullSync) Reconcile(ctx context.Context,
 	if err != nil {
 		log.Errorf("TriggerCsiFullSync failed %v", err)
 		recordEvent(ctx, r, instance, v1.EventTypeWarning,
-			fmt.Sprintf("Failed to update LastTriggerSyncID and Inprogress for TriggerSyncID: %d",
-				instance.Spec.TriggerSyncID))
+			fmt.Sprintf("Failed to set status.lastTriggerSyncID and status.inProgress for TriggerSyncID %d: %v. "+
+				"The request will be retried automatically.", instance.Spec.TriggerSyncID, err))
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
@@ -265,7 +266,9 @@ func (r *ReconcileTriggerCsiFullSync) Reconcile(ctx context.Context,
 		return reconcile.Result{}, nil
 	}
 	if fullSyncErr != nil {
-		msg := fmt.Sprintf("Full sync failed for triggerSyncID: %d with error: %+v", triggerSyncID, fullSyncErr)
+		msg := fmt.Sprintf("Full sync failed for triggerSyncID %d: %v. "+
+			"Check the vsphere-syncer container logs for details, then retry by setting "+
+			"spec.triggerSyncID to the next value.", triggerSyncID, fullSyncErr)
 		log.Error(msg)
 		setInstanceError(ctx, r, instance, msg, startTime)
 	} else {

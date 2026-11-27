@@ -359,7 +359,8 @@ func (k8sCloudOperator *k8sCloudOperator) getPVWithVolumeID(ctx context.Context,
 			return &pv, nil
 		}
 	}
-	return nil, logger.LogNewErrorf(log, "failed to find PV referring to volume ID: %s", volumeID)
+	return nil, logger.LogNewErrorf(log, "no PersistentVolume with CSI volume handle %s found for this driver; "+
+		"verify the volume ID and that the PV was not deleted", volumeID)
 }
 
 // getPod returns the pod spec for the pod satisfying the below conditions.
@@ -395,7 +396,8 @@ func (k8sCloudOperator *k8sCloudOperator) getPod(ctx context.Context, pvcName st
 		}
 	}
 
-	return nil, logger.LogNewErrorf(log, "Cannot find pod with pvClaim name: %s in namespace: %s running on node: %s",
+	return nil, logger.LogNewErrorf(log, "Cannot find a Pending pod that uses PVC %s in namespace %s on node %s; "+
+		"check the pod phase and spec.nodeName",
 		pvcName, pvcNamespace, nodeName)
 }
 
@@ -504,7 +506,8 @@ func (k8sCloudOperator *k8sCloudOperator) GetStorageVMotionPlan(ctx context.Cont
 	}
 	if req == nil || req.StoragePoolName == "" {
 		log.Errorf("no right inputs given to GetStorageVMotionPlan")
-		return out, fmt.Errorf("malformed request provided to GetStorageVMotionPlan")
+		return out, fmt.Errorf("malformed request provided to GetStorageVMotionPlan: the request must be non-nil " +
+			"and have a non-empty StoragePoolName")
 	}
 	log.Debugf("received GetStorageVMotionPlan for StoragePool %v and maintenance mode %v",
 		req.StoragePoolName, req.MaintenanceMode)

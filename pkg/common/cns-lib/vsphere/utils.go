@@ -227,7 +227,8 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 func GetVirtualCenterConfigs(ctx context.Context, cfg *config.Config) ([]*VirtualCenterConfig, error) {
 	log := logger.GetLogger(ctx)
 	if len(cfg.VirtualCenter) == 0 {
-		return nil, errors.New("unable get vCenter Hosts from VSphereConfig")
+		return nil, errors.New("no vCenter hosts were found in the vSphere config: add a [VirtualCenter] " +
+			"section to the config secret (csi-vsphere.conf)")
 	}
 	VirtualCenterConfigs := make([]*VirtualCenterConfig, 0, len(cfg.VirtualCenter))
 	for host, vcConfigEntry := range cfg.VirtualCenter {
@@ -279,7 +280,8 @@ func getFirstVirtualCenter(cfg *config.Config) (commontypes.FQDN, *config.Virtua
 	for host, vcConfigEntry := range cfg.VirtualCenter {
 		return host, vcConfigEntry, nil
 	}
-	return commontypes.FQDN{}, nil, errors.New("unable get vCenter Hosts from VSphereConfig")
+	return commontypes.FQDN{}, nil, errors.New("no vCenter hosts were found in the vSphere config: " +
+		"add a [VirtualCenter] section to the config secret (csi-vsphere.conf)")
 }
 
 // GetLabelsMapFromKeyValue creates a  map object from given parameter.
@@ -402,7 +404,8 @@ func GetCandidateDatastoresInCluster(ctx context.Context, vc *VirtualCenter, clu
 		}
 	}
 	if len(sharedDatastores) == 0 && len(vsanDirectDatastores) == 0 {
-		return nil, nil, fmt.Errorf("no candidates datastores found in the Kubernetes cluster")
+		return nil, nil, fmt.Errorf("no candidate datastores were found: no shared or vSAN Direct datastore " +
+			"is accessible from the hosts of the Kubernetes cluster; verify the datastores are mounted on those hosts")
 	}
 	log.Debugf("Found shared datastores: %+v and vSAN Direct datastores: %+v", sharedDatastores,
 		vsanDirectDatastores)
@@ -433,7 +436,8 @@ func GetDatastoreInfoByURL(ctx context.Context, vc *VirtualCenter,
 		log.Debugf("datastore corresponding to URL %s not found in cluster %s", dsURL, clusterID)
 	}
 
-	return nil, fmt.Errorf("datastore corresponding to URL %v not found in any cluster", dsURL)
+	return nil, fmt.Errorf("datastore with URL %q was not found in any of the vCenter clusters %v; verify the "+
+		"datastore URL and that the datastore is mounted on the cluster hosts", dsURL, clusterIDs)
 }
 
 // isVsan67u3Release returns true if it is vSAN 67u3 Release of vCenter.
@@ -543,7 +547,8 @@ func FilterSuspendedDatastores(ctx context.Context, datastoreInfoList []*Datasto
 	}
 	if len(filteredList) == 0 {
 		return filteredList, logger.LogNewErrorf(log,
-			"No datastores are available after filtering suspended datastores")
+			"no datastores are available for volume creation: %d candidate datastore(s) were evaluated and those "+
+				"with the custom value cns.vmware.com/datastoreSuspended were excluded", len(datastoreInfoList))
 	}
 	log.Infof("Filtered list of datastores after removing suspended ones are: %+v", filteredList)
 	return filteredList, nil

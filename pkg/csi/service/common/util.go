@@ -281,12 +281,13 @@ func ParseStorageClassParams(ctx context.Context, params map[string]string) (*St
 				return nil, fmt.Errorf("vSphere CSI driver does not support creating volume using "+
 					"in-tree vSphere volume plugin parameter key:%v, value:%v", param, value)
 			} else {
-				return nil, fmt.Errorf("invalid parameter. key:%v, value:%v", param, value)
+				return nil, fmt.Errorf("invalid StorageClass parameter %q=%q: the key is not a supported parameter or "+
+					"the value is invalid", param, value)
 			}
 		}
 	} else {
 		if len(otherParams) != 0 {
-			return nil, fmt.Errorf("invalid parameters :%v", otherParams)
+			return nil, fmt.Errorf("unsupported StorageClass parameters: %v. Remove them from the StorageClass", otherParams)
 		}
 	}
 
@@ -347,7 +348,7 @@ func ConvertVolumeHealthStatus(ctx context.Context, volID string, volHealthStatu
 // into a pair of CNS VolumeID and CNS SnapshotID.
 func ParseCSISnapshotID(csiSnapshotID string) (string, string, error) {
 	if csiSnapshotID == "" {
-		return "", "", errors.New("csiSnapshotID from the input is empty")
+		return "", "", errors.New("snapshot ID must not be empty; expected format <volumeID>+<snapshotID>")
 	}
 
 	// The expected format of the SnapshotId in the DeleteSnapshotRequest is,
@@ -355,7 +356,7 @@ func ParseCSISnapshotID(csiSnapshotID string) (string, string, error) {
 	// That is, a string of "<UUID>+<UUID>". Decompose csiSnapshotID based on the expected format.
 	IDs := strings.Split(csiSnapshotID, VSphereCSISnapshotIdDelimiter)
 	if len(IDs) != 2 {
-		return "", "", fmt.Errorf("unexpected format in csiSnapshotID: %v", csiSnapshotID)
+		return "", "", fmt.Errorf("invalid snapshot ID %q: expected format <volumeID>+<snapshotID>", csiSnapshotID)
 	}
 
 	cnsVolumeID := IDs[0]

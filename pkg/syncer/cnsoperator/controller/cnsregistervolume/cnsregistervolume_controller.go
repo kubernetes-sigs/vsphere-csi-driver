@@ -467,7 +467,10 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	err = protectInstance(ctx, r.client, instance)
 	if err != nil {
 		log.Errorf("Failed to add finalizer to CnsRegisterVolume instance: %q. Err: %+v", instance.Name, err)
-		setInstanceError(ctx, r, instance, "Failed to add finalizer")
+		setInstanceError(ctx, r, instance,
+			fmt.Sprintf("Failed to add finalizer %q to CnsRegisterVolume %s/%s: %v. "+
+				"Check API server connectivity and RBAC; the operation will be retried.",
+				cnsoperatortypes.CNSRegisterVolumeFinalizer, instance.Namespace, instance.Name, err))
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
@@ -572,7 +575,8 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get virtual center instance with error: %+v", err)
 		log.Error(msg)
-		setInstanceError(ctx, r, instance, "Unable to connect to VC for volume registration")
+		setInstanceError(ctx, r, instance,
+			fmt.Sprintf("Failed to obtain a vCenter session for volume registration: %v", err))
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 	var (
@@ -616,8 +620,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		pvName, found := commonco.ContainerOrchestratorUtility.GetPVNameFromCSIVolumeID(volInfo.VolumeID.Id)
 		if found {
 			if pvName != staticPvNamePrefix+volInfo.VolumeID.Id {
-				msg := fmt.Sprintf("PV: %q with the volume ID: %q for volume path: %q"+
-					"is already present. Can not create multiple PV with same disk.", pvName, volInfo.VolumeID.Id,
+				msg := fmt.Sprintf("PV %q with volume ID %q for volume path %q "+
+					"is already present. Cannot create multiple PVs for the same disk; "+
+					"delete the existing PV or use a different disk.", pvName, volInfo.VolumeID.Id,
 					instance.Spec.DiskURLPath)
 				log.Errorf(msg)
 				setInstanceError(ctx, r, instance, msg)
@@ -654,7 +659,8 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			if err := r.persistCnsExecution(ctx, instance, "", ""); err != nil {
 				return reconcile.Result{RequeueAfter: timeout}, nil
 			}
-			msg := fmt.Sprintf("CNS Volume: %s not found", volumeID)
+			msg := fmt.Sprintf("CNS volume %s was not found. "+
+				"Verify the volume exists in CNS and was not deleted.", volumeID)
 			log.Error(msg)
 			setInstanceError(ctx, r, instance, msg)
 			return reconcile.Result{RequeueAfter: timeout}, nil
@@ -1069,7 +1075,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		} else {
 			log.Errorf("PVC %s has no storage request and DataSourceRef is not supported", pvc.Namespace+"/"+pvc.Name)
 			setInstanceError(ctx, r, instance,
-				fmt.Sprintf("PVC %s has no storage request and DataSourceRef is not supported", pvc.Namespace+"/"+pvc.Name))
+				fmt.Sprintf("PVC %s has a DataSourceRef but no storage request. "+
+					"Set spec.resources.requests.storage on the PVC to match the volume size.",
+					pvc.Namespace+"/"+pvc.Name))
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 	} else {
@@ -1142,7 +1150,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	// duplicate request.
 	if pv.Status.Phase == v1.VolumeBound && isPVClaimedByOtherPVC(pv, instance) {
 		log.Errorf("Duplicate Request. There already exists a PV: %s which is bound", pvName)
-		setInstanceError(ctx, r, instance, "Duplicate Request")
+		setInstanceError(ctx, r, instance,
+			fmt.Sprintf("PV %q is already bound to a different PVC. Use a different volume, "+
+				"or delete the existing PV and PVC before registering this volume again.", pvName))
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 	// A host-local PV that already exists may have been created before the host pin existed; add
@@ -1182,8 +1192,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			// is bound. This happens when a new CnsRegisterVolume instance is
 			// created to import a new volume with PVC name which is already
 			// created and is bound.
-			msg := fmt.Sprintf("Another PVC: %s already exists in namespace: %s which is Bound to a different PV",
-				instance.Spec.PvcName, instance.Namespace)
+			msg := fmt.Sprintf("PVC %s in namespace %s is already bound to PV %q. "+
+				"Choose a different pvcName or delete the existing PVC.",
+				instance.Spec.PvcName, instance.Namespace, pvc.Spec.VolumeName)
 			log.Errorf(msg)
 			setInstanceError(ctx, r, instance, msg)
 			skipped, err := r.cleanupCNSVolume(ctx, instance, volumeID)
@@ -1388,7 +1399,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		if pvc != nil {
 			pvc, err = setBackingDiskAnnotation(ctx, k8sclient, instance, pvc)
 			if err != nil {
-				msg := fmt.Sprintf("failed to update bakcing disk type on PVC. Error: %s", err)
+				msg := fmt.Sprintf("Failed to update the backing disk type annotation on PVC %s/%s: %v. "+
+					"Verify API server access; the operation will be retried.",
+					instance.Namespace, instance.Spec.PvcName, err)
 				setInstanceError(ctx, r, instance, msg)
 				return reconcile.Result{RequeueAfter: timeout}, nil
 			}
@@ -1644,7 +1657,8 @@ func validateCnsRegisterVolumeSpec(ctx context.Context, instance *cnsregistervol
 	// is active on the Supervisor; on older Supervisors the original rejection is preserved.
 	if instance.Spec.VolumeID != "" && instance.Spec.DiskURLPath != "" {
 		if !isVSphereDPLPModernAppEnabled {
-			return errors.New("VolumeID and DiskURLPath cannot be specified together")
+			return errors.New("VolumeID and DiskURLPath cannot be specified together. " +
+				"Specify only one of spec.volumeID or spec.diskURLPath.")
 		}
 		// Capability is active: both fields are valid. The single-field checks below
 		// (AccessMode requirement, duplicate-PV lookup) do not apply to this path.
@@ -1671,8 +1685,9 @@ func validateCnsRegisterVolumeSpec(ctx context.Context, instance *cnsregistervol
 			pvName, found := commonco.ContainerOrchestratorUtility.GetPVNameFromCSIVolumeID(instance.Spec.VolumeID)
 			if found {
 				if pvName != staticPvNamePrefix+instance.Spec.VolumeID {
-					msg = fmt.Sprintf("PV: %q with the volume ID: %q "+
-						"is already present. Can not create multiple PV with same volume Id.", pvName, instance.Spec.VolumeID)
+					msg = fmt.Sprintf("PV %q with volume ID %q "+
+						"is already present. Cannot create multiple PVs for the same volume ID; "+
+						"delete the existing PV first.", pvName, instance.Spec.VolumeID)
 				}
 			}
 		}
@@ -1842,7 +1857,8 @@ func validatePVCCapacityMatchesBackendFCD(pvc *v1.PersistentVolumeClaim, capacit
 	if pvcCapacityInMB == capacityInMb || pvcCapacityInMB == capacityInMb+1 {
 		return nil
 	}
-	return fmt.Errorf("PVC %s size is not matching with backend FCD size", pvc.Namespace+"/"+pvc.Name)
+	return fmt.Errorf("PVC %s requests %d MiB, which does not match the backing FCD size of %d MiB. "+
+		"Set the PVC storage request to the FCD size.", pvc.Namespace+"/"+pvc.Name, pvcCapacityInMB, capacityInMb)
 }
 
 // clearStaleDeleteOperationRecord drops any "delete-<volumeID>" CnsVolumeOperationRequest left

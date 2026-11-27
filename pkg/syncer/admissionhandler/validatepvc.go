@@ -48,7 +48,8 @@ const (
 	VACChangeHostLocalErrorMessage = "VolumeAttributesClass modification is not allowed: " +
 		"VAC update is not supported to or from a host local storage policy"
 	VACChangeCompatibilityCheckFailedErrorMessage = "VolumeAttributesClass modification is not allowed: " +
-		"compatibility check failed (host-local policy restrictions)"
+		"the host-local storage policy compatibility check could not be completed; " +
+		"check the CSI syncer logs for 'compatibility check failed' and retry"
 )
 
 // hostLocalStorageClassAnn is "true" on StorageClasses/VACs backed by a host local policy.
@@ -286,7 +287,9 @@ func validatePVC(ctx context.Context, req *admissionv1.AdmissionRequest) *admiss
 					allowed = false
 					result = &metav1.Status{
 						Reason: metav1.StatusReason(fmt.Sprintf(
-							"failed to determine whether the VolumeAttributesClass API is served: %v", err)),
+							"cannot verify that the VolumeAttributesClass API is served: %v. "+
+								"Retry; if it persists, check API server discovery and the guest cluster "+
+								"Kubernetes version", err)),
 					}
 				} else if !served {
 					allowed = false
@@ -542,7 +545,8 @@ func validateGuestPVCOperation(ctx context.Context, req *admissionv1.AdmissionRe
 		return &admissionv1.AdmissionResponse{
 			Allowed: false,
 			Result: &metav1.Status{
-				Message: fmt.Sprintf("error deserializing pvc. error: %v, failing validation.", err),
+				Message: fmt.Sprintf("Failed to validate PersistentVolumeClaim: the CSI admission webhook "+
+					"could not decode the request object: %v", err),
 			},
 		}
 	}
@@ -596,7 +600,9 @@ func validateGuestPVCOperation(ctx context.Context, req *admissionv1.AdmissionRe
 		return &admissionv1.AdmissionResponse{
 			Allowed: false,
 			Result: &metav1.Status{
-				Message: "datasource not specified for linked clone PVC request",
+				Message: fmt.Sprintf("Linked clone PVC %s/%s has no data source. Set spec.dataSourceRef to a "+
+					"VolumeSnapshot in the same namespace (apiGroup snapshot.storage.k8s.io, kind VolumeSnapshot).",
+					pvc.Namespace, pvc.Name),
 			},
 		}
 	}
@@ -668,8 +674,8 @@ func validateGuestPVCOperation(ctx context.Context, req *admissionv1.AdmissionRe
 	}
 
 	if volumeSnapshot.ObjectMeta.DeletionTimestamp != nil {
-		errMsg := fmt.Sprintf("LinkedClone %s/%s source VolumeSnapshot %s/%s is marked for deletion, "+
-			"failing linkedclone request", pvc.Namespace, pvc.Name, dataSource.Namespace, dataSource.Name)
+		errMsg := fmt.Sprintf("Cannot create linked clone PVC %s/%s: source VolumeSnapshot %s/%s is being deleted. "+
+			"Choose a different VolumeSnapshot.", pvc.Namespace, pvc.Name, dataSource.Namespace, dataSource.Name)
 		return &admissionv1.AdmissionResponse{
 			Allowed: false,
 			Result: &metav1.Status{
@@ -680,8 +686,9 @@ func validateGuestPVCOperation(ctx context.Context, req *admissionv1.AdmissionRe
 
 	// Validate that the VolumeSnapshot is Ready
 	if volumeSnapshot.Status == nil {
-		errMsg := fmt.Sprintf("volumesnapshot %s status unavailable, failing linkedclone request",
-			volumeSnapshot.Name)
+		errMsg := fmt.Sprintf("VolumeSnapshot %s/%s has no status yet, so a linked clone cannot be created from it. "+
+			"Wait until the VolumeSnapshot reports readyToUse=true (kubectl get volumesnapshot) and retry.",
+			volumeSnapshot.Namespace, volumeSnapshot.Name)
 		return &admissionv1.AdmissionResponse{
 			Allowed: false,
 			Result: &metav1.Status{
@@ -692,8 +699,9 @@ func validateGuestPVCOperation(ctx context.Context, req *admissionv1.AdmissionRe
 
 	// Validate that ReadyToUse is set
 	if volumeSnapshot.Status != nil && volumeSnapshot.Status.ReadyToUse == nil {
-		errMsg := fmt.Sprintf("volumeSnapshot %s ReadyToUse status is unavailable, failing linkedclone request",
-			volumeSnapshot.Name)
+		errMsg := fmt.Sprintf("VolumeSnapshot %s/%s has not reported status.readyToUse yet. "+
+			"Wait until it is ready (kubectl get volumesnapshot) and retry.",
+			volumeSnapshot.Namespace, volumeSnapshot.Name)
 		return &admissionv1.AdmissionResponse{
 			Allowed: false,
 			Result: &metav1.Status{
@@ -704,7 +712,9 @@ func validateGuestPVCOperation(ctx context.Context, req *admissionv1.AdmissionRe
 
 	// Check if the VolumeSnapshot is ready
 	if !*volumeSnapshot.Status.ReadyToUse {
-		errMsg := fmt.Sprintf("volumeSnapshot %s is not ready", volumeSnapshot.Name)
+		errMsg := fmt.Sprintf("VolumeSnapshot %s/%s is not ready to use (status.readyToUse=false). "+
+			"Check status.error with kubectl describe volumesnapshot, wait until it is ready, then retry.",
+			volumeSnapshot.Namespace, volumeSnapshot.Name)
 		return &admissionv1.AdmissionResponse{
 			Allowed: false,
 			Result: &metav1.Status{
@@ -747,7 +757,8 @@ func validateGuestPVCOperation(ctx context.Context, req *admissionv1.AdmissionRe
 			}
 		}
 		if *sourcePVCStorageClassName == "" {
-			errMsg := "source PVC has an empty StorageClass name and cannot be validated for linked clone creation"
+			errMsg := fmt.Sprintf("Source PVC %s/%s has an empty StorageClass name, so a linked clone cannot be "+
+				"validated. Set a StorageClass on the source PVC and retry.", sourcePVC.Namespace, sourcePVC.Name)
 			return &admissionv1.AdmissionResponse{
 				Allowed: false,
 				Result: &metav1.Status{
@@ -768,7 +779,8 @@ func validateGuestPVCOperation(ctx context.Context, req *admissionv1.AdmissionRe
 			}
 		}
 		if *linkedClonePVCStorageClassName == "" {
-			errMsg := "LinkedClone PVC has an empty StorageClass name and cannot be validated for linked clone creation"
+			errMsg := fmt.Sprintf("LinkedClone PVC %s/%s has an empty StorageClass name. Set spec.storageClassName "+
+				"to a StorageClass with the same svStorageClass as the source PVC.", pvc.Namespace, pvc.Name)
 			return &admissionv1.AdmissionResponse{
 				Allowed: false,
 				Result: &metav1.Status{
@@ -888,8 +900,9 @@ func validateGuestPVCOperation(ctx context.Context, req *admissionv1.AdmissionRe
 		}
 		szResult := sourcePVCSize.Cmp(linkedClonePVCSize)
 		if szResult != 0 {
-			errMsg := fmt.Sprintf("size mismatch, Source PVC: %s LinkedClone PVC: %s",
-				sourcePVCSize.String(), linkedClonePVCSize.String())
+			errMsg := fmt.Sprintf("Linked clone PVC size (%s) must equal source PVC size (%s). Set "+
+				"spec.resources.requests.storage on the linked clone PVC to the source size.",
+				linkedClonePVCSize.String(), sourcePVCSize.String())
 			return &admissionv1.AdmissionResponse{
 				Allowed: false,
 				Result: &metav1.Status{

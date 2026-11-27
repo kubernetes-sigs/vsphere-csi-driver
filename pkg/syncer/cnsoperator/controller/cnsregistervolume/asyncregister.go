@@ -88,7 +88,8 @@ func (r *ReconcileCnsRegisterVolume) submitOrPollCreateVolume(ctx context.Contex
 		return &volumes.CnsVolumeInfo{VolumeID: cnstypes.CnsVolumeId{Id: instance.Status.CnsVolumeID}}, nil, nil
 	}
 	if err := r.taskTracker.ensureInit(ctx, r.volumeManager, vc); err != nil {
-		msg := fmt.Sprintf("failed to initialize CNS task tracking: %v", err)
+		msg := fmt.Sprintf("Failed to initialize CNS task tracking for CnsRegisterVolume %s/%s: %v",
+			instance.Namespace, instance.Name, err)
 		log.Error(msg)
 		setInstanceError(ctx, r, instance, msg)
 		return nil, &reconcile.Result{RequeueAfter: timeout}, nil
@@ -502,7 +503,8 @@ func (r *ReconcileCnsRegisterVolume) resolveInFlightTaskForDelete(ctx context.Co
 
 func (r *ReconcileCnsRegisterVolume) taskVirtualCenter(ctx context.Context) (*cnsvsphere.VirtualCenter, error) {
 	if r.configInfo == nil {
-		return nil, fmt.Errorf("vCenter configuration is unavailable")
+		return nil, fmt.Errorf("vCenter configuration is not loaded; " +
+			"verify the vsphere-config-secret exists and is valid")
 	}
 	cfg, err := cnsvsphere.GetVirtualCenterConfig(ctx, r.configInfo.GetCfg())
 	if err != nil {

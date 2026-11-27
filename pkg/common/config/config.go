@@ -116,7 +116,9 @@ const (
 var (
 	// ErrUsernameMissing is returned when the provided username is empty and
 	// vc-session-manager-url is not configured as an alternative.
-	ErrUsernameMissing = errors.New("username or vc-session-manager-url is missing")
+	ErrUsernameMissing = errors.New("username or vc-session-manager-url is missing: set 'user' in the [Global] or " +
+		"[VirtualCenter] section of the vSphere config secret (csi-vsphere.conf), or set 'vc-session-manager-url'; " +
+		"the affected vCenter is named in the driver log")
 
 	// ErrInvalidUsername is returned when vCenter username provided in vSphere config
 	// secret is invalid. e.g. If username is not a fully qualified domain name, then
@@ -125,7 +127,9 @@ var (
 
 	// ErrPasswordMissing is returned when the provided password is empty and
 	// vc-session-manager-url is not configured as an alternative.
-	ErrPasswordMissing = errors.New("password or vc-session-manager-url is missing")
+	ErrPasswordMissing = errors.New("password or vc-session-manager-url is missing: set 'password' in the [Global] or " +
+		"[VirtualCenter] section of the vSphere config secret (csi-vsphere.conf), or set 'vc-session-manager-url'; " +
+		"the affected vCenter is named in the driver log")
 
 	// ErrSDDCNameMissing is returned when vsphere-service-account is set and a
 	// VirtualCenter section has no sddc-name.
@@ -142,7 +146,8 @@ var (
 
 	// ErrMissingVCenter is returned when the provided configuration does not
 	// define any vCenters.
-	ErrMissingVCenter = errors.New("no Virtual Center hosts defined")
+	ErrMissingVCenter = errors.New("no vCenter is defined in the vSphere config: add at least one " +
+		"[VirtualCenter \"<vcenter-ip-or-fqdn>\"] section to the config secret (csi-vsphere.conf)")
 
 	// ErrClusterIDCharLimit is returned when the provided cluster id is more
 	// than 64 characters.
@@ -162,7 +167,9 @@ var (
 
 	// ErrInvalidNetPermission is returned when the value of Permission in
 	// NetPermissions is not among the ones listed.
-	ErrInvalidNetPermission = errors.New("invalid value for Permissions under NetPermission Config")
+	ErrInvalidNetPermission = errors.New("invalid value for Permissions under a [NetPermissions] section of the " +
+		"vSphere config: allowed values are READ_WRITE, READ_ONLY and NO_ACCESS; " +
+		"the offending section is named in the driver log")
 
 	// ErrMissingTopologyCategoriesForMultiVCenterSetup is returned when the TopologyCategories are not specified for
 	// Multi vCenter deployment
@@ -550,12 +557,13 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 func ReadConfig(ctx context.Context, config io.Reader) (*Config, error) {
 	log := logger.GetLogger(ctx)
 	if config == nil {
-		return nil, fmt.Errorf("no vSphere CSI driver config file given")
+		return nil, fmt.Errorf("vSphere CSI config could not be read: no config file was provided to the driver")
 	}
 	cfg := &Config{}
 	if err := gcfg.FatalOnly(gcfg.ReadInto(cfg, config)); err != nil {
 		log.Errorf("error while reading config file: %+v", err)
-		return nil, err
+		return nil, fmt.Errorf("failed to parse the vSphere config (csi-vsphere.conf), "+
+			"correct its syntax and restart the driver: %w", err)
 	}
 	if err := buildVirtualCenterMap(ctx, cfg); err != nil {
 		return nil, err
@@ -658,7 +666,8 @@ func FromEnvToGC(ctx context.Context, cfg *Config) error {
 // Environment variables are also checked.
 func ReadGCConfig(ctx context.Context, config io.Reader) (*Config, error) {
 	if config == nil {
-		return nil, fmt.Errorf("guest cluster config file is not present")
+		return nil, fmt.Errorf("guest cluster config file was not provided: verify the guest cluster config secret " +
+			"is mounted in the driver pod")
 	}
 	cfg := &Config{}
 	if err := gcfg.FatalOnly(gcfg.ReadInto(cfg, config)); err != nil {
@@ -758,7 +767,8 @@ func GetClusterFlavor(ctx context.Context) (cnstypes.CnsClusterFlavor, error) {
 		clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		return clusterFlavor, nil
 	}
-	errMsg := "unrecognized value set for CLUSTER_FLAVOR"
+	errMsg := fmt.Sprintf("unrecognized value %q set for CLUSTER_FLAVOR: use GUEST_CLUSTER, WORKLOAD or VANILLA, "+
+		"or leave it unset for vanilla Kubernetes", string(clusterFlavor))
 	log.Error(errMsg)
 	return "", fmt.Errorf("%s", errMsg)
 }
@@ -788,7 +798,8 @@ func runPostProcessor(ctx context.Context, cfg *Config) error {
 	postProcessorMu.RUnlock()
 	if p == nil {
 		if cfg.Global.VSphereServiceAccount != "" {
-			return errors.New("vsphere-service-account is set but no source for the vCenter credentials is registered")
+			return errors.New("vsphere-service-account is set but the driver has no source registered to load the " +
+				"vCenter credentials: remove vsphere-service-account from the vSphere config")
 		}
 		return nil
 	}

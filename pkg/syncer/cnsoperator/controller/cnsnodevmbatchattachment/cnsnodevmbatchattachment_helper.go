@@ -201,7 +201,8 @@ func getVolumesToDetachFromInstance(ctx context.Context,
 		// Get PVC name for the given FCD.
 		pvcName, pvcNs, exists := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(attachedFcdId)
 		if !exists {
-			msg := fmt.Sprintf("failed to find PVC for volumeID %s in cluster", attachedFcdId)
+			msg := fmt.Sprintf("no PVC found for attached volume %s in the cluster; the PVC may have been deleted",
+				attachedFcdId)
 			return pvcsToDetach, errors.New(msg)
 		}
 

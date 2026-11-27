@@ -249,7 +249,9 @@ var exit = os.Exit
 func process(ctx context.Context, cfg *config.Config) error {
 	if !Enabled(ctx) {
 		if cfg.Global.VSphereServiceAccount != "" {
-			return fmt.Errorf("vsphere-service-account is set but the %s feature state is not enabled",
+			return fmt.Errorf("vsphere-service-account is set but the runtime configuration is not in use: it "+
+				"requires a Supervisor cluster with the %s and %s feature states enabled. Remove "+
+				"vsphere-service-account from the vSphere config or enable these", common.SupportsSelfManagedMode,
 				common.VSphereCSIRuntimeConfig)
 		}
 		return nil

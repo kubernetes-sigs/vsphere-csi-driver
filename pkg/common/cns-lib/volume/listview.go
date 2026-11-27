@@ -125,7 +125,7 @@ func NewListViewImpl(ctx context.Context, virtualCenter *cnsvsphere.VirtualCente
 	}
 	err := t.createListView(ctx, nil)
 	if err != nil {
-		return nil, logger.LogNewErrorf(log, "failed to create a ListView. error: %+v", err)
+		return nil, logger.LogNewErrorf(log, "failed to create a ListView: %+v", err)
 	}
 	go t.listenToTaskUpdates()
 	go t.restartContainer()
@@ -152,8 +152,8 @@ func (l *ListViewImpl) restartContainer() {
 				waitMu.Lock()
 				defer waitMu.Unlock()
 				if !l.IsListViewReady() {
-					log.Infof("credentials are correct but listview is not ready within 2 minutes. " +
-						"restarting the container")
+					log.Infof("vCenter credentials are valid but the ListView was not ready within 2 minutes; " +
+						"restarting the container. Check vCenter connectivity and CNS service health")
 					os.Exit(1)
 				}
 				log.Debugf("credentials are correct and listview is ready within 2 minutes")
@@ -197,13 +197,16 @@ func (l *ListViewImpl) createListView(ctx context.Context, tasks []types.Managed
 	log := logger.GetLogger(ctx)
 	vc := l.vc()
 	if err := vc.Connect(ctx); err != nil {
-		return logger.LogNewErrorf(log, "failed to create a ListView. error: %+v", err)
+		// Connect's error already names the vCenter and carries the connectivity/credentials advice.
+		return logger.LogNewErrorf(log, "failed to connect to vCenter for the ListView: %+v", err)
 	} else {
 		log.Debugf("connection to vc successful")
 	}
 	client := vc.VimClient()
 	if client == nil {
-		return logger.LogNewError(log, "failed to create a ListView. error: vCenter client is nil after connect")
+		return logger.LogNewErrorf(log, "failed to create a ListView on vCenter %q: "+
+			"the vCenter client is nil after connect",
+			vc.Config.Host.String())
 	}
 	l.setClient(client)
 	return l.newListView(ctx, client, tasks)

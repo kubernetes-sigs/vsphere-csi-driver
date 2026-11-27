@@ -425,7 +425,7 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 		}
 		operationMode = guestInitParams.OperationMode
 	} else {
-		return nil, fmt.Errorf("wrong orchestrator params type")
+		return nil, fmt.Errorf("wrong orchestrator params type %T for cluster flavor %q", params, controllerClusterFlavor)
 	}
 
 	// Add the snapshot informer factory only for guest clusters where ImprovedVolumeVisibility is
@@ -2362,7 +2362,9 @@ func (c *K8sOrchestrator) IsLinkedCloneRequest(ctx context.Context, pvcName stri
 		log.Errorf("linked clone support is not enabled for the linked clone request pvc %s in namespace %s",
 			pvcName, pvcNamespace)
 		return false, errors.New("linked clone support is not enabled for the linked clone " +
-			"request pvc " + pvcName + " in namespace " + pvcNamespace)
+			"request pvc " + pvcName + " in namespace " + pvcNamespace +
+			". Enable the " + fss + " capability or remove the " + common.AnnKeyLinkedClone +
+			" annotation from the PVC")
 	}
 	if hasLinkedCloneAnn {
 		return true, nil

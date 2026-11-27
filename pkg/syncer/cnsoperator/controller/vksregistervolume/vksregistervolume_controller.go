@@ -294,7 +294,10 @@ func (r *ReconcileVKSRegisterVolume) Reconcile(ctx context.Context,
 	if err := protectInstance(ctx, r.client, instance); err != nil {
 		log.Errorf("Failed to add finalizer to VKSRegisterVolume %s/%s: %+v",
 			instance.Namespace, instance.Name, err)
-		r.setStatusError(ctx, instance, "Failed to add finalizer")
+		r.setStatusError(ctx, instance,
+			fmt.Sprintf("Failed to add finalizer to VKSRegisterVolume %s/%s: %v. "+
+				"Verify API server access; the operation will be retried.",
+				instance.Namespace, instance.Name, err))
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
@@ -399,8 +402,9 @@ func (r *ReconcileVKSRegisterVolume) Reconcile(ctx context.Context,
 		}
 	case err == nil:
 		if !guestPVMatchesExpected(existingPV, supervisorPVCName, instance) {
-			msg := fmt.Sprintf("existing guest PV %q does not match expected volumeHandle/claimRef",
-				guestPVName)
+			msg := fmt.Sprintf("existing guest PV %q does not match the expected volumeHandle %q and "+
+				"claimRef %s/%s. Correct the PV spec or delete the PV, then recreate the VKSRegisterVolume.",
+				guestPVName, supervisorPVCName, instance.Namespace, instance.Spec.PVCName)
 			log.Errorf("VKSRegisterVolume %s/%s: %s", instance.Namespace, instance.Name, msg)
 			r.setStatusFailed(ctx, instance, msg)
 			return reconcile.Result{}, nil // no requeue — terminal

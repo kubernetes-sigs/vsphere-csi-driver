@@ -2021,7 +2021,7 @@ func TestCreateVolumeCleansUpVolumeWhenLinkedCloneUUIDLookupFails(t *testing.T) 
 	if statusErr.Code() != codes.Internal {
 		t.Fatalf("expected %s, got %s: %v", codes.Internal, statusErr.Code(), err)
 	}
-	if !strings.Contains(err.Error(), "failed to get linked clone name") {
+	if !strings.Contains(err.Error(), "failed to get the source VolumeSnapshot UID for linked clone PVC") {
 		t.Fatalf("expected the linked-clone-name lookup failure to be reported, got: %v", err)
 	}
 

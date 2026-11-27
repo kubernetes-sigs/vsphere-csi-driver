@@ -110,7 +110,8 @@ func (ns *NodeServer) NodePublishVolume(_ context.Context, req *csi.NodePublishV
 			if v != "" {
 				var err error
 				if mountPermissions, err = strconv.ParseUint(v, 8, 32); err != nil {
-					return nil, status.Errorf(codes.InvalidArgument, "invalid mountPermissions %s", v)
+					return nil, status.Errorf(codes.InvalidArgument,
+						"invalid mountPermissions %q: must be an octal file mode such as 0777", v)
 				}
 			}
 		}
@@ -140,11 +141,15 @@ func (ns *NodeServer) NodePublishVolume(_ context.Context, req *csi.NodePublishV
 	if err != nil {
 		if os.IsNotExist(err) {
 			if err := os.MkdirAll(targetPath, os.FileMode(mountPermissions)); err != nil {
-				return nil, status.Error(codes.Internal, err.Error())
+				return nil, status.Errorf(codes.Internal,
+					"failed to create mount target directory %q: %v. Check kubelet permissions on the node",
+					targetPath, err)
 			}
 			notMnt = true
 		} else {
-			return nil, status.Error(codes.Internal, err.Error())
+			return nil, status.Errorf(codes.Internal,
+				"failed to check whether %q is already a mount point: %v. Check the node mount table and kubelet logs",
+				targetPath, err)
 		}
 	}
 	if !notMnt {
@@ -168,7 +173,7 @@ func (ns *NodeServer) NodePublishVolume(_ context.Context, req *csi.NodePublishV
 		return ns.mounter.Mount(source, targetPath, "nfs", mountOptions)
 	}
 	timeoutFunc := func() error {
-		return fmt.Errorf("mount volume %s to %s timeout after %ds", source, targetPath, mountTimeoutInSec)
+		return fmt.Errorf("mount volume %s to %s timed out after %ds", source, targetPath, mountTimeoutInSec)
 	}
 	// A mount that outlives the timeout cannot be cancelled. Keep holding the volume lock until
 	// it finishes so a retry cannot race it on the same path, and undo it if it succeeds late:
@@ -193,13 +198,21 @@ func (ns *NodeServer) NodePublishVolume(_ context.Context, req *csi.NodePublishV
 		releaseLock = false
 	}
 	if err != nil {
+		const mountFailedFmt = "failed to mount NFS source %q at %q: %v. %s"
 		if os.IsPermission(err) {
-			return nil, status.Error(codes.PermissionDenied, err.Error())
+			return nil, status.Errorf(codes.PermissionDenied, mountFailedFmt, source, targetPath, err,
+				"Verify that the export allows this node's IP")
 		}
 		if strings.Contains(err.Error(), "invalid argument") {
-			return nil, status.Error(codes.InvalidArgument, err.Error())
+			return nil, status.Errorf(codes.InvalidArgument, mountFailedFmt, source, targetPath, err,
+				"Verify the NFS mount options")
 		}
-		return nil, status.Error(codes.Internal, err.Error())
+		if timedOut {
+			return nil, status.Errorf(codes.Internal, "%v. Verify that the export is reachable "+
+				"from the guest cluster nodes", err)
+		}
+		return nil, status.Errorf(codes.Internal, mountFailedFmt, source, targetPath, err,
+			"Verify that the export exists and is reachable from the guest cluster nodes")
 	}
 
 	// A read-only mount rejects chmod with EROFS. An existing volume whose context omits
@@ -208,7 +221,10 @@ func (ns *NodeServer) NodePublishVolume(_ context.Context, req *csi.NodePublishV
 	// mount had already succeeded. Skip that chmod; a later read-write publish still applies it.
 	if mountPermissions > 0 && !hasReadOnlyMountOption(mountOptions) {
 		if err := chmodIfPermissionMismatch(targetPath, uint32(mountPermissions)); err != nil {
-			return nil, status.Error(codes.Internal, err.Error())
+			return nil, status.Errorf(codes.Internal,
+				"failed to set permissions %o on %q after mount: %v. "+
+					"Check the export's squash/permission settings or set mountPermissions to 0",
+				mountPermissions, targetPath, err)
 		}
 	} else if mountPermissions == 0 {
 		klog.V(2).Infof("skip chmod on targetPath(%s) since mountPermissions is set as 0", targetPath)
@@ -296,7 +312,8 @@ func (ns *NodeServer) NodeGetVolumeStats(_ context.Context, req *csi.NodeGetVolu
 	// check if the volume stats is cached
 	cache, err := ns.Driver.volStatsCache.Get(req.VolumeId, CacheReadTypeDefault)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "%v", err)
+		return nil, status.Errorf(codes.Internal, "failed to read cached volume stats for volume %q: %v",
+			req.VolumeId, err)
 	}
 	if cache != nil {
 		resp := cache.(*csi.NodeGetVolumeStatsResponse)
@@ -318,28 +335,34 @@ func (ns *NodeServer) NodeGetVolumeStats(_ context.Context, req *csi.NodeGetVolu
 
 	available, ok := volumeMetrics.Available.AsInt64()
 	if !ok {
-		return nil, status.Errorf(codes.Internal, "failed to transform volume available size(%v)", volumeMetrics.Available)
+		return nil, status.Errorf(codes.Internal,
+			"failed to convert volume available size (%v) to int64", volumeMetrics.Available)
 	}
 	capacity, ok := volumeMetrics.Capacity.AsInt64()
 	if !ok {
-		return nil, status.Errorf(codes.Internal, "failed to transform volume capacity size(%v)", volumeMetrics.Capacity)
+		return nil, status.Errorf(codes.Internal,
+			"failed to convert volume capacity size (%v) to int64", volumeMetrics.Capacity)
 	}
 	used, ok := volumeMetrics.Used.AsInt64()
 	if !ok {
-		return nil, status.Errorf(codes.Internal, "failed to transform volume used size(%v)", volumeMetrics.Used)
+		return nil, status.Errorf(codes.Internal,
+			"failed to convert volume used size (%v) to int64", volumeMetrics.Used)
 	}
 
 	inodesFree, ok := volumeMetrics.InodesFree.AsInt64()
 	if !ok {
-		return nil, status.Errorf(codes.Internal, "failed to transform disk inodes free(%v)", volumeMetrics.InodesFree)
+		return nil, status.Errorf(codes.Internal,
+			"failed to convert disk inodes free (%v) to int64", volumeMetrics.InodesFree)
 	}
 	inodes, ok := volumeMetrics.Inodes.AsInt64()
 	if !ok {
-		return nil, status.Errorf(codes.Internal, "failed to transform disk inodes(%v)", volumeMetrics.Inodes)
+		return nil, status.Errorf(codes.Internal,
+			"failed to convert disk inodes (%v) to int64", volumeMetrics.Inodes)
 	}
 	inodesUsed, ok := volumeMetrics.InodesUsed.AsInt64()
 	if !ok {
-		return nil, status.Errorf(codes.Internal, "failed to transform disk inodes used(%v)", volumeMetrics.InodesUsed)
+		return nil, status.Errorf(codes.Internal,
+			"failed to convert disk inodes used (%v) to int64", volumeMetrics.InodesUsed)
 	}
 
 	resp := csi.NodeGetVolumeStatsResponse{
@@ -367,19 +390,22 @@ func (ns *NodeServer) NodeGetVolumeStats(_ context.Context, req *csi.NodeGetVolu
 // NodeUnstageVolume unstage volume
 func (ns *NodeServer) NodeUnstageVolume(_ context.Context, _ *csi.NodeUnstageVolumeRequest) (
 	*csi.NodeUnstageVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, status.Error(codes.Unimplemented,
+		"NodeUnstageVolume is not supported by the guest NFS driver")
 }
 
 // NodeStageVolume stage volume
 func (ns *NodeServer) NodeStageVolume(_ context.Context, _ *csi.NodeStageVolumeRequest) (
 	*csi.NodeStageVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, status.Error(codes.Unimplemented,
+		"NodeStageVolume is not supported by the guest NFS driver")
 }
 
 // NodeExpandVolume node expand volume
 func (ns *NodeServer) NodeExpandVolume(_ context.Context, _ *csi.NodeExpandVolumeRequest) (
 	*csi.NodeExpandVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, status.Error(codes.Unimplemented,
+		"NodeExpandVolume is not supported by the guest NFS driver")
 }
 
 // isStaleFileHandle checks if an error is caused by a stale NFS file handle (ESTALE)

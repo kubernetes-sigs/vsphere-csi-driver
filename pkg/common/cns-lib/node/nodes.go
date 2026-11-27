@@ -109,7 +109,8 @@ func (nodes *Nodes) csiNodeAdd(obj interface{}) {
 		nodeUUID = cnsvsphere.GetUUIDFromProviderID(node.Spec.ProviderID)
 		err = nodes.cnsNodeManager.RegisterNode(ctx, nodeUUID, nodeName)
 		if err != nil {
-			log.Errorf("csiNodeAdd: failed for node %q, err=%v", nodeName, err)
+			log.Errorf("csiNodeAdd: failed to register node %q with the driver: %v; the driver will restart",
+				nodeName, err)
 			osExit(1)
 		}
 	}
@@ -218,7 +219,8 @@ func (nodes *Nodes) GetSharedDatastoresInK8SCluster(ctx context.Context) (
 		return nil, err
 	}
 	if len(nodeVMs) == 0 {
-		errMsg := "empty List of Node VMs returned from nodeManager"
+		errMsg := "no node VMs are registered with the driver; verify Kubernetes nodes have a " +
+			"providerID that matches a VM in vCenter"
 		log.Errorf(errMsg)
 		return make([]*cnsvsphere.DatastoreInfo, 0), fmt.Errorf("%s", errMsg)
 	}

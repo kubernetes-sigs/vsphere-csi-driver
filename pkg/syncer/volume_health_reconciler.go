@@ -178,7 +178,7 @@ func NewVolumeHealthReconciler(
 	// Start TKG Informers.
 	tkgInformerFactory.Start(stopCh)
 	if !cache.WaitForCacheSync(stopCh, rc.tkgPVSynced) {
-		return nil, fmt.Errorf("cannot sync tkg pv cache")
+		return nil, fmt.Errorf("the guest cluster PersistentVolume cache did not sync before the syncer was stopped")
 	}
 
 	// Initialize volumeHandleToPVs map with existing PV's.
@@ -204,7 +204,7 @@ func NewVolumeHealthReconciler(
 	// the map.
 	svcInformerFactory.Start(stopCh)
 	if !cache.WaitForCacheSync(stopCh, rc.svcPVCSynced) {
-		return nil, fmt.Errorf("cannot sync supervisor pvc cache")
+		return nil, fmt.Errorf("the Supervisor PersistentVolumeClaim cache did not sync before the syncer was stopped")
 	}
 	return rc, nil
 }

@@ -521,7 +521,8 @@ func (vc *VirtualCenter) Connect(ctx context.Context) error {
 		return nil
 	}
 
-	wrapped := fmt.Errorf("failed to connect to vCenter: %w", err)
+	wrapped := fmt.Errorf("failed to connect to vCenter %q: %w. Verify network reachability, the vCenter "+
+		"certificate/CA file, and the credentials in the vSphere config secret", vc.Config.Host.String(), err)
 	if IsInvalidLoginError(ctx, err) {
 		// Stamped before cleanup so the cooldown holds even if cleanup itself
 		// fails: a caller arriving a moment later must not get a fresh attempt.
@@ -1241,8 +1242,8 @@ func GetVirtualCenterInstanceForVCenterHost(ctx context.Context, vcHost commonty
 	if reconnect {
 		err := vc.Connect(ctx)
 		if err != nil {
-			return nil, logger.LogNewErrorf(log, "failed to connect to VirtualCenter host: %q. Error: %v",
-				vcHost, err)
+			// Connect's error already names the vCenter and carries the troubleshooting advice.
+			return nil, logger.LogNewErrorf(log, "%v", err)
 		}
 	}
 	return vc, nil
@@ -1256,7 +1257,7 @@ func (vc *VirtualCenter) GetAllVirtualMachines(ctx context.Context,
 	var hostMoList []mo.HostSystem
 	var hostRefs []types.ManagedObjectReference
 	if len(hostObjList) < 1 {
-		msg := "host object list is empty"
+		msg := "no ESXi hosts were provided to look up; verify the cluster has connected hosts in vCenter"
 		log.Errorf(msg+": %v", hostObjList)
 		return nil, fmt.Errorf("%s", msg)
 	}

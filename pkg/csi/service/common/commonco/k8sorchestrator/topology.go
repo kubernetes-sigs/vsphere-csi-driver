@@ -867,7 +867,7 @@ func addResourceVersion(patchBytes []byte, resourceVersion string) ([]byte, erro
 	var patchMap map[string]interface{}
 	err := json.Unmarshal(patchBytes, &patchMap)
 	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling patch with %v", err)
+		return nil, fmt.Errorf("failed to unmarshal the CSINodeTopology patch: %v", err)
 	}
 	u := unstructured.Unstructured{Object: patchMap}
 	a, err := apiMeta.Accessor(&u)
@@ -909,7 +909,8 @@ func createCSINodeTopologyInstance(ctx context.Context,
 	// Fetch node object to set owner ref.
 	nodeObj, err := volTopology.k8sClient.CoreV1().Nodes().Get(ctx, nodeInfo.NodeName, metav1.GetOptions{})
 	if err != nil {
-		msg := fmt.Sprintf("failed to fetch node object with name %q. Error: %v", nodeInfo.NodeName, err)
+		msg := fmt.Sprintf("failed to fetch node object with name %q. "+
+			"Verify the node exists and the CSI driver can read nodes. Error: %v", nodeInfo.NodeName, err)
 		return errors.New(msg)
 	}
 	// Create spec for CSINodeTopology.
@@ -945,7 +946,8 @@ func createCSINodeTopologyInstance(ctx context.Context,
 	err = volTopology.csiNodeTopologyK8sClient.Create(ctx, csiNodeTopologySpec)
 	if err != nil {
 		if !apierrors.IsAlreadyExists(err) {
-			msg := fmt.Sprintf("failed to create CSINodeTopology CR. Error: %+v", err)
+			msg := fmt.Sprintf("failed to create CSINodeTopology CR for node %q. "+
+				"Verify the CSINodeTopology CRD is installed. Error: %+v", nodeInfo.NodeName, err)
 			return errors.New(msg)
 		} else {
 			log.Infof("CSINodeTopology instance already exists for NodeName: %q", nodeInfo.NodeName)

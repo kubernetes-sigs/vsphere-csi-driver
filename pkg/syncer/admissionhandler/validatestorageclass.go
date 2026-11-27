@@ -19,6 +19,7 @@ package admissionhandler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	stroagev1 "k8s.io/api/storage/v1"
@@ -61,7 +62,8 @@ func validateStorageClass(ctx context.Context, ar *admissionv1.AdmissionReview) 
 			log.Error("error deserializing storage class")
 			return &admissionv1.AdmissionResponse{
 				Result: &metav1.Status{
-					Message: err.Error(),
+					Message: fmt.Sprintf("Failed to validate StorageClass: the CSI admission webhook "+
+						"could not decode the request object: %v", err),
 				},
 			}
 		}

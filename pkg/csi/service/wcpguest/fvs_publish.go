@@ -84,7 +84,8 @@ func ControllerPublishForFileVolumeServiceVolume(ctx context.Context,
 		// Export-path annotation has not been written by the supervisor yet.
 		// Surface as a retryable error so the external-attacher will retry.
 		msg := fmt.Sprintf("FVS supervisor PVC %q in namespace %q is missing required %q annotation; "+
-			"the supervisor has not yet populated the NFSv4.1 export path",
+			"the supervisor has not yet populated the NFSv4.1 export path. The attach will be retried; "+
+			"if it persists, check the file volume service status on the Supervisor",
 			svPVC.Name, svPVC.Namespace, common.Nfsv4ExportPathAnnotationKey)
 		log.Error(msg)
 		return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)

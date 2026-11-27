@@ -320,9 +320,9 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 		// If VM is nil, it means it is deleted from the vCenter.
 		if instance.DeletionTimestamp == nil {
 			// If VM is deleted from the VC but CnsNodeVMBatchAttachment is not being deleted, it is an error.
-			err := fmt.Errorf("virtual Machine with UUID %s on vCenter does not exist. "+
-				"Vm is CR is deleted or is being deleted but"+
-				"CnsNodeVMBatchAttachmentInstance %s is not being deleted", instance.Spec.InstanceUUID, instance.Name)
+			err := fmt.Errorf("VM with instance UUID %s does not exist in vCenter. "+
+				"The VirtualMachine CR is deleted or is being deleted, but CnsNodeVMBatchAttachment %s is not. "+
+				"Delete the CnsNodeVMBatchAttachment or recreate the VM.", instance.Spec.InstanceUUID, instance.Name)
 			return r.completeReconciliationWithError(batchAttachCtx, instance, request.NamespacedName, timeout, err)
 		}
 		// If CnsNodeVMBatchAttachment is also being deleted, then all volumes on the instance can be considered detached.
@@ -487,7 +487,8 @@ func markSkippedAttachFailed(ctx context.Context, instance *v1alpha1.CnsNodeVMBa
 			continue
 		}
 		err := fmt.Errorf("PVC %s is not attached with its new device backing, "+
-			"as detaching it with its previous backing did not complete", pvc)
+			"as detaching it with its previous backing did not complete. "+
+			"Check the detach task for this PVC in vCenter", pvc)
 		updateInstanceVolumeStatus(ctx, instance, volume.Name, pvc, volumeID, "", err,
 			v1alpha1.ConditionAttached, v1alpha1.ReasonAttachFailed)
 		return
@@ -520,7 +521,8 @@ func (r *Reconciler) processDetach(ctx context.Context,
 	}
 
 	if !isPresentInSameNamespace {
-		return pvcSet(volumesToDetach), fmt.Errorf("failed to find VM with instance UUID %s in namespace %s",
+		return pvcSet(volumesToDetach), fmt.Errorf("VM with instance UUID %s was not found in namespace %s. "+
+			"Verify spec.instanceUUID and that the VirtualMachine CR exists in this namespace",
 			instance.Spec.InstanceUUID, instance.Namespace)
 	}
 
@@ -532,7 +534,7 @@ func (r *Reconciler) processDetach(ctx context.Context,
 	if len(volumesThatFailedToDetach) != 0 {
 		msg := "failed to detach volumes: "
 		failedVolumes := strings.Join(volumesThatFailedToDetach, ",")
-		msg += failedVolumes
+		msg += failedVolumes + ". See status.volumes for the per-volume cause and check the detach tasks in vCenter"
 		overallErr = errors.New(msg)
 		if len(terminalCauses) == len(volumesThatFailedToDetach) {
 			// None of the failed detaches can succeed on a retry.
@@ -738,7 +740,8 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 		pvcName, ok := volumeIdsInAttachList[result.VolumeID]
 		if !ok {
 			log.Errorf("failed to get pvcName for volumeID %s", result.VolumeID)
-			return fmt.Errorf("failed to get pvcName for volumeID %s", result.VolumeID)
+			return fmt.Errorf("CNS returned a result for volume %s that does not map to a PVC in spec.volumes",
+				result.VolumeID)
 		}
 		volumeName, ok := pvcsInAttachList[pvcName]
 		if !ok {
@@ -842,8 +845,8 @@ func (r *Reconciler) completeReconciliationWithSuccess(ctx context.Context, inst
 	delete(backOffDuration, namespaceName)
 	backOffDurationMapMutex.Unlock()
 
-	msg := fmt.Sprintf("ReconcileCnsNodeVMBatchAttachment: Successfully processed instance %s "+
-		"in namespace %q.", namespaceName, namespaceName)
+	msg := fmt.Sprintf("ReconcileCnsNodeVMBatchAttachment: Successfully processed CnsNodeVMBatchAttachment %s "+
+		"in namespace %q.", instance.Name, instance.Namespace)
 	recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
 	return reconcile.Result{}, nil
 }

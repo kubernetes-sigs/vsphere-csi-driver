@@ -98,10 +98,12 @@ func validateWCPCreateVolumeRequest(ctx context.Context, req *csi.CreateVolumeRe
 	for paramName, value := range params {
 		paramName = strings.ToLower(paramName)
 		if isBlockRequest && !validateCreateBlockReqParam(paramName, value) {
-			msg := fmt.Sprintf("Volume parameter %s is not a valid WCP CSI parameter for block volume.", paramName)
+			msg := fmt.Sprintf("Volume parameter %s is not a valid WCP CSI parameter for block volumes. "+
+				"Remove it from the StorageClass parameters.", paramName)
 			return status.Error(codes.InvalidArgument, msg)
 		} else if !isBlockRequest && !validateCreateFileReqParam(paramName, value) {
-			msg := fmt.Sprintf("Volume parameter %s is not a valid WCP CSI parameter for file volumes.", paramName)
+			msg := fmt.Sprintf("Volume parameter %s is not a valid WCP CSI parameter for file volumes. "+
+				"Remove it from the StorageClass parameters.", paramName)
 			return status.Error(codes.InvalidArgument, msg)
 		}
 	}
@@ -277,7 +279,8 @@ func getDatacenterFromConfig(cfg *cnsconfig.Config) (map[string]string, error) {
 		return vcdcMap, err
 	}
 	if len(vcdcListMap) != 1 {
-		return vcdcMap, fmt.Errorf("found more than one vCenter instance. WCP Cluster can be deployed in only one VC")
+		return vcdcMap, fmt.Errorf("found %d vCenter instances in the vsphere config. "+
+			"WCP Cluster can be deployed in only one VC", len(vcdcListMap))
 	}
 
 	for vcHost, dcList := range vcdcListMap {
@@ -305,7 +308,8 @@ func getVCDatacentersFromConfig(cfg *cnsconfig.Config) (map[string][]string, err
 		}
 	}
 	if len(vcdcMap) == 0 {
-		err = errors.New("unable get vCenter datacenters from vsphere config")
+		err = errors.New("unable to get vCenter datacenters from the vsphere config: " +
+			"no datacenter is set for any vCenter")
 	}
 	return vcdcMap, err
 }
@@ -368,7 +372,7 @@ func getDatastoreURLFromStoragePool(ctx context.Context, spName string) (string,
 	// extract the datastoreUrl field.
 	datastoreURL, found := sp.Spec.Parameters["datastoreUrl"]
 	if !found {
-		return "", fmt.Errorf("failed to find datastoreUrl in StoragePool %s", spName)
+		return "", fmt.Errorf("failed to find datastoreUrl in the spec parameters of StoragePool %s", spName)
 	}
 
 	return datastoreURL, nil
@@ -439,7 +443,8 @@ func getOverlappingNodes(accessibleNodes []string, topologyRequirement *csi.Topo
 	}
 	if noOverLappingNodes {
 		return nil, fmt.Errorf("couldn't find any overlapping node as accessible nodes present in storage pool " +
-			"and hostnames provided in accessibility requirements are disjoint")
+			"and hostnames provided in accessibility requirements are disjoint. " +
+			"Select a node that can access the storage pool")
 	}
 	return overlappingNodes, nil
 }
@@ -738,7 +743,8 @@ func getVolumeIDToVMMap(ctx context.Context, volumeIDs []string, vmMoidToHostMoi
 	}
 	if len(hostNames) == 0 {
 		log.Errorf("no hostnames found in the NodeIDtoName map")
-		return nil, fmt.Errorf("no hostnames found in the NodeIDtoName map")
+		return nil, fmt.Errorf("no hostnames found in the NodeIDtoName map; " +
+			"the node-to-name map is empty (possibly no node has registered yet)")
 	}
 
 	for volumeID, VMMoID := range volumeIDToVMMap {
@@ -891,7 +897,7 @@ func validateVolumeCapabilitiesInWcp(ctx context.Context, volCaps []*csi.VolumeC
 			} else if !isSharedDiskEnabled && volCap.GetBlock() != nil {
 				// Raw Block volumes are not supported with ReadWriteMany or ReadOnlyMany access modes,
 				return fmt.Errorf("block volume mode is not supported for ReadWriteMany or ReadOnlyMany " +
-					"volume creation")
+					"volume creation. Use ReadWriteOnce or a Filesystem volume mode")
 			}
 		}
 	}
@@ -906,7 +912,8 @@ func validateCreateVolumeRequestInWcp(ctx context.Context, req *csi.CreateVolume
 	// Volume Name.
 	volName := req.GetName()
 	if len(volName) == 0 {
-		return logger.LogNewErrorCode(log, codes.InvalidArgument, "volume name is a required parameter")
+		return logger.LogNewErrorCode(log, codes.InvalidArgument,
+			"volume name is a required parameter; the CreateVolume request has no name")
 	}
 	// Validate Volume Capabilities.
 	volCaps := req.GetVolumeCapabilities()
@@ -914,7 +921,8 @@ func validateCreateVolumeRequestInWcp(ctx context.Context, req *csi.CreateVolume
 		return logger.LogNewErrorCode(log, codes.InvalidArgument, "volume capabilities not provided")
 	}
 	if err := isValidVolumeCapabilitiesInWcp(ctx, volCaps); err != nil {
-		return logger.LogNewErrorCodef(log, codes.InvalidArgument, "volume capability not supported. Err: %+v", err)
+		return logger.LogNewErrorCodef(log, codes.InvalidArgument, "volume capability not supported: %v. "+
+			"Check the access modes, volume mode and fsType requested by the PVC and StorageClass", err)
 	}
 	return nil
 }
@@ -963,7 +971,8 @@ func validateControllerPublishVolumeRequesInWcp(ctx context.Context, req *csi.Co
 	}
 	caps := []*csi.VolumeCapability{volCap}
 	if err := isValidVolumeCapabilitiesInWcp(ctx, caps); err != nil {
-		return logger.LogNewErrorCodef(log, codes.InvalidArgument, "volume capability not supported. Err: %+v", err)
+		return logger.LogNewErrorCodef(log, codes.InvalidArgument, "volume capability not supported: %v. "+
+			"Check the access modes, volume mode and fsType requested by the PVC and StorageClass", err)
 	}
 	return nil
 }
@@ -1053,7 +1062,8 @@ func GetZonesFromAccessibilityRequirements(ctx context.Context,
 	topologyRequirement *csi.TopologyRequirement) ([]string, error) {
 	log := logger.GetLogger(ctx)
 	if topologyRequirement == nil {
-		return nil, fmt.Errorf("topologyRequirement can't we nil")
+		return nil, fmt.Errorf("topologyRequirement must not be nil; " +
+			"the CreateVolume request did not carry topology information from csi-provisioner")
 	}
 	zoneKey := "topology.kubernetes.io/zone"
 	var zones []string
@@ -1067,7 +1077,9 @@ func GetZonesFromAccessibilityRequirements(ctx context.Context,
 		}
 	}
 	if len(zones) == 0 {
-		return nil, logger.LogNewErrorCodef(log, codes.Internal, "failed to retrieve zones for e nil")
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to retrieve zones: no %q segment found in the preferred topologies of the request. "+
+				"Verify the zone topology of the StorageClass", zoneKey)
 	}
 	return zones, nil
 }
@@ -1141,7 +1153,8 @@ func getSnapshotLimitForNamespace(ctx context.Context, k8sClient kubernetes.Inte
 	limitStr, exists := cm.Data[common.ConfigMapKeyMaxSnapshotsPerVolume]
 	if !exists {
 		// Key not found in ConfigMap, fail the request
-		errMsg := fmt.Sprintf("ConfigMap %s exists in namespace %s but missing required key '%s'",
+		errMsg := fmt.Sprintf("ConfigMap %s exists in namespace %s but is missing required key '%s'. "+
+			"Add the key or delete the ConfigMap to use the default",
 			common.ConfigMapCSILimits, namespace, common.ConfigMapKeyMaxSnapshotsPerVolume)
 		log.Errorf("getSnapshotLimitForNamespace: %s", errMsg)
 		return 0, errors.New(errMsg)

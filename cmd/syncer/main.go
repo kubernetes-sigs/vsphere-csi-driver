@@ -286,7 +286,7 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			}
 		}()
 		if err := manager.InitCommonModules(ctx, clusterFlavor, coInitParams); err != nil {
-			log.Errorf("Error initializing common modules for all flavors. Error: %+v", err)
+			log.Errorf("Failed to initialize the syncer common modules: %+v", err)
 			os.Exit(1)
 		}
 		// From here on GetConfig also completes the Supervisor configuration from its runtime
@@ -297,13 +297,15 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 			configInfo, err = syncer.SyncerInitConfigInfo(ctx)
 			if err != nil {
-				log.Errorf("failed to initialize the configInfo. Err: %+v", err)
+				log.Errorf("Failed to load the vSphere configuration from %q: %+v",
+					config.GetConfigPath(ctx), err)
 				os.Exit(1)
 			}
 		} else {
 			configInfo, err = config.InitConfigInfo(ctx)
 			if err != nil {
-				log.Errorf("failed to initialize the configInfo. Err: %+v", err)
+				log.Errorf("Failed to load the vSphere configuration from %q: %+v",
+					config.GetConfigPath(ctx), err)
 				os.Exit(1)
 			}
 		}
@@ -332,7 +334,7 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			nodeMgr = &node.Nodes{}
 			err = nodeMgr.Prepare(ctx)
 			if err != nil {
-				log.Errorf("failed to initialize nodeManager. Error: %+v", err)
+				log.Errorf("Failed to initialize the node manager: %+v", err)
 				os.Exit(1)
 			}
 			if configInfo.GetCfg().Global.ClusterDistribution == "" {

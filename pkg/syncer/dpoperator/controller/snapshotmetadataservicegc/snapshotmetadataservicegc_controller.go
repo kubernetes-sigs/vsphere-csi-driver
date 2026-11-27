@@ -279,7 +279,7 @@ func (r *ReconcileSnapshotMetadataServiceGC) Reconcile(ctx context.Context,
 		Namespace: targetNamespace,
 	}, secret); err != nil {
 		if apierrors.IsNotFound(err) {
-			msg := fmt.Sprintf("Secret %s/%s not found yet", targetNamespace, targetSecretName)
+			msg := fmt.Sprintf("Secret %s/%s does not exist yet; the sync will be retried", targetNamespace, targetSecretName)
 			recordEvent(ctx, r, sms, v1.EventTypeWarning, msg)
 			reconcileLog.Errorf("Operation failed, reporting failure status to Prometheus."+
 				" Fault Type: %q", csifault.CSIApiServerOperationFault)
