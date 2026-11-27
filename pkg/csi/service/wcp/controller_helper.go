@@ -31,6 +31,7 @@ import (
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -106,6 +107,19 @@ func validateWCPCreateVolumeRequest(ctx context.Context, req *csi.CreateVolumeRe
 		}
 	}
 	return validateCreateVolumeRequestInWcp(ctx, req)
+}
+
+// fullCloneRequest returns a copy of a linked clone CreateVolumeRequest that asks for a full clone instead: the
+// linked clone parameter is removed. The original request is left unchanged.
+func fullCloneRequest(req *csi.CreateVolumeRequest) *csi.CreateVolumeRequest {
+	fullClone := proto.Clone(req).(*csi.CreateVolumeRequest)
+	// Parameter names are matched case-insensitively, as createBlockVolume does.
+	for name := range fullClone.Parameters {
+		if strings.ToLower(name) == common.AttributeIsLinkedCloneKey {
+			delete(fullClone.Parameters, name)
+		}
+	}
+	return fullClone
 }
 
 // validateWCPDeleteVolumeRequest is the helper function to validate

@@ -326,8 +326,56 @@ func validateCreateVolumeResponseFault(ctx context.Context, name string,
 		}, nil
 	}
 
+	if lcFault, ok := resp.Fault.Fault.(*cnstypes.CnsLinkedCloneNotSupportedFault); ok {
+		// Return a short, single-line error instead of a dump of the whole fault. The caller creates a full clone
+		// instead and logs this error as the reason, and it is stored in the CnsVolumeOperationRequest.
+		return nil, logger.LogNewErrorf(log, "linked clone is not supported (%s): %s",
+			csifault.VimFaultCnsLinkedCloneNotSupported, linkedCloneNotSupportedReason(resp.Fault, lcFault))
+	}
+
 	return nil, logger.LogNewErrorf(log, "failed to create volume with fault: %q", spew.Sdump(resp.Fault))
 
+}
+
+// maxLinkedCloneNotSupportedReasonLen bounds the reason in the error returned for a
+// CnsLinkedCloneNotSupportedFault. The error is logged when the caller creates a full clone instead, and it is stored
+// in the CnsVolumeOperationRequest, so it must stay small.
+const maxLinkedCloneNotSupportedReasonLen = 400
+
+// linkedCloneNotSupportedReason returns a short, single-line reason why a linked clone could not be created, from a
+// CnsLinkedCloneNotSupportedFault. CNS carries the original FCD NotSupported fault as the fault cause, so prefer its
+// messages (for example "Crypto ops are not supported when creating Linked Clone FCD."), then the cause's localized
+// message, then the CNS reason.
+func linkedCloneNotSupportedReason(fault *types.LocalizedMethodFault,
+	lcFault *cnstypes.CnsLinkedCloneNotSupportedFault) string {
+	var msgs []string
+	if cause := lcFault.FaultCause; cause != nil {
+		if notSupported, ok := cause.Fault.(*types.NotSupported); ok {
+			for _, m := range notSupported.FaultMessage {
+				if m.Message != "" {
+					msgs = append(msgs, m.Message)
+				}
+			}
+		}
+		if len(msgs) == 0 && cause.LocalizedMessage != "" {
+			msgs = append(msgs, cause.LocalizedMessage)
+		}
+	}
+	if len(msgs) == 0 && lcFault.Reason != "" {
+		msgs = append(msgs, lcFault.Reason)
+	}
+	if len(msgs) == 0 && fault.LocalizedMessage != "" {
+		msgs = append(msgs, fault.LocalizedMessage)
+	}
+	if len(msgs) == 0 {
+		return "CNS did not provide a reason"
+	}
+	// Collapse whitespace so the reason is a single line, then cap its length.
+	reason := strings.Join(strings.Fields(strings.Join(msgs, " - ")), " ")
+	if runes := []rune(reason); len(runes) > maxLinkedCloneNotSupportedReasonLen {
+		reason = string(runes[:maxLinkedCloneNotSupportedReasonLen]) + "..."
+	}
+	return reason
 }
 
 // getCnsVolumeInfoFromTaskResult retrieves the datastoreURL and returns the
@@ -666,6 +714,19 @@ func IsCnsVolumeAlreadyExistsFault(ctx context.Context, faultType string) bool {
 	log := logger.GetLogger(ctx)
 	log.Infof("Checking fault type: %q is vim.fault.CnsVolumeAlreadyExistsFault", faultType)
 	return faultType == "vim.fault.CnsVolumeAlreadyExistsFault"
+}
+
+// IsCnsLinkedCloneNotSupportedFault returns true if a given faultType value is
+// vim.fault.CnsLinkedCloneNotSupportedFault.
+//
+// CNS CreateVolume returns it, instead of a CnsFault with a NotSupported cause, when it cannot create a volume as a
+// linked clone of a snapshot because FCD rejected the request as unsupported. Callers create a full clone instead.
+// Not every vCenter returns it, so callers must keep handling the generic "vim25:NotSupported" fault, which they
+// handle as before, for the ones that do not.
+func IsCnsLinkedCloneNotSupportedFault(ctx context.Context, faultType string) bool {
+	log := logger.GetLogger(ctx)
+	log.Infof("Checking fault type: %q is %s", faultType, csifault.VimFaultCnsLinkedCloneNotSupported)
+	return faultType == csifault.VimFaultCnsLinkedCloneNotSupported
 }
 
 // IsCnsNotRegisteredFault checks if the fault is CnsNotRegisteredFault
